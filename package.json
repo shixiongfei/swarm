@@ -1,0 +1,44 @@
+{
+  "name": "@shidev/muster",
+  "version": "0.1.0",
+  "description": "Zero-config service discovery and location-transparent calls between Node.js processes: no daemon, no broker.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!dist/*.test.*",
+    "!src/*.test.*"
+  ],
+  "keywords": [
+    "muster",
+    "discovery",
+    "registry"
+  ],
+  "homepage": "https://github.com/shixiongfei/muster#readme",
+  "bugs": {
+    "url": "https://github.com/shixiongfei/muster/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shixiongfei/muster.git"
+  },
+  "license": "Apache-2.0",
+  "author": "shixiongfei",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
