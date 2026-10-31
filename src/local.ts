@@ -77,6 +77,12 @@ export class Local {
     this.registry.remove(service, this.nodeId);
   }
 
+  registrations() {
+    return this.registry
+      .snapshot()
+      .filter((instance) => instance.owner === this.nodeId);
+  }
+
   has(service: string) {
     return this.services.has(service);
   }

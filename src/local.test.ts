@@ -36,6 +36,16 @@ describe("Local", () => {
     assert.deepEqual(local.lookup("math")[0].meta, { build: 1 });
   });
 
+  test("registrations exclude mirrored instances", () => {
+    const local = makeLocal();
+    local.register("math", { add: () => 0 }, { build: 1 });
+    local.mirror("text", "node-b", { build: 2 });
+
+    assert.deepEqual(local.registrations(), [
+      { service: "math", owner: "node-a", meta: { build: 1 } },
+    ]);
+  });
+
   test("register rejects a duplicate service", () => {
     const local = makeLocal();
     local.register("math", { add: () => 0 });

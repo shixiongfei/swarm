@@ -41,61 +41,6 @@ function closePair(pair: ReturnType<typeof makePair>) {
   pair.port2.close();
 }
 
-function makeStar() {
-  const hub = makeService("hub");
-  const left = makeService("left");
-  const right = makeService("right");
-  const a = new MessageChannel();
-  const b = new MessageChannel();
-
-  hub.attach(a.port1);
-  left.attach(a.port2);
-  hub.attach(b.port1);
-  right.attach(b.port2);
-
-  return { hub, left, right, a, b };
-}
-
-function closeStar(star: ReturnType<typeof makeStar>) {
-  star.hub.close();
-  star.left.close();
-  star.right.close();
-  star.a.port1.close();
-  star.a.port2.close();
-  star.b.port1.close();
-  star.b.port2.close();
-}
-
-function makeCycle() {
-  const a = makeService("a");
-  const b = makeService("b");
-  const c = makeService("c");
-  const ab = new MessageChannel();
-  const bc = new MessageChannel();
-  const ca = new MessageChannel();
-
-  a.attach(ab.port1);
-  b.attach(ab.port2);
-  b.attach(bc.port1);
-  c.attach(bc.port2);
-  c.attach(ca.port1);
-  a.attach(ca.port2);
-
-  return { a, b, c, ab, bc, ca };
-}
-
-function closeCycle(cycle: ReturnType<typeof makeCycle>) {
-  cycle.a.close();
-  cycle.b.close();
-  cycle.c.close();
-  cycle.ab.port1.close();
-  cycle.ab.port2.close();
-  cycle.bc.port1.close();
-  cycle.bc.port2.close();
-  cycle.ca.port1.close();
-  cycle.ca.port2.close();
-}
-
 describe("Service", () => {
   test("attach returns a detach that closes the link", async (t) => {
     const service = makeService("node-a");
@@ -188,6 +133,35 @@ describe("Service", () => {
     assert.equal(pair.second.lookup("math").length, 1);
   });
 
+  test("attach replays registrations made before the link", async (t) => {
+    const first = makeService("node-a");
+    const second = makeService("node-b");
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      first.close();
+      second.close();
+      port1.close();
+      port2.close();
+    });
+
+    first.register("math", { add: (a: number, b: number) => a + b });
+    second.register("echo", { one: (value: unknown) => value });
+
+    first.attach(port1);
+    second.attach(port2);
+    await flush();
+
+    assert.deepEqual(second.lookup("math"), [
+      { service: "math", owner: "node-a" },
+    ]);
+    assert.deepEqual(first.lookup("echo"), [
+      { service: "echo", owner: "node-b" },
+    ]);
+    assert.equal(await second.invoke("math", "add", [2, 3], 100), 5);
+    assert.equal(await first.invoke("echo", "one", ["hi"], 100), "hi");
+  });
+
   test("invoke routes to the owner in both directions", async (t) => {
     const pair = makePair();
     t.after(() => closePair(pair));
@@ -256,6 +230,9 @@ describe("Service", () => {
     service.register("slow", { wait: () => new Promise(() => {}) });
     port2.on("message", (message) => replies.push(message));
     service.attach(port1);
+    await flush();
+
+    replies.length = 0;
 
     port2.postMessage({
       t: "call",
@@ -303,16 +280,6 @@ describe("Service", () => {
     await assert.rejects(pending, (err: MusterError) => err.kind === "failed");
   });
 
-  test("calls are forwarded by a service with several links", async (t) => {
-    const star = makeStar();
-    t.after(() => closeStar(star));
-
-    star.right.register("math", { add: (x: number, y: number) => x + y });
-    await flush();
-
-    assert.equal(await star.left.invoke("math", "add", [2, 3], 100), 5);
-  });
-
   test("publish reaches the connected service with the original sender", async (t) => {
     const pair = makePair();
     t.after(() => closePair(pair));
@@ -332,43 +299,6 @@ describe("Service", () => {
 
     assert.deepEqual(firstEvents, [[{ ok: true }, "node-a"]]);
     assert.deepEqual(secondEvents, [[{ ok: true }, "node-a"]]);
-  });
-
-  test("publish is forwarded across several links", async (t) => {
-    const star = makeStar();
-    t.after(() => closeStar(star));
-
-    const leftEvents: unknown[] = [];
-    const rightEvents: unknown[] = [];
-
-    star.left.subscribe("news", (data) => leftEvents.push(data));
-    star.right.subscribe("news", (data) => rightEvents.push(data));
-
-    star.left.publish("news", 7);
-    await flush(20);
-
-    assert.deepEqual(leftEvents, [7]);
-    assert.deepEqual(rightEvents, [7]);
-  });
-
-  test("publish stops circulating in a cycle", async (t) => {
-    const cycle = makeCycle();
-    t.after(() => closeCycle(cycle));
-
-    const aEvents: unknown[] = [];
-    const bEvents: unknown[] = [];
-    const cEvents: unknown[] = [];
-
-    cycle.a.subscribe("news", (data) => aEvents.push(data));
-    cycle.b.subscribe("news", (data) => bEvents.push(data));
-    cycle.c.subscribe("news", (data) => cEvents.push(data));
-
-    cycle.a.publish("news", 1);
-    await flush(30);
-
-    assert.deepEqual(aEvents, [1]);
-    assert.deepEqual(bEvents, [1]);
-    assert.deepEqual(cEvents, [1]);
   });
 
   test("unsubscribe stops remote delivery", async (t) => {

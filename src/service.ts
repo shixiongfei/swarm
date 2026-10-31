@@ -22,8 +22,6 @@ export type ServiceConfig = {
   nodeId: string;
 };
 
-const SeenLimit = 1024;
-
 type Call = {
   t: "call";
   id: string;
@@ -44,7 +42,7 @@ type Envelope =
       meta?: Record<string, unknown>;
     }
   | { t: "unreg"; nodeId: string; service: string }
-  | { t: "pub"; from: string; seq: number; topic: string; data: unknown };
+  | { t: "pub"; from: string; topic: string; data: unknown };
 
 type Peer = {
   link: Link;
@@ -56,8 +54,6 @@ export class Service {
   private readonly local: Local;
   private readonly links = new Set<Link>();
   private readonly peers = new Map<string, Peer>();
-  private readonly seen = new Set<string>();
-  private seq = 0;
 
   constructor(config: ServiceConfig) {
     this.nodeId = config.nodeId;
@@ -66,11 +62,7 @@ export class Service {
 
   register(service: string, methods: Methods, meta?: Record<string, unknown>) {
     this.local.register(service, methods, meta);
-    this.notify(
-      meta === undefined
-        ? { t: "reg", nodeId: this.nodeId, service }
-        : { t: "reg", nodeId: this.nodeId, service, meta },
-    );
+    this.notify(this.registration(service, meta));
   }
 
   unregister(service: string) {
@@ -86,6 +78,10 @@ export class Service {
 
     this.links.add(link);
 
+    for (const instance of this.local.registrations()) {
+      link.send(this.registration(instance.service, instance.meta));
+    }
+
     return () => {
       this.links.delete(link);
       link.close();
@@ -93,11 +89,10 @@ export class Service {
   }
 
   invoke(service: string, method: string, args: unknown[], timeout: number) {
-    return this.dispatch(undefined, service, method, args, timeout);
+    return this.dispatch(service, method, args, timeout);
   }
 
   private async dispatch(
-    sender: Link | undefined,
     service: string,
     method: string,
     args: unknown[],
@@ -107,7 +102,7 @@ export class Service {
       return this.local.invoke(service, method, args, timeout);
     }
 
-    const link = this.resolve(service, sender);
+    const link = this.resolve(service);
 
     if (link === undefined) {
       throw new MusterError("not-found", `service not found: ${service}`);
@@ -143,11 +138,8 @@ export class Service {
   }
 
   publish(topic: string, data: unknown) {
-    const seq = ++this.seq;
-
-    this.remember(`${this.nodeId}#${seq}`);
     this.local.publish(topic, data, this.nodeId);
-    this.notify({ t: "pub", from: this.nodeId, seq, topic, data });
+    this.notify({ t: "pub", from: this.nodeId, topic, data });
   }
 
   close() {
@@ -157,21 +149,21 @@ export class Service {
 
     this.links.clear();
     this.peers.clear();
-    this.seen.clear();
     this.local.close();
+  }
+
+  private registration(
+    service: string,
+    meta?: Record<string, unknown>,
+  ): Envelope {
+    return meta === undefined
+      ? { t: "reg", nodeId: this.nodeId, service }
+      : { t: "reg", nodeId: this.nodeId, service, meta };
   }
 
   private notify(message: Envelope) {
     for (const link of this.links) {
       link.send(message);
-    }
-  }
-
-  private forward(sender: Link, message: Envelope) {
-    for (const link of this.links) {
-      if (link !== sender) {
-        link.send(message);
-      }
     }
   }
 
@@ -234,48 +226,39 @@ export class Service {
         link.reject(envelope.id, envelope.kind, envelope.message);
         return;
 
-      case "pub": {
-        const key = `${envelope.from}#${envelope.seq}`;
-
-        if (this.seen.has(key)) {
-          return;
-        }
-
-        this.remember(key);
+      case "pub":
         this.local.publish(envelope.topic, envelope.data, envelope.from);
-        this.forward(link, envelope);
         return;
-      }
     }
   }
 
-  private answer(link: Link, call: Call) {
-    this.dispatch(
-      link,
-      call.service,
-      call.method,
-      call.args,
-      call.timeout,
-    ).then(
-      (value) => link.send({ t: "reply", id: call.id, value }),
-      (err: unknown) => {
-        const known = err instanceof MusterError;
+  private async answer(link: Link, call: Call) {
+    try {
+      const value = await this.local.invoke(
+        call.service,
+        call.method,
+        call.args,
+        call.timeout,
+      );
 
-        link.send({
-          t: "error",
-          id: call.id,
-          kind: known ? err.kind : "failed",
-          message: known
+      link.send({ t: "reply", id: call.id, value });
+    } catch (err: unknown) {
+      const known = err instanceof MusterError;
+
+      link.send({
+        t: "error",
+        id: call.id,
+        kind: known ? err.kind : "failed",
+        message: known
+          ? err.message
+          : err instanceof Error
             ? err.message
-            : err instanceof Error
-              ? err.message
-              : String(err),
-        });
-      },
-    );
+            : String(err),
+      });
+    }
   }
 
-  private resolve(service: string, sender: Link | undefined) {
+  private resolve(service: string) {
     for (const instance of this.local.lookup(service)) {
       if (instance.owner === this.nodeId) {
         continue;
@@ -283,38 +266,12 @@ export class Service {
 
       const peer = this.peers.get(instance.owner);
 
-      if (peer !== undefined && peer.link !== sender) {
+      if (peer !== undefined) {
         return peer.link;
       }
     }
 
-    let only: Link | undefined;
-
-    for (const link of this.links) {
-      if (link === sender) {
-        continue;
-      }
-
-      if (only !== undefined) {
-        return undefined;
-      }
-
-      only = link;
-    }
-
-    return only;
-  }
-
-  private remember(key: string) {
-    this.seen.add(key);
-
-    if (this.seen.size > SeenLimit) {
-      const oldest = this.seen.values().next().value;
-
-      if (oldest !== undefined) {
-        this.seen.delete(oldest);
-      }
-    }
+    return undefined;
   }
 
   private forget(link: Link) {
