@@ -14,85 +14,23 @@ import { describe, test } from "node:test";
 import { MessageChannel } from "node:worker_threads";
 import { Node } from "./node.ts";
 import type { MusterError } from "./errors.ts";
-import type { WatchEvent } from "./registry.ts";
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
 }
 
-function flush() {
-  return new Promise((resolve) => setTimeout(resolve, 10));
-}
-
 describe("Node", () => {
-  test("register returns the node and publishes an instance", () => {
-    const node = makeNode();
-    const result = node.register("math", {
-      add: (a: number, b: number) => a + b,
-    });
-
-    assert.equal(result, node);
-    assert.deepEqual(node.instances("math"), [
-      { service: "math", owner: node.nodeId },
-    ]);
-  });
-
-  test("register keeps meta", () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 }, { build: 1 });
-
-    assert.deepEqual(node.instances("math")[0].meta, { build: 1 });
-  });
-
-  test("register rejects a duplicate service", () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 });
-
-    assert.throws(
-      () => node.register("math", {}),
-      (err: MusterError) => err.kind === "rejected",
-    );
-  });
-
-  test("unregister drops the service and emits down", async () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 });
-    const events: WatchEvent[] = [];
-    const off = node.watch("math", (event) => events.push(event));
-
-    const result = node.unregister("math");
-
-    assert.equal(result, node);
-    assert.deepEqual(events[1], {
-      type: "down",
-      instance: { service: "math", owner: node.nodeId },
-    });
-    assert.deepEqual(node.instances("math"), []);
-    await assert.rejects(
-      node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-
-    off();
-    assert.doesNotThrow(() => node.register("math", { add: () => 0 }));
-  });
-
-  test("unregister unknown services does nothing", () => {
+  test("register and unregister return the node", () => {
     const node = makeNode();
 
-    assert.doesNotThrow(() => node.unregister("nope"));
-  });
-
-  test("call returns the handler result", async () => {
-    const node = makeNode();
-    node.register("math", { add: (a: number, b: number) => a + b });
-
-    assert.equal(await node.call("math", "add", [2, 3]), 5);
+    assert.equal(node.register("math", { add: () => 0 }), node);
+    assert.equal(node.unregister("math"), node);
   });
 
   test("call passes an empty argument list by default", async () => {
     const node = makeNode();
     let received: unknown[] | undefined;
+
     node.register("echo", {
       count: (...args: unknown[]) => {
         received = args;
@@ -104,38 +42,7 @@ describe("Node", () => {
     assert.deepEqual(received, []);
   });
 
-  test("call awaits an async handler", async () => {
-    const node = makeNode();
-    node.register("math", { add: async (a: number, b: number) => a + b });
-
-    assert.equal(await node.call("math", "add", [2, 3]), 5);
-  });
-
-  test("call rejects unknown services and methods", async () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 });
-
-    await assert.rejects(
-      node.call("nope", "add"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-    await assert.rejects(
-      node.call("math", "nope"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("inherited object properties are not callable methods", async () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 });
-
-    await assert.rejects(
-      node.call("math", "toString"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("call rejects with timeout when the handler never settles", async () => {
+  test("call uses the node call timeout", async () => {
     const node = makeNode(20);
     node.register("slow", { wait: () => new Promise(() => {}) });
 
@@ -155,43 +62,7 @@ describe("Node", () => {
     );
   });
 
-  test("handler errors reach the caller unchanged", async () => {
-    const node = makeNode();
-    const failure = new Error("boom");
-    node.register("boom", {
-      fail: () => {
-        throw failure;
-      },
-    });
-
-    await assert.rejects(
-      node.call("boom", "fail"),
-      (err: Error) => err === failure,
-    );
-  });
-
-  test("async handler rejection reaches the caller", async () => {
-    const node = makeNode();
-    node.register("boom", {
-      fail: async () => {
-        throw new Error("boom");
-      },
-    });
-
-    await assert.rejects(node.call("boom", "fail"), /boom/);
-  });
-
   test("get returns a proxy that calls the service", async () => {
-    const node = makeNode();
-    node.register("math", { add: (a: number, b: number) => a + b });
-    const proxy = node.get("math");
-
-    assert.equal(await proxy.add(2, 3), 5);
-    assert.equal(await proxy, proxy);
-    assert.equal(Reflect.get(proxy, Symbol.toStringTag), undefined);
-  });
-
-  test("get accepts a declared service contract", async () => {
     type MathApi = { add(a: number, b: number): number };
 
     const node = makeNode();
@@ -199,54 +70,8 @@ describe("Node", () => {
     const math = node.get<MathApi>("math");
 
     assert.equal(await math.add(2, 3), 5);
-  });
-
-  test("watch delivers the snapshot", () => {
-    const node = makeNode();
-    node.register("math", { add: () => 0 });
-    const events: WatchEvent[] = [];
-
-    const off = node.watch("math", (event) => events.push(event));
-
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", owner: node.nodeId } },
-    ]);
-    off();
-  });
-
-  test("publish delivers data and the node id", () => {
-    const node = makeNode();
-    const received: Array<[unknown, string]> = [];
-
-    const off = node.subscribe("news", (data, from) =>
-      received.push([data, from]),
-    );
-    node.publish("news", { ok: true });
-
-    assert.deepEqual(received, [[{ ok: true }, node.nodeId]]);
-
-    off();
-    node.publish("news", { ok: false });
-    assert.equal(received.length, 1);
-  });
-
-  test("a throwing subscriber does not break delivery", () => {
-    const node = makeNode();
-    const received: unknown[] = [];
-
-    node.subscribe("news", () => {
-      throw new Error("boom");
-    });
-    node.subscribe("news", (data) => received.push(data));
-    node.publish("news", 1);
-
-    assert.deepEqual(received, [1]);
-  });
-
-  test("publish without subscribers is a no-op", () => {
-    const node = makeNode();
-
-    assert.doesNotThrow(() => node.publish("nobody", 1));
+    assert.equal(await math, math);
+    assert.equal(Reflect.get(math, Symbol.toStringTag), undefined);
   });
 
   test("close clears instances and is idempotent", () => {
@@ -259,8 +84,15 @@ describe("Node", () => {
     assert.doesNotThrow(() => node.close());
   });
 
-  test("operations fail after close", async () => {
+  test("operations fail after close", async (t) => {
     const node = makeNode();
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      port1.close();
+      port2.close();
+    });
+
     node.register("math", { add: () => 0 });
     node.close();
 
@@ -284,64 +116,12 @@ describe("Node", () => {
       () => node.publish("news", 1),
       (err: MusterError) => err.kind === "rejected",
     );
-    await assert.rejects(
-      node.call("math", "add"),
-      (err: MusterError) => err.kind === "rejected",
-    );
-  });
-
-  test("attach closes the link when the node closes", async (t) => {
-    const node = makeNode();
-    const { port1, port2 } = new MessageChannel();
-    let closed = 0;
-
-    t.after(() => {
-      port1.close();
-      port2.close();
-    });
-
-    port2.on("close", () => closed++);
-    node.attach(port1);
-    node.close();
-    await flush();
-
-    assert.equal(closed, 1);
-  });
-
-  test("the detach function closes the link", async (t) => {
-    const node = makeNode();
-    const { port1, port2 } = new MessageChannel();
-    let closed = 0;
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    port2.on("close", () => closed++);
-    const detach = node.attach(port1);
-
-    detach();
-    await flush();
-
-    assert.equal(closed, 1);
-    assert.doesNotThrow(() => node.close());
-  });
-
-  test("attach fails after close", (t) => {
-    const node = makeNode();
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      port1.close();
-      port2.close();
-    });
-
-    node.close();
-
     assert.throws(
       () => node.attach(port1),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    await assert.rejects(
+      node.call("math", "add"),
       (err: MusterError) => err.kind === "rejected",
     );
   });

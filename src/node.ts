@@ -9,20 +9,14 @@
  * https://github.com/shixiongfei/muster
  */
 
-import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { MusterError } from "./errors.ts";
-import { Registry } from "./registry.ts";
-import { Link } from "./link.ts";
+import { Service } from "./service.ts";
 import type { Channel } from "./link.ts";
+import type { Methods } from "./local.ts";
 import type { WatchHandler } from "./registry.ts";
 
 export type TopicHandler = (data: unknown, from: string) => void;
-
-export type Methods<M = Record<string, any>> = Record<
-  keyof M,
-  (...args: any[]) => any
->;
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -37,88 +31,38 @@ export type NodeConfig = {
 
 export type NodeOptions = Partial<NodeConfig>;
 
-const hasOwn =
-  Object.hasOwn ||
-  ((obj: object, key: PropertyKey) =>
-    Object.prototype.hasOwnProperty.call(obj, key));
-
 const nodes = new Map<string, Node>();
-
-function withTimeout<T>(work: Promise<T>, timeout: number, label: string) {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new MusterError("timeout", `call timed out: ${label}`));
-    }, timeout);
-
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err: unknown) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
 
 export class Node {
   readonly nodeId = randomId();
   readonly cluster: string;
 
-  private readonly registry = new Registry();
-  private readonly services = new Map<string, Methods>();
-  private readonly topics = eventlite<string>({
-    allowDuplicate: true,
-    isolate: true,
-  });
-  private readonly links = new Set<Link>();
+  private readonly service: Service;
   private readonly callTimeout: number;
   private closed = false;
 
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
+    this.service = new Service({ nodeId: this.nodeId });
     this.callTimeout =
       config.callTimeout === undefined ? 5000 : config.callTimeout;
   }
 
   register(service: string, methods: Methods, meta?: Record<string, unknown>) {
     this.checkOpen();
-
-    if (this.services.has(service)) {
-      throw new MusterError(
-        "rejected",
-        `service already registered: ${service}`,
-      );
-    }
-
-    this.services.set(service, methods);
-    this.registry.add(service, this.nodeId, meta);
-
+    this.service.register(service, methods, meta);
     return this;
   }
 
   unregister(service: string) {
     this.checkOpen();
-
-    this.services.delete(service);
-    this.registry.remove(service, this.nodeId);
-
+    this.service.unregister(service);
     return this;
   }
 
   attach(target: Channel) {
     this.checkOpen();
-
-    const link = new Link(target, {
-      receive: () => {},
-      close: () => this.links.delete(link),
-    });
-
-    this.links.add(link);
-
-    return () => link.close();
+    return this.service.attach(target);
   }
 
   async call(
@@ -129,29 +73,10 @@ export class Node {
   ) {
     this.checkOpen();
 
-    const methods = this.services.get(service);
-
-    if (methods === undefined) {
-      throw new MusterError("not-found", `service not found: ${service}`);
-    }
-
-    const handler = hasOwn(methods, method) ? methods[method] : undefined;
-
-    if (typeof handler !== "function") {
-      throw new MusterError(
-        "not-found",
-        `method not found: ${service}.${method}`,
-      );
-    }
-
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
-    return withTimeout(
-      Promise.resolve(handler.apply(methods, args)),
-      timeout,
-      `${service}.${method}`,
-    );
+    return this.service.invoke(service, method, args, timeout);
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -170,21 +95,21 @@ export class Node {
 
   watch(service: string, handler: WatchHandler) {
     this.checkOpen();
-    return this.registry.watch(service, handler);
+    return this.service.watch(service, handler);
   }
 
   subscribe(topic: string, handler: TopicHandler) {
     this.checkOpen();
-    return this.topics.on(topic, handler);
+    return this.service.subscribe(topic, handler);
   }
 
   publish(topic: string, data: unknown) {
     this.checkOpen();
-    this.topics.emit(topic, data, this.nodeId);
+    this.service.publish(topic, data);
   }
 
   instances(service: string) {
-    return this.registry.lookup(service);
+    return this.service.lookup(service);
   }
 
   close() {
@@ -193,15 +118,7 @@ export class Node {
     }
 
     this.closed = true;
-
-    for (const link of this.links) {
-      link.close();
-    }
-
-    this.links.clear();
-    this.services.clear();
-    this.topics.removeAllListeners();
-    this.registry.close();
+    this.service.close();
 
     if (nodes.get(this.cluster) === this) {
       nodes.delete(this.cluster);
@@ -227,3 +144,5 @@ export function createNode(options: NodeOptions = {}) {
   nodes.set(cluster, node);
   return node;
 }
+
+export type { Methods } from "./local.ts";

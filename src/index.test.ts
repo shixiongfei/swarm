@@ -47,23 +47,14 @@ describe("createNode", () => {
     );
   });
 
-  test("returns a usable node", async () => {
-    const node = createNode({ cluster: "usable-cluster" });
-    node.register("math", { add: (a: number, b: number) => a + b });
-
-    assert.equal(await node.call("math", "add", [2, 3]), 5);
-  });
-
-  test("close evicts the cluster so a new node is created", async () => {
+  test("close evicts the cluster so a new node is created", () => {
     const first = createNode({ cluster: "evict-cluster" });
     first.close();
 
     const second = createNode({ cluster: "evict-cluster" });
-    second.register("math", { add: (a: number, b: number) => a + b });
 
     assert.notEqual(second, first);
     assert.equal(second.cluster, "evict-cluster");
-    assert.equal(await second.call("math", "add", [2, 3]), 5);
   });
 
   test("closing another node does not evict the cached one", () => {

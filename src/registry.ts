@@ -74,6 +74,16 @@ export class Registry {
     return instances === undefined ? [] : instances.slice();
   }
 
+  snapshot() {
+    const instances: Instance[] = [];
+
+    for (const bucket of this.table.values()) {
+      instances.push(...bucket);
+    }
+
+    return instances;
+  }
+
   watch(service: string, handler: WatchHandler) {
     const off = this.events.on(service, handler);
 
