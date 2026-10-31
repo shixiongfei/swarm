@@ -9,7 +9,7 @@
  * https://github.com/shixiongfei/muster
  */
 
-export type ErrorKind = "not-found" | "timeout" | "rejected";
+export type ErrorKind = "not-found" | "timeout" | "rejected" | "failed";
 
 export class MusterError extends Error {
   readonly kind: ErrorKind;
