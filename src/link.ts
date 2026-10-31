@@ -14,9 +14,10 @@ import type { ErrorKind } from "./errors.ts";
 
 export type Channel = {
   postMessage(value: unknown): void;
-  on(event: string, listener: (...args: any[]) => void): void;
-  off?(event: string, listener: (...args: any[]) => void): void;
-  close?(): void;
+  addEventListener(event: string, listener: (...args: any[]) => void): void;
+  removeEventListener(event: string, listener: (...args: any[]) => void): void;
+  start(): void;
+  close(): void;
 };
 
 type Pending = {
@@ -32,13 +33,13 @@ export class Link {
   private readonly pending = new Map<string, Pending>();
   private closed = false;
 
-  private readonly onMessage = (message: unknown) => {
+  private readonly onMessage = (message: { data?: unknown }) => {
     if (!this.closed) {
-      this.receive(message);
+      this.receive(message.data);
     }
   };
 
-  private readonly onGone = () => {
+  private readonly onClose = () => {
     this.close();
   };
 
@@ -53,9 +54,9 @@ export class Link {
     this.receive = handlers.receive;
     this.notifyClose = handlers.close;
 
-    channel.on("message", this.onMessage);
-    channel.on("exit", this.onGone);
-    channel.on("close", this.onGone);
+    channel.addEventListener("message", this.onMessage);
+    channel.addEventListener("close", this.onClose);
+    channel.start();
   }
 
   send(message: unknown) {
@@ -113,10 +114,9 @@ export class Link {
     }
 
     this.closed = true;
-    this.channel.off?.("message", this.onMessage);
-    this.channel.off?.("exit", this.onGone);
-    this.channel.off?.("close", this.onGone);
-    this.channel.close?.();
+    this.channel.removeEventListener("message", this.onMessage);
+    this.channel.removeEventListener("close", this.onClose);
+    this.channel.close();
 
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);

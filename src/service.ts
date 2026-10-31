@@ -73,7 +73,7 @@ export class Service {
   attach(target: Channel) {
     const link = new Link(target, {
       receive: (message) => this.receive(link, message),
-      close: () => this.forget(link),
+      close: () => this.dispose(link),
     });
 
     this.links.add(link);
@@ -274,7 +274,7 @@ export class Service {
     return undefined;
   }
 
-  private forget(link: Link) {
+  private dispose(link: Link) {
     this.links.delete(link);
 
     for (const [nodeId, peer] of this.peers) {
