@@ -49,11 +49,54 @@ describe("Node", () => {
     );
   });
 
+  test("unregister drops the service and emits down", async () => {
+    const node = makeNode();
+    node.register("math", { add: () => 0 });
+    const events: WatchEvent[] = [];
+    const off = node.watch("math", (event) => events.push(event));
+
+    const result = node.unregister("math");
+
+    assert.equal(result, node);
+    assert.deepEqual(events[1], {
+      type: "down",
+      instance: { service: "math", owner: node.nodeId },
+    });
+    assert.deepEqual(node.instances("math"), []);
+    await assert.rejects(
+      node.call("math", "add"),
+      (err: MusterError) => err.kind === "not-found",
+    );
+
+    off();
+    assert.doesNotThrow(() => node.register("math", { add: () => 0 }));
+  });
+
+  test("unregister unknown services does nothing", () => {
+    const node = makeNode();
+
+    assert.doesNotThrow(() => node.unregister("nope"));
+  });
+
   test("call returns the handler result", async () => {
     const node = makeNode();
     node.register("math", { add: (a: number, b: number) => a + b });
 
     assert.equal(await node.call("math", "add", [2, 3]), 5);
+  });
+
+  test("call passes an empty argument list by default", async () => {
+    const node = makeNode();
+    let received: unknown[] | undefined;
+    node.register("echo", {
+      count: (...args: unknown[]) => {
+        received = args;
+        return args.length;
+      },
+    });
+
+    assert.equal(await node.call("echo", "count"), 0);
+    assert.deepEqual(received, []);
   });
 
   test("call awaits an async handler", async () => {
@@ -122,6 +165,17 @@ describe("Node", () => {
     );
   });
 
+  test("async handler rejection reaches the caller", async () => {
+    const node = makeNode();
+    node.register("boom", {
+      fail: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    await assert.rejects(node.call("boom", "fail"), /boom/);
+  });
+
   test("get returns a proxy that calls the service", async () => {
     const node = makeNode();
     node.register("math", { add: (a: number, b: number) => a + b });
@@ -129,6 +183,7 @@ describe("Node", () => {
 
     assert.equal(await proxy.add(2, 3), 5);
     assert.equal(await proxy, proxy);
+    assert.equal(Reflect.get(proxy, Symbol.toStringTag), undefined);
   });
 
   test("watch delivers the snapshot", () => {
@@ -196,6 +251,10 @@ describe("Node", () => {
 
     assert.throws(
       () => node.register("math", {}),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => node.unregister("math"),
       (err: MusterError) => err.kind === "rejected",
     );
     assert.throws(

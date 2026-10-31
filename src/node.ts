@@ -87,6 +87,15 @@ export class Node {
     return this;
   }
 
+  unregister(service: string) {
+    this.checkOpen();
+
+    this.services.delete(service);
+    this.registry.remove(service, this.nodeId);
+
+    return this;
+  }
+
   async call(
     service: string,
     method: string,
