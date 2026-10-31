@@ -66,6 +66,36 @@ function closeStar(star: ReturnType<typeof makeStar>) {
   star.b.port2.close();
 }
 
+function makeCycle() {
+  const a = makeService("a");
+  const b = makeService("b");
+  const c = makeService("c");
+  const ab = new MessageChannel();
+  const bc = new MessageChannel();
+  const ca = new MessageChannel();
+
+  a.attach(ab.port1);
+  b.attach(ab.port2);
+  b.attach(bc.port1);
+  c.attach(bc.port2);
+  c.attach(ca.port1);
+  a.attach(ca.port2);
+
+  return { a, b, c, ab, bc, ca };
+}
+
+function closeCycle(cycle: ReturnType<typeof makeCycle>) {
+  cycle.a.close();
+  cycle.b.close();
+  cycle.c.close();
+  cycle.ab.port1.close();
+  cycle.ab.port2.close();
+  cycle.bc.port1.close();
+  cycle.bc.port2.close();
+  cycle.ca.port1.close();
+  cycle.ca.port2.close();
+}
+
 describe("Service", () => {
   test("attach returns a detach that closes the link", async (t) => {
     const service = makeService("node-a");
@@ -319,6 +349,26 @@ describe("Service", () => {
 
     assert.deepEqual(leftEvents, [7]);
     assert.deepEqual(rightEvents, [7]);
+  });
+
+  test("publish stops circulating in a cycle", async (t) => {
+    const cycle = makeCycle();
+    t.after(() => closeCycle(cycle));
+
+    const aEvents: unknown[] = [];
+    const bEvents: unknown[] = [];
+    const cEvents: unknown[] = [];
+
+    cycle.a.subscribe("news", (data) => aEvents.push(data));
+    cycle.b.subscribe("news", (data) => bEvents.push(data));
+    cycle.c.subscribe("news", (data) => cEvents.push(data));
+
+    cycle.a.publish("news", 1);
+    await flush(30);
+
+    assert.deepEqual(aEvents, [1]);
+    assert.deepEqual(bEvents, [1]);
+    assert.deepEqual(cEvents, [1]);
   });
 
   test("unsubscribe stops remote delivery", async (t) => {

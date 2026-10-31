@@ -22,6 +22,8 @@ export type ServiceConfig = {
   nodeId: string;
 };
 
+const SeenLimit = 1024;
+
 type Call = {
   t: "call";
   id: string;
@@ -42,7 +44,7 @@ type Envelope =
       meta?: Record<string, unknown>;
     }
   | { t: "unreg"; nodeId: string; service: string }
-  | { t: "pub"; from: string; topic: string; data: unknown };
+  | { t: "pub"; from: string; seq: number; topic: string; data: unknown };
 
 type Peer = {
   link: Link;
@@ -54,6 +56,8 @@ export class Service {
   private readonly local: Local;
   private readonly links = new Set<Link>();
   private readonly peers = new Map<string, Peer>();
+  private readonly seen = new Set<string>();
+  private seq = 0;
 
   constructor(config: ServiceConfig) {
     this.nodeId = config.nodeId;
@@ -139,8 +143,11 @@ export class Service {
   }
 
   publish(topic: string, data: unknown) {
+    const seq = ++this.seq;
+
+    this.remember(`${this.nodeId}#${seq}`);
     this.local.publish(topic, data, this.nodeId);
-    this.notify({ t: "pub", from: this.nodeId, topic, data });
+    this.notify({ t: "pub", from: this.nodeId, seq, topic, data });
   }
 
   close() {
@@ -150,6 +157,7 @@ export class Service {
 
     this.links.clear();
     this.peers.clear();
+    this.seen.clear();
     this.local.close();
   }
 
@@ -226,10 +234,18 @@ export class Service {
         link.reject(envelope.id, envelope.kind, envelope.message);
         return;
 
-      case "pub":
+      case "pub": {
+        const key = `${envelope.from}#${envelope.seq}`;
+
+        if (this.seen.has(key)) {
+          return;
+        }
+
+        this.remember(key);
         this.local.publish(envelope.topic, envelope.data, envelope.from);
         this.forward(link, envelope);
         return;
+      }
     }
   }
 
@@ -287,6 +303,18 @@ export class Service {
     }
 
     return only;
+  }
+
+  private remember(key: string) {
+    this.seen.add(key);
+
+    if (this.seen.size > SeenLimit) {
+      const oldest = this.seen.values().next().value;
+
+      if (oldest !== undefined) {
+        this.seen.delete(oldest);
+      }
+    }
   }
 
   private forget(link: Link) {
