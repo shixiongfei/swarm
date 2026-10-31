@@ -11,12 +11,17 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { MessageChannel } from "node:worker_threads";
 import { Node } from "./node.ts";
 import type { MusterError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
+}
+
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 describe("Node", () => {
@@ -281,6 +286,62 @@ describe("Node", () => {
     );
     await assert.rejects(
       node.call("math", "add"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+  });
+
+  test("attach closes the link when the node closes", async (t) => {
+    const node = makeNode();
+    const { port1, port2 } = new MessageChannel();
+    let closed = 0;
+
+    t.after(() => {
+      port1.close();
+      port2.close();
+    });
+
+    port2.on("close", () => closed++);
+    node.attach(port1);
+    node.close();
+    await flush();
+
+    assert.equal(closed, 1);
+  });
+
+  test("the detach function closes the link", async (t) => {
+    const node = makeNode();
+    const { port1, port2 } = new MessageChannel();
+    let closed = 0;
+
+    t.after(() => {
+      node.close();
+      port1.close();
+      port2.close();
+    });
+
+    port2.on("close", () => closed++);
+    const detach = node.attach(port1);
+
+    detach();
+    await flush();
+
+    assert.equal(closed, 1);
+    assert.doesNotThrow(() => node.close());
+  });
+
+  test("attach fails after close", (t) => {
+    const node = makeNode();
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      port1.close();
+      port2.close();
+    });
+
+    node.close();
+
+    assert.throws(
+      () => node.attach(port1),
       (err: MusterError) => err.kind === "rejected",
     );
   });

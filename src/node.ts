@@ -13,6 +13,8 @@ import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { MusterError } from "./errors.ts";
 import { Registry } from "./registry.ts";
+import { Link } from "./link.ts";
+import type { Channel } from "./link.ts";
 import type { WatchHandler } from "./registry.ts";
 
 export type TopicHandler = (data: unknown, from: string) => void;
@@ -71,6 +73,7 @@ export class Node {
     allowDuplicate: true,
     isolate: true,
   });
+  private readonly links = new Set<Link>();
   private readonly callTimeout: number;
   private closed = false;
 
@@ -103,6 +106,19 @@ export class Node {
     this.registry.remove(service, this.nodeId);
 
     return this;
+  }
+
+  attach(target: Channel) {
+    this.checkOpen();
+
+    const link = new Link(target, {
+      receive: () => {},
+      close: () => this.links.delete(link),
+    });
+
+    this.links.add(link);
+
+    return () => link.close();
   }
 
   async call(
@@ -177,6 +193,12 @@ export class Node {
     }
 
     this.closed = true;
+
+    for (const link of this.links) {
+      link.close();
+    }
+
+    this.links.clear();
     this.services.clear();
     this.topics.removeAllListeners();
     this.registry.close();

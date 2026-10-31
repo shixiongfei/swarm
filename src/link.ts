@@ -12,7 +12,7 @@
 import { MusterError } from "./errors.ts";
 import type { ErrorKind } from "./errors.ts";
 
-type Channel = {
+export type Channel = {
   postMessage(value: unknown): void;
   on(event: string, listener: (...args: any[]) => void): void;
   off?(event: string, listener: (...args: any[]) => void): void;
