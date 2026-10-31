@@ -15,7 +15,7 @@ import { Node } from "./node.ts";
 import type { MusterError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
-function makeNode(callTimeout = 50): Node {
+function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
 }
 
@@ -184,6 +184,16 @@ describe("Node", () => {
     assert.equal(await proxy.add(2, 3), 5);
     assert.equal(await proxy, proxy);
     assert.equal(Reflect.get(proxy, Symbol.toStringTag), undefined);
+  });
+
+  test("get accepts a declared service contract", async () => {
+    type MathApi = { add(a: number, b: number): number };
+
+    const node = makeNode();
+    node.register("math", { add: (a: number, b: number) => a + b });
+    const math = node.get<MathApi>("math");
+
+    assert.equal(await math.add(2, 3), 5);
   });
 
   test("watch delivers the snapshot", () => {

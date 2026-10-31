@@ -15,9 +15,18 @@ import { MusterError } from "./errors.ts";
 import { Registry } from "./registry.ts";
 import type { WatchHandler } from "./registry.ts";
 
-export type Methods = Record<string, (...args: any[]) => any>;
 export type TopicHandler = (data: unknown, from: string) => void;
-export type ServiceProxy = Record<string, (...args: any[]) => Promise<any>>;
+
+export type Methods<M = Record<string, any>> = Record<
+  keyof M,
+  (...args: any[]) => any
+>;
+
+export type ServiceProxy<M extends Methods<M> = Methods> = {
+  [K in keyof M]: (
+    ...args: Parameters<M[K]>
+  ) => Promise<Awaited<ReturnType<M[K]>>>;
+};
 
 export type NodeConfig = {
   cluster: string;
@@ -53,7 +62,7 @@ function withTimeout<T>(work: Promise<T>, timeout: number, label: string) {
 }
 
 export class Node {
-  readonly nodeId: string = randomId();
+  readonly nodeId = randomId();
   readonly cluster: string;
 
   private readonly registry = new Registry();
@@ -129,15 +138,18 @@ export class Node {
     );
   }
 
-  get(service: string) {
-    return new Proxy({} as ServiceProxy, {
-      get: (_target, property) => {
-        if (property === "then" || typeof property !== "string") {
-          return undefined;
-        }
-        return (...args: unknown[]) => this.call(service, property, args);
+  get<M extends Methods<M> = Methods>(service: string) {
+    return new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          if (property === "then" || typeof property !== "string") {
+            return undefined;
+          }
+          return (...args: unknown[]) => this.call(service, property, args);
+        },
       },
-    });
+    ) as ServiceProxy<M>;
   }
 
   watch(service: string, handler: WatchHandler) {
