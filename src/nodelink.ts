@@ -224,10 +224,13 @@ export class NodeLink implements Observable {
 
   private connect(nodeId: string, services: Service[]) {
     if (this.peerId !== undefined) {
-      if (this.peerId !== nodeId) {
-        this.dispose("link is closed");
-        this.link.close();
+      if (this.peerId === nodeId) {
+        return true;
       }
+
+      this.dispose("link is closed");
+      this.link.close();
+
       return false;
     }
 
