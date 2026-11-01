@@ -15,35 +15,16 @@ import { Local } from "./local.ts";
 import type { MusterError } from "./errors.ts";
 
 function makeLocal() {
-  return new Local({ nodeId: "node-a" });
+  return new Local();
 }
 
 describe("Local", () => {
-  test("register stores the methods and the instance", () => {
+  test("register makes the service available", () => {
     const local = makeLocal();
+
     local.register("math", { add: (a: number, b: number) => a + b });
 
     assert.equal(local.has("math"), true);
-    assert.deepEqual(local.lookup("math"), [
-      { service: "math", owner: "node-a" },
-    ]);
-  });
-
-  test("register keeps meta", () => {
-    const local = makeLocal();
-    local.register("math", { add: () => 0 }, { build: 1 });
-
-    assert.deepEqual(local.lookup("math")[0].meta, { build: 1 });
-  });
-
-  test("registrations exclude mirrored instances", () => {
-    const local = makeLocal();
-    local.register("math", { add: () => 0 }, { build: 1 });
-    local.mirror("text", "node-b", { build: 2 });
-
-    assert.deepEqual(local.registrations(), [
-      { service: "math", owner: "node-a", meta: { build: 1 } },
-    ]);
   });
 
   test("register rejects a duplicate service", () => {
@@ -56,14 +37,25 @@ describe("Local", () => {
     );
   });
 
-  test("unregister removes the service and its instance", () => {
+  test("register keeps services independent", () => {
     const local = makeLocal();
-    local.register("math", { add: () => 0 });
 
+    local.register("math", { add: () => 1 });
+    local.register("echo", { one: (value: unknown) => value });
+
+    assert.equal(local.has("math"), true);
+    assert.equal(local.has("echo"), true);
+  });
+
+  test("unregister removes only the named service", () => {
+    const local = makeLocal();
+
+    local.register("math", { add: () => 1 });
+    local.register("echo", { one: (value: unknown) => value });
     local.unregister("math");
 
     assert.equal(local.has("math"), false);
-    assert.deepEqual(local.lookup("math"), []);
+    assert.equal(local.has("echo"), true);
   });
 
   test("unregister unknown services does nothing", () => {
@@ -83,7 +75,7 @@ describe("Local", () => {
       },
     });
 
-    assert.equal(await local.invoke("echo", "count", [1, 2], 100), 2);
+    assert.equal(await local.invoke("echo", "count", [1, 2]), 2);
     assert.deepEqual(received, [1, 2]);
   });
 
@@ -91,7 +83,7 @@ describe("Local", () => {
     const local = makeLocal();
     local.register("math", { add: async (a: number, b: number) => a + b });
 
-    assert.equal(await local.invoke("math", "add", [2, 3], 100), 5);
+    assert.equal(await local.invoke("math", "add", [2, 3]), 5);
   });
 
   test("invoke rejects unknown services and methods", () => {
@@ -99,11 +91,11 @@ describe("Local", () => {
     local.register("math", { add: () => 0 });
 
     assert.throws(
-      () => local.invoke("nope", "add", [], 100),
+      () => local.invoke("nope", "add", []),
       (err: MusterError) => err.kind === "not-found",
     );
     assert.throws(
-      () => local.invoke("math", "nope", [], 100),
+      () => local.invoke("math", "nope", []),
       (err: MusterError) => err.kind === "not-found",
     );
   });
@@ -113,20 +105,8 @@ describe("Local", () => {
     local.register("math", { add: () => 0 });
 
     assert.throws(
-      () => local.invoke("math", "toString", [], 100),
+      () => local.invoke("math", "toString", []),
       (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("invoke times out with the call label", async () => {
-    const local = makeLocal();
-    local.register("slow", { wait: () => new Promise(() => {}) });
-
-    await assert.rejects(
-      local.invoke("slow", "wait", [], 20),
-      (err: MusterError) =>
-        err.kind === "timeout" &&
-        err.message === "call timed out: slow.wait",
     );
   });
 
@@ -141,7 +121,7 @@ describe("Local", () => {
     });
 
     assert.throws(
-      () => local.invoke("boom", "fail", [], 100),
+      () => local.invoke("boom", "fail", []),
       (err: Error) => err === failure,
     );
   });
@@ -154,7 +134,7 @@ describe("Local", () => {
       },
     });
 
-    await assert.rejects(local.invoke("boom", "fail", [], 100), /boom/);
+    await assert.rejects(local.invoke("boom", "fail", []), /boom/);
   });
 
   test("publish delivers data and the sender", () => {
@@ -196,7 +176,6 @@ describe("Local", () => {
     local.close();
 
     assert.equal(local.has("math"), false);
-    assert.deepEqual(local.lookup("math"), []);
 
     local.publish("news", 1, "node-a");
     assert.deepEqual(received, []);

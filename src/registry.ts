@@ -11,10 +11,12 @@
 
 import { eventlite } from "eventlite.js";
 
+export type MetaData = Record<string, unknown>;
+
 export type Instance = {
   readonly service: string;
-  readonly owner: string;
-  readonly meta?: Record<string, unknown>;
+  readonly nodeId: string;
+  readonly meta?: MetaData;
 };
 
 export interface WatchEvent {
@@ -31,11 +33,19 @@ export class Registry {
     isolate: true,
   });
 
-  add(service: string, owner: string, meta?: Record<string, unknown>) {
-    const instance: Instance =
-      meta === undefined ? { service, owner } : { service, owner, meta };
-
+  add(service: string, nodeId: string, meta?: MetaData) {
     const instances = this.table.get(service);
+
+    if (instances !== undefined) {
+      const existing = instances.find((item) => item.nodeId === nodeId);
+
+      if (existing !== undefined) {
+        return existing;
+      }
+    }
+
+    const instance: Instance =
+      meta === undefined ? { service, nodeId } : { service, nodeId, meta };
 
     if (instances !== undefined) {
       instances.push(instance);
@@ -47,14 +57,14 @@ export class Registry {
     return instance;
   }
 
-  remove(service: string, owner: string) {
+  remove(service: string, nodeId: string) {
     const instances = this.table.get(service);
 
     if (instances === undefined) {
       return;
     }
 
-    const index = instances.findIndex((item) => item.owner === owner);
+    const index = instances.findIndex((item) => item.nodeId === nodeId);
 
     if (index < 0) {
       return;
@@ -67,6 +77,7 @@ export class Registry {
     }
 
     this.events.emit(service, { type: "down", instance });
+    return instance;
   }
 
   lookup(service: string) {
@@ -84,6 +95,10 @@ export class Registry {
     return instances;
   }
 
+  registrations(nodeId: string) {
+    return this.snapshot().filter((instance) => instance.nodeId === nodeId);
+  }
+
   watch(service: string, handler: WatchHandler) {
     const off = this.events.on(service, handler);
 
@@ -98,8 +113,19 @@ export class Registry {
     return off;
   }
 
+  drop(nodeId: string) {
+    for (const instance of this.snapshot()) {
+      if (instance.nodeId === nodeId) {
+        this.remove(instance.service, nodeId);
+      }
+    }
+  }
+
   close() {
-    this.table.clear();
+    for (const instance of this.snapshot()) {
+      this.remove(instance.service, instance.nodeId);
+    }
+
     this.events.removeAllListeners();
   }
 }

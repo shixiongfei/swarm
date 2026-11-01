@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createNode, Node } from "./index.ts";
-import type { MusterError } from "./index.ts";
+import type { MusterError, WatchEvent } from "./index.ts";
 
 describe("createNode", () => {
   test("returns the same node for the same cluster", () => {
@@ -37,14 +37,67 @@ describe("createNode", () => {
     assert.equal(second.cluster, "cluster-b");
   });
 
-  test("passes callTimeout through", async () => {
+  test("passes callTimeout through", async (t) => {
     const node = createNode({ cluster: "timeout-cluster", callTimeout: 20 });
-    node.register("slow", { wait: () => new Promise(() => {}) });
+    const { port1, port2 } = new MessageChannel();
+    const ready = new Promise<WatchEvent>((resolve) =>
+      node.watch("slow", resolve),
+    );
+
+    t.after(() => {
+      node.close();
+      port1.close();
+      port2.close();
+    });
+
+    node.attach(port1);
+    port2.start();
+    port2.postMessage({
+      t: "hello",
+      nodeId: "ghost",
+      services: [{ name: "slow" }],
+    });
+
+    await ready;
 
     await assert.rejects(
       node.call("slow", "wait"),
       (err: MusterError) => err.kind === "timeout",
     );
+  });
+
+  test("passes connectTimeout through", async (t) => {
+    const node = createNode({
+      cluster: "connect-timeout-cluster",
+      connectTimeout: 20,
+    });
+    const { port1, port2 } = new MessageChannel();
+    const start = Date.now();
+
+    t.after(() => {
+      node.close();
+      port1.close();
+      port2.close();
+    });
+
+    const closed = new Promise<void>((resolve) =>
+      port2.addEventListener("close", () => resolve()),
+    );
+
+    node.attach(port1);
+    port2.start();
+
+    await closed;
+
+    assert.ok(Date.now() - start < 200);
+  });
+
+  test("passes secret through", () => {
+    const node = createNode({ cluster: "secret-cluster", secret: "s3cret" });
+
+    assert.equal(node.secret, "s3cret");
+
+    node.close();
   });
 
   test("close evicts the cluster so a new node is created", () => {

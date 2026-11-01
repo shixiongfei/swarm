@@ -11,56 +11,27 @@
 
 import { eventlite } from "eventlite.js";
 import { MusterError } from "./errors.ts";
-import { Registry } from "./registry.ts";
-import type { WatchHandler } from "./registry.ts";
 
 export type Methods<M = Record<string, any>> = Record<
   keyof M,
   (...args: any[]) => any
 >;
 
-export type LocalConfig = {
-  nodeId: string;
-};
+export type TopicHandler = (data: unknown, from: string) => void;
 
 const hasOwn =
   Object.hasOwn ||
   ((obj: object, key: PropertyKey) =>
     Object.prototype.hasOwnProperty.call(obj, key));
 
-function withTimeout<T>(work: Promise<T>, timeout: number, label: string) {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new MusterError("timeout", `call timed out: ${label}`));
-    }, timeout);
-
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err: unknown) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
-
 export class Local {
-  private readonly nodeId: string;
-  private readonly registry = new Registry();
   private readonly services = new Map<string, Methods>();
   private readonly topics = eventlite<string>({
     allowDuplicate: true,
     isolate: true,
   });
 
-  constructor(config: LocalConfig) {
-    this.nodeId = config.nodeId;
-  }
-
-  register(service: string, methods: Methods, meta?: Record<string, unknown>) {
+  register(service: string, methods: Methods) {
     if (this.services.has(service)) {
       throw new MusterError(
         "rejected",
@@ -69,30 +40,18 @@ export class Local {
     }
 
     this.services.set(service, methods);
-    this.registry.add(service, this.nodeId, meta);
+    return true;
   }
 
   unregister(service: string) {
-    this.services.delete(service);
-    this.registry.remove(service, this.nodeId);
-  }
-
-  registrations() {
-    return this.registry
-      .snapshot()
-      .filter((instance) => instance.owner === this.nodeId);
+    return this.services.delete(service);
   }
 
   has(service: string) {
     return this.services.has(service);
   }
 
-  invoke(
-    service: string,
-    method: string,
-    args: unknown[],
-    timeout: number,
-  ) {
+  invoke(service: string, method: string, args: unknown[]) {
     const methods = this.services.get(service);
 
     if (methods === undefined) {
@@ -108,48 +67,19 @@ export class Local {
       );
     }
 
-    return withTimeout(
-      Promise.resolve(handler.apply(methods, args)),
-      timeout,
-      `${service}.${method}`,
-    );
+    return handler.apply(methods, args);
   }
 
-  lookup(service: string) {
-    return this.registry.lookup(service);
-  }
-
-  watch(service: string, handler: WatchHandler) {
-    return this.registry.watch(service, handler);
-  }
-
-  subscribe(topic: string, handler: (data: unknown, from: string) => void) {
+  subscribe(topic: string, handler: TopicHandler) {
     return this.topics.on(topic, handler);
   }
 
-  publish(topic: string, data: unknown, from: string) {
-    this.topics.emit(topic, data, from);
-  }
-
-  mirror(service: string, owner: string, meta?: Record<string, unknown>) {
-    this.registry.add(service, owner, meta);
-  }
-
-  drop(service: string, owner: string) {
-    this.registry.remove(service, owner);
-  }
-
-  dropOwner(owner: string) {
-    for (const instance of this.registry.snapshot()) {
-      if (instance.owner === owner) {
-        this.registry.remove(instance.service, owner);
-      }
-    }
+  publish(topic: string, data: unknown, nodeId: string) {
+    this.topics.emit(topic, data, nodeId);
   }
 
   close() {
     this.services.clear();
-    this.registry.close();
     this.topics.removeAllListeners();
   }
 }

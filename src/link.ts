@@ -9,121 +9,90 @@
  * https://github.com/shixiongfei/muster
  */
 
+import { eventlite } from "eventlite.js";
 import { MusterError } from "./errors.ts";
-import type { ErrorKind } from "./errors.ts";
+import type { Instance } from "./registry.ts";
+import type {
+  Envelope,
+  EnvelopeHandler,
+  Enveloper,
+  Service,
+} from "./envelope.ts";
 
-export type Channel = {
-  postMessage(value: unknown): void;
-  addEventListener(event: string, listener: (...args: any[]) => void): void;
-  removeEventListener(event: string, listener: (...args: any[]) => void): void;
-  start(): void;
-  close(): void;
+export type LinkEvents = {
+  envelope: EnvelopeHandler;
+  close: () => void;
 };
 
-type Pending = {
-  resolve: (value: unknown) => void;
-  reject: (error: unknown) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
+export abstract class Link implements Enveloper {
+  readonly events = eventlite<LinkEvents>();
+  nodeId?: string;
 
-export class Link {
-  private readonly channel: Channel;
-  private readonly receive: (message: unknown) => void;
-  private readonly notifyClose: () => void;
-  private readonly pending = new Map<string, Pending>();
-  private closed = false;
+  abstract send(message: Envelope): void;
+  abstract close(): void;
 
-  private readonly onMessage = (message: { data?: unknown }) => {
-    if (!this.closed) {
-      this.receive(message.data);
-    }
-  };
-
-  private readonly onClose = () => {
-    this.close();
-  };
-
-  constructor(
-    channel: Channel,
-    handlers: {
-      receive: (message: unknown) => void;
-      close: () => void;
-    },
-  ) {
-    this.channel = channel;
-    this.receive = handlers.receive;
-    this.notifyClose = handlers.close;
-
-    channel.addEventListener("message", this.onMessage);
-    channel.addEventListener("close", this.onClose);
-    channel.start();
+  setNodeId(nodeId: string) {
+    this.nodeId = nodeId;
   }
 
-  send(message: unknown) {
-    if (this.closed) {
-      return false;
-    }
+  hello(nodeId: string, instances: Instance[], secret?: string) {
+    const services: Service[] = instances.map((instance) =>
+      instance.meta === undefined
+        ? { name: instance.service }
+        : { name: instance.service, meta: instance.meta },
+    );
 
-    this.channel.postMessage(message);
-    return true;
+    this.send(
+      secret === undefined
+        ? { t: "hello", nodeId, services }
+        : { t: "hello", nodeId, services, secret },
+    );
   }
 
-  request(id: string, message: unknown, timeout: number) {
-    if (this.closed) {
-      return Promise.reject(new MusterError("failed", "link is closed"));
-    }
+  accept(nodeId: string, instances: Instance[]) {
+    const services: Service[] = instances.map((instance) =>
+      instance.meta === undefined
+        ? { name: instance.service }
+        : { name: instance.service, meta: instance.meta },
+    );
 
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new MusterError("timeout", `request timed out: ${id}`));
-      }, timeout);
+    this.send({ t: "accept", nodeId, services });
+  }
 
-      this.pending.set(id, { resolve, reject, timer });
-      this.send(message);
+  register(instance: Instance) {
+    const { nodeId, service, meta } = instance;
+
+    this.send(
+      meta === undefined
+        ? { t: "up", nodeId, service }
+        : { t: "up", nodeId, service, meta },
+    );
+  }
+
+  unregister(instance: Instance) {
+    this.send({
+      t: "down",
+      nodeId: instance.nodeId,
+      service: instance.service,
     });
   }
 
-  resolve(id: string, value: unknown) {
-    const entry = this.pending.get(id);
-
-    if (entry === undefined) {
-      return;
-    }
-
-    this.pending.delete(id);
-    clearTimeout(entry.timer);
-    entry.resolve(value);
+  call(id: string, service: string, method: string, args: unknown[]) {
+    this.send({ t: "call", id, service, method, args });
   }
 
-  reject(id: string, kind: ErrorKind, message: string) {
-    const entry = this.pending.get(id);
-
-    if (entry === undefined) {
-      return;
-    }
-
-    this.pending.delete(id);
-    clearTimeout(entry.timer);
-    entry.reject(new MusterError(kind, message));
+  reply(id: string, value: unknown) {
+    this.send({ t: "reply", id, value });
   }
 
-  close() {
-    if (this.closed) {
-      return;
-    }
+  fail(id: string, error: unknown) {
+    const kind = error instanceof MusterError ? error.kind : "failed";
+    const message = error instanceof Error ? error.message : String(error);
 
-    this.closed = true;
-    this.channel.removeEventListener("message", this.onMessage);
-    this.channel.removeEventListener("close", this.onClose);
-    this.channel.close();
+    this.send({ t: "error", id, kind, message });
+  }
 
-    for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer);
-      entry.reject(new MusterError("failed", "link is closed"));
-    }
-
-    this.pending.clear();
-    this.notifyClose();
+  publish(topic: string, data: unknown, nodeId: string) {
+    this.send({ t: "pub", nodeId, topic, data });
   }
 }

@@ -19,7 +19,7 @@ describe("Registry", () => {
     const registry = new Registry();
     const instance = registry.add("math", "node-a");
 
-    assert.deepEqual(instance, { service: "math", owner: "node-a" });
+    assert.deepEqual(instance, { service: "math", nodeId: "node-a" });
     assert.deepEqual(registry.lookup("math"), [instance]);
   });
 
@@ -28,6 +28,30 @@ describe("Registry", () => {
     const instance = registry.add("math", "node-a", { build: 1 });
 
     assert.deepEqual(instance.meta, { build: 1 });
+  });
+
+  test("add appends multiple nodes for the same service", () => {
+    const registry = new Registry();
+
+    registry.add("math", "node-a");
+    registry.add("math", "node-b");
+
+    assert.deepEqual(
+      registry.lookup("math").map((item) => item.nodeId),
+      ["node-a", "node-b"],
+    );
+  });
+
+  test("add ignores a duplicate service and nodeId", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    registry.watch("math", (event) => events.push(event));
+
+    const instance = registry.add("math", "node-a");
+
+    assert.equal(registry.add("math", "node-a", { build: 2 }), instance);
+    assert.deepEqual(registry.lookup("math"), [instance]);
+    assert.deepEqual(events, [{ type: "up", instance }]);
   });
 
   test("add emits up after a watcher is attached", () => {
@@ -68,7 +92,7 @@ describe("Registry", () => {
     assert.deepEqual(registry.lookup("math"), []);
   });
 
-  test("remove unknown service or owner does nothing", () => {
+  test("remove unknown service or node does nothing", () => {
     const registry = new Registry();
     const events: WatchEvent[] = [];
     registry.watch("math", (event) => events.push(event));
@@ -82,7 +106,7 @@ describe("Registry", () => {
     assert.equal(registry.lookup("math").length, 1);
   });
 
-  test("remove only drops the matching owner", () => {
+  test("remove only drops the matching node", () => {
     const registry = new Registry();
     registry.add("math", "node-a");
     registry.add("math", "node-b");
@@ -90,7 +114,7 @@ describe("Registry", () => {
     registry.remove("math", "node-a");
 
     assert.deepEqual(
-      registry.lookup("math").map((item) => item.owner),
+      registry.lookup("math").map((item) => item.nodeId),
       ["node-b"],
     );
   });
@@ -102,6 +126,66 @@ describe("Registry", () => {
     registry.lookup("math").pop();
 
     assert.equal(registry.lookup("math").length, 1);
+  });
+
+  test("lookup of an unknown service is empty", () => {
+    const registry = new Registry();
+
+    assert.deepEqual(registry.lookup("nope"), []);
+  });
+
+  test("snapshot returns every instance in insertion order", () => {
+    const registry = new Registry();
+
+    registry.add("math", "node-a");
+    registry.add("echo", "node-b");
+
+    assert.deepEqual(registry.snapshot(), [
+      { service: "math", nodeId: "node-a" },
+      { service: "echo", nodeId: "node-b" },
+    ]);
+  });
+
+  test("registrations filters by nodeId", () => {
+    const registry = new Registry();
+
+    registry.add("math", "node-a");
+    registry.add("echo", "node-b");
+    registry.add("text", "node-a", { build: 1 });
+
+    assert.deepEqual(registry.registrations("node-a"), [
+      { service: "math", nodeId: "node-a" },
+      { service: "text", nodeId: "node-a", meta: { build: 1 } },
+    ]);
+    assert.deepEqual(registry.registrations("nope"), []);
+  });
+
+  test("drop removes every instance of one node", () => {
+    const registry = new Registry();
+
+    registry.add("math", "node-a");
+    registry.add("math", "node-b");
+    registry.add("echo", "node-a");
+
+    registry.drop("node-a");
+
+    assert.deepEqual(
+      registry.lookup("math").map((item) => item.nodeId),
+      ["node-b"],
+    );
+    assert.deepEqual(registry.lookup("echo"), []);
+  });
+
+  test("drop emits down for each removed instance", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    registry.watch("math", (event) => events.push(event));
+
+    const a = registry.add("math", "node-a");
+    registry.add("math", "node-b");
+    registry.drop("node-a");
+
+    assert.deepEqual(events.at(-1), { type: "down", instance: a });
   });
 
   test("off stops delivery and is idempotent", () => {
@@ -157,6 +241,28 @@ describe("Registry", () => {
     });
   });
 
+  test("close emits down for every instance", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    registry.watch("math", (event) => events.push(event));
+    registry.watch("echo", (event) => events.push(event));
+
+    const a = registry.add("math", "node-a");
+    const b = registry.add("echo", "node-b");
+
+    registry.close();
+
+    assert.deepEqual(events, [
+      { type: "up", instance: a },
+      { type: "up", instance: b },
+      { type: "down", instance: a },
+      { type: "down", instance: b },
+    ]);
+
+    registry.add("math", "node-c");
+    assert.equal(events.length, 4);
+  });
+
   test("close clears the table and removes listeners", () => {
     const registry = new Registry();
     const events: WatchEvent[] = [];
@@ -164,6 +270,8 @@ describe("Registry", () => {
 
     registry.close();
     assert.deepEqual(registry.lookup("math"), []);
+    assert.deepEqual(registry.snapshot(), []);
+    assert.deepEqual(registry.registrations("node-a"), []);
 
     registry.add("math", "node-a");
     assert.equal(events.length, 0);
