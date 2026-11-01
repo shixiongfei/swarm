@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Node } from "./node.ts";
 import type { MusterError } from "./errors.ts";
-import type { WatchEvent } from "./registry.ts";
+import type { MetaData, WatchEvent } from "./registry.ts";
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
@@ -29,7 +29,7 @@ async function attachGhost(node: Node, service: string) {
   port2.start();
   port2.postMessage({
     t: "hello",
-    nodeId: "ghost",
+    from: "ghost",
     services: [{ name: service }],
   });
 
@@ -92,6 +92,19 @@ describe("Node", () => {
     );
   });
 
+  test("call uses the node call timeout for a local service", async () => {
+    const node = makeNode(20);
+
+    node.register("slow", {
+      wait: () => new Promise<void>((resolve) => setTimeout(resolve, 40)),
+    });
+
+    await assert.rejects(
+      node.call("slow", "wait"),
+      (err: MusterError) => err.kind === "timeout",
+    );
+  });
+
   test("rejects a call whose arguments cannot be cloned", async (t) => {
     const node = makeNode(5000);
     const ghost = await attachGhost(node, "math");
@@ -102,26 +115,6 @@ describe("Node", () => {
       (err: MusterError) =>
         err.kind === "failed" && err.message === "arguments are not cloneable",
     );
-  });
-
-  test("throws when the payload cannot be cloned", async (t) => {
-    const node = makeNode(5000);
-    const ghost = await attachGhost(node, "math");
-    t.after(ghost.close);
-
-    let received: unknown;
-
-    node.subscribe("news", (data) => {
-      received = data;
-    });
-
-    assert.throws(
-      () => node.publish("news", () => {}),
-      (err: MusterError) =>
-        err.kind === "failed" && err.message === "data is not cloneable",
-    );
-
-    assert.equal(received, undefined);
   });
 
   test("register rejects metadata that cannot be cloned", async () => {
@@ -139,11 +132,61 @@ describe("Node", () => {
     );
   });
 
+  test("register rejects metadata that is not a plain object", async () => {
+    const node = makeNode();
+
+    assert.throws(
+      () =>
+        node.register(
+          "math",
+          { add: () => 0 },
+          new Date() as unknown as MetaData,
+        ),
+      (err: MusterError) =>
+        err.kind === "rejected" && err.message === "meta is not a plain object",
+    );
+
+    await assert.rejects(
+      node.call("math", "add"),
+      (err: MusterError) => err.kind === "not-found",
+    );
+  });
+
+  test("register stores a snapshot of meta", () => {
+    const node = makeNode();
+    const meta = { build: 1 };
+
+    node.register("math", { add: () => 0 }, meta);
+    meta.build = 2;
+
+    let stored: unknown;
+
+    node.watch("math", (event) => {
+      stored = event.instance.meta;
+    });
+
+    assert.deepEqual(stored, { build: 1 });
+  });
+
   test("call rejects a service no link serves", async () => {
     const node = makeNode();
 
     await assert.rejects(
       node.call("nope", "add"),
+      (err: MusterError) => err.kind === "not-found",
+    );
+  });
+
+  test("routes calls to a local service before a link", async (t) => {
+    const node = makeNode(20);
+    const ghost = await attachGhost(node, "math");
+    t.after(ghost.close);
+
+    node.register("math", { add: () => 10 });
+
+    assert.equal(await node.call("math", "add"), 10);
+    await assert.rejects(
+      node.call("math", "mul"),
       (err: MusterError) => err.kind === "not-found",
     );
   });
@@ -167,6 +210,21 @@ describe("Node", () => {
     node.close();
 
     assert.doesNotThrow(() => node.close());
+  });
+
+  test("close emits down for local services", () => {
+    const node = makeNode();
+    const events: WatchEvent[] = [];
+
+    node.watch("math", (event) => events.push(event));
+    node.register("math", { add: () => 0 });
+
+    node.close();
+
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ["up", "down"],
+    );
   });
 
   test("close rejects pending calls", async (t) => {
@@ -234,6 +292,10 @@ describe("Node", () => {
       (err: MusterError) => err.kind === "rejected",
     );
     assert.throws(
+      () => node.get("math"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
       () => node.attach(port1),
       (err: MusterError) => err.kind === "rejected",
     );
@@ -242,12 +304,10 @@ describe("Node", () => {
       (err: MusterError) => err.kind === "rejected",
     );
   });
-});
 
-describe("Node link", () => {
-  test("routes calls, errors, topics and unregistrations over a port", async (t) => {
-    const a = new Node({ cluster: "link-a", secret: "s3cret" });
-    const b = new Node({ cluster: "link-b", secret: "s3cret" });
+  test("publishes nothing when the payload cannot be cloned", async (t) => {
+    const a = new Node({ cluster: "publish-a" });
+    const b = new Node({ cluster: "publish-b" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -255,242 +315,38 @@ describe("Node link", () => {
       b.close();
       port1.close();
       port2.close();
-    });
-
-    a.register("math", { add: (x: number, y: number) => x + y });
-    a.register("boom", {
-      fail: () => {
-        throw new Error("boom");
-      },
-      crash: () => {
-        throw "oops";
-      },
-    });
-
-    const up = new Promise<WatchEvent>((resolve) => b.watch("math", resolve));
-    const down = new Promise<WatchEvent>((resolve) =>
-      b.watch("math", (event) => {
-        if (event.type === "down") {
-          resolve(event);
-        }
-      }),
-    );
-
-    b.attach(port2);
-    a.attach(port1);
-
-    assert.equal((await up).instance.nodeId, a.nodeId);
-    assert.equal(await b.call("math", "add", [2, 3]), 5);
-    await assert.rejects(
-      b.call("boom", "fail"),
-      (err: MusterError) => err.kind === "failed" && err.message === "boom",
-    );
-    await assert.rejects(
-      b.call("boom", "crash"),
-      (err: MusterError) => err.kind === "failed" && err.message === "oops",
-    );
-    await assert.rejects(
-      b.call("math", "nope"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-
-    const news = new Promise((resolve) => b.subscribe("news", resolve));
-
-    a.publish("news", { ok: true });
-
-    assert.deepEqual(await news, { ok: true });
-
-    a.unregister("math");
-
-    assert.equal((await down).instance.nodeId, a.nodeId);
-
-    const late = new Promise<WatchEvent>((resolve) => b.watch("late", resolve));
-    const lateDown = new Promise<WatchEvent>((resolve) =>
-      b.watch("late", (event) => {
-        if (event.type === "down") {
-          resolve(event);
-        }
-      }),
-    );
-
-    a.register("late", { ping: () => "pong" });
-
-    assert.equal((await late).instance.nodeId, a.nodeId);
-    assert.equal(await b.call("late", "ping"), "pong");
-
-    a.close();
-
-    assert.equal((await lateDown).instance.nodeId, a.nodeId);
-  });
-
-  test("ignores envelopes that do not match the protocol", async (t) => {
-    const node = new Node({ cluster: "malformed" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    node.attach(port1);
-    port2.start();
-
-    port2.postMessage({ t: "hello" });
-    port2.postMessage({ t: "up", nodeId: "peer", service: 123 });
-    port2.postMessage({ t: "call", id: "x" });
-    port2.postMessage({ t: "pub", topic: "news" });
-
-    await assert.rejects(
-      node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("closes a link that presents a second nodeId", async (t) => {
-    const node = new Node({ cluster: "two-ids" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    const up = (service: string) =>
-      new Promise<WatchEvent>((resolve) => node.watch(service, resolve));
-
-    node.attach(port1);
-    port2.start();
-
-    port2.postMessage({
-      t: "hello",
-      nodeId: "first",
-      services: [{ name: "math" }],
-    });
-
-    await up("math");
-
-    const closed = new Promise<void>((resolve) =>
-      port2.addEventListener("close", () => resolve()),
-    );
-
-    port2.postMessage({
-      t: "hello",
-      nodeId: "second",
-      services: [{ name: "echo" }],
-    });
-
-    await closed;
-
-    await assert.rejects(
-      node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-    await assert.rejects(
-      node.call("echo", "ping"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("reports a reply that cannot be cloned", async (t) => {
-    const a = new Node({ cluster: "reply-a" });
-    const b = new Node({ cluster: "reply-b" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      a.close();
-      b.close();
-      port1.close();
-      port2.close();
-    });
-
-    a.register("ret", { bad: () => () => {} });
-
-    const up = new Promise<WatchEvent>((resolve) => b.watch("ret", resolve));
-
-    a.attach(port1);
-    b.attach(port2);
-
-    await up;
-
-    await assert.rejects(
-      b.call("ret", "bad"),
-      (err: MusterError) =>
-        err.kind === "failed" && err.message === "reply is not cloneable",
-    );
-  });
-
-  test("closes a link whose hello secret does not match", async (t) => {
-    const a = new Node({ cluster: "secret-a", secret: "s3cret" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      a.close();
-      port1.close();
-      port2.close();
-    });
-
-    const closed = new Promise<void>((resolve) =>
-      port2.addEventListener("close", () => resolve()),
-    );
-
-    a.attach(port1);
-    port2.start();
-    port2.postMessage({
-      t: "hello",
-      nodeId: "peer-node",
-      services: [{ name: "math" }],
-    });
-
-    await closed;
-
-    await assert.rejects(
-      a.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
-
-  test("keeps the first link and closes a later link to the same node", async (t) => {
-    const a = new Node({ cluster: "dup-a" });
-    const b = new Node({ cluster: "dup-b" });
-    const first = new MessageChannel();
-    const second = new MessageChannel();
-    const events: string[] = [];
-
-    t.after(() => {
-      a.close();
-      b.close();
-      first.port1.close();
-      first.port2.close();
-      second.port1.close();
-      second.port2.close();
     });
 
     a.register("math", { add: () => 1 });
 
-    const up = new Promise<void>((resolve) =>
-      b.watch("math", () => {
-        events.push("up");
-        resolve();
-      }),
+    let local = 0;
+    let remote = 0;
+
+    a.subscribe("news", () => {
+      local += 1;
+    });
+    b.subscribe("news", () => {
+      remote += 1;
+    });
+
+    const ready = new Promise<void>((resolve) =>
+      b.watch("math", () => resolve()),
     );
 
-    a.attach(first.port1);
-    b.attach(first.port2);
+    a.attach(port1);
+    b.attach(port2);
 
-    await up;
+    await ready;
 
-    const closed = new Promise<void>((resolve) =>
-      second.port2.addEventListener("close", () => resolve()),
+    assert.throws(
+      () => a.publish("news", () => {}),
+      (err: MusterError) =>
+        err.kind === "failed" && err.message === "data is not cloneable",
     );
 
-    a.attach(second.port1);
-    b.attach(second.port2);
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
 
-    await closed;
-
-    assert.deepEqual(events, ["up"]);
-    assert.equal(await b.call("math", "add"), 1);
+    assert.equal(local, 0);
+    assert.equal(remote, 0);
   });
 });

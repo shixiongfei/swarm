@@ -17,13 +17,13 @@ import type { Envelope } from "./envelope.ts";
 const attached = new WeakSet<MessagePort>();
 
 export class LinkPort extends Link {
-  readonly port: MessagePort;
+  private readonly port: MessagePort;
 
   private readonly dispose: () => void;
   private closed = false;
 
-  constructor(port: MessagePort) {
-    super();
+  constructor(port: MessagePort, nodeId: string) {
+    super(nodeId);
 
     if (attached.has(port)) {
       throw new MusterError("rejected", "port is already attached");

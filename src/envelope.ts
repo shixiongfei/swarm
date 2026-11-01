@@ -9,20 +9,36 @@
  * https://github.com/shixiongfei/muster
  */
 
+import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
 export type Service = { name: string; meta?: MetaData };
 
 export type Envelope =
-  | { t: "hello"; nodeId: string; services: Service[]; secret?: string }
-  | { t: "accept"; nodeId: string; services: Service[] }
-  | { t: "up"; nodeId: string; service: string; meta?: MetaData }
-  | { t: "down"; nodeId: string; service: string }
-  | { t: "call"; id: string; service: string; method: string; args: unknown[] }
-  | { t: "reply"; id: string; value: unknown }
-  | { t: "error"; id: string; kind: ErrorKind; message: string }
-  | { t: "pub"; nodeId: string; topic: string; data: unknown };
+  | { t: "hello"; from: string; services: Service[]; secret?: string }
+  | { t: "accept"; from: string; services: Service[]; secret?: string }
+  | { t: "up"; from: string; service: string; meta?: MetaData }
+  | { t: "down"; from: string; service: string }
+  | {
+      t: "call";
+      id: string;
+      from: string;
+      to: string;
+      service: string;
+      method: string;
+      args: unknown[];
+    }
+  | { t: "reply"; id: string; from: string; to: string; value: unknown }
+  | {
+      t: "error";
+      id: string;
+      from: string;
+      to: string;
+      kind: ErrorKind;
+      message: string;
+    }
+  | { t: "pub"; from: string; topic: string; data: unknown };
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
@@ -39,11 +55,13 @@ const errorKinds: readonly ErrorKind[] = [
 ];
 
 function isService(value: unknown): value is Service {
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
 
-  return typeof (value as Service).name === "string";
+  const service = value as Service;
+
+  return typeof service.name === "string" && isMetaData(service.meta);
 }
 
 function isServices(value: unknown): value is Service[] {
@@ -54,7 +72,7 @@ function isHello(
   message: Extract<Envelope, { t: "hello" }>,
 ): Envelope | undefined {
   if (
-    typeof message.nodeId !== "string" ||
+    typeof message.from !== "string" ||
     !isServices(message.services) ||
     (message.secret !== undefined && typeof message.secret !== "string")
   ) {
@@ -67,7 +85,11 @@ function isHello(
 function isAccept(
   message: Extract<Envelope, { t: "accept" }>,
 ): Envelope | undefined {
-  if (typeof message.nodeId !== "string" || !isServices(message.services)) {
+  if (
+    typeof message.from !== "string" ||
+    !isServices(message.services) ||
+    (message.secret !== undefined && typeof message.secret !== "string")
+  ) {
     return undefined;
   }
 
@@ -76,8 +98,9 @@ function isAccept(
 
 function isUp(message: Extract<Envelope, { t: "up" }>): Envelope | undefined {
   if (
-    typeof message.nodeId !== "string" ||
-    typeof message.service !== "string"
+    typeof message.from !== "string" ||
+    typeof message.service !== "string" ||
+    !isMetaData(message.meta)
   ) {
     return undefined;
   }
@@ -88,10 +111,7 @@ function isUp(message: Extract<Envelope, { t: "up" }>): Envelope | undefined {
 function isDown(
   message: Extract<Envelope, { t: "down" }>,
 ): Envelope | undefined {
-  if (
-    typeof message.nodeId !== "string" ||
-    typeof message.service !== "string"
-  ) {
+  if (typeof message.from !== "string" || typeof message.service !== "string") {
     return undefined;
   }
 
@@ -103,6 +123,8 @@ function isCall(
 ): Envelope | undefined {
   if (
     typeof message.id !== "string" ||
+    typeof message.from !== "string" ||
+    typeof message.to !== "string" ||
     typeof message.service !== "string" ||
     typeof message.method !== "string" ||
     !Array.isArray(message.args)
@@ -116,7 +138,11 @@ function isCall(
 function isReply(
   message: Extract<Envelope, { t: "reply" }>,
 ): Envelope | undefined {
-  if (typeof message.id !== "string") {
+  if (
+    typeof message.id !== "string" ||
+    typeof message.from !== "string" ||
+    typeof message.to !== "string"
+  ) {
     return undefined;
   }
 
@@ -128,6 +154,8 @@ function isError(
 ): Envelope | undefined {
   if (
     typeof message.id !== "string" ||
+    typeof message.from !== "string" ||
+    typeof message.to !== "string" ||
     !errorKinds.includes(message.kind) ||
     typeof message.message !== "string"
   ) {
@@ -138,7 +166,7 @@ function isError(
 }
 
 function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
-  if (typeof message.nodeId !== "string" || typeof message.topic !== "string") {
+  if (typeof message.from !== "string" || typeof message.topic !== "string") {
     return undefined;
   }
 

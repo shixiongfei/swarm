@@ -18,7 +18,7 @@ import type { Envelope } from "./envelope.ts";
 describe("LinkPort", () => {
   test("ignores data that is not an envelope", async (t) => {
     const { port1, port2 } = new MessageChannel();
-    const link = new LinkPort(port1);
+    const link = new LinkPort(port1, "node-a");
     let count = 0;
 
     t.after(() => {
@@ -42,7 +42,7 @@ describe("LinkPort", () => {
     port2.postMessage(42);
     port2.postMessage({
       t: "pub",
-      nodeId: "node-a",
+      from: "node-a",
       topic: "news",
       data: null,
     });
@@ -54,7 +54,7 @@ describe("LinkPort", () => {
 
   test("close closes the port and is idempotent", async (t) => {
     const { port1, port2 } = new MessageChannel();
-    const link = new LinkPort(port1);
+    const link = new LinkPort(port1, "node-a");
 
     t.after(() => {
       port2.close();
@@ -71,13 +71,13 @@ describe("LinkPort", () => {
 
     assert.doesNotThrow(() => {
       link.close();
-      link.send({ t: "pub", nodeId: "node-a", topic: "news", data: 1 });
+      link.send({ t: "pub", from: "node-a", topic: "news", data: 1 });
     });
   });
 
   test("emits close once when the peer closes the port", async (t) => {
     const { port1, port2 } = new MessageChannel();
-    const link = new LinkPort(port1);
+    const link = new LinkPort(port1, "node-a");
     let count = 0;
 
     t.after(() => {
@@ -102,7 +102,7 @@ describe("LinkPort", () => {
 
   test("rejects a port that is already attached", async (t) => {
     const { port1, port2 } = new MessageChannel();
-    const link = new LinkPort(port1);
+    const link = new LinkPort(port1, "node-a");
 
     t.after(() => {
       link.close();
@@ -110,7 +110,7 @@ describe("LinkPort", () => {
     });
 
     assert.throws(
-      () => new LinkPort(port1),
+      () => new LinkPort(port1, "node-a"),
       (err: MusterError) =>
         err.kind === "rejected" && err.message === "port is already attached",
     );
@@ -120,7 +120,7 @@ describe("LinkPort", () => {
     );
 
     port2.start();
-    port2.postMessage({ t: "pub", nodeId: "node-a", topic: "news", data: 1 });
+    port2.postMessage({ t: "pub", from: "node-a", topic: "news", data: 1 });
 
     assert.equal((await received).t, "pub");
   });

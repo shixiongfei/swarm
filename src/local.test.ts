@@ -37,16 +37,6 @@ describe("Local", () => {
     );
   });
 
-  test("register keeps services independent", () => {
-    const local = makeLocal();
-
-    local.register("math", { add: () => 1 });
-    local.register("echo", { one: (value: unknown) => value });
-
-    assert.equal(local.has("math"), true);
-    assert.equal(local.has("echo"), true);
-  });
-
   test("unregister removes only the named service", () => {
     const local = makeLocal();
 
@@ -137,18 +127,61 @@ describe("Local", () => {
     await assert.rejects(local.invoke("boom", "fail", []), /boom/);
   });
 
+  test("invoke applies the call timeout", async () => {
+    const local = makeLocal();
+
+    local.register("slow", {
+      wait: () => new Promise<void>((resolve) => setTimeout(resolve, 40)),
+    });
+
+    await assert.rejects(
+      local.invoke("slow", "wait", [], 20),
+      (err: MusterError) => err.kind === "timeout",
+    );
+  });
+
+  test("operations fail after close", () => {
+    const local = makeLocal();
+
+    local.register("math", { add: () => 0 });
+    local.close();
+
+    assert.equal(local.has("math"), false);
+    assert.throws(
+      () => local.register("math", {}),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => local.unregister("math"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => local.invoke("math", "add", []),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => local.subscribe("news", () => {}),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => local.publish("news", 1, "node-a"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.doesNotThrow(() => local.close());
+  });
+
   test("publish delivers data and the sender", () => {
     const local = makeLocal();
     const received: Array<[unknown, string]> = [];
 
-    const off = local.subscribe("news", (data, from) =>
+    const unsubscribe = local.subscribe("news", (data, from) =>
       received.push([data, from]),
     );
 
     local.publish("news", { ok: true }, "node-a");
     assert.deepEqual(received, [[{ ok: true }, "node-a"]]);
 
-    off();
+    unsubscribe();
     local.publish("news", { ok: false }, "node-a");
     assert.equal(received.length, 1);
   });
@@ -165,19 +198,5 @@ describe("Local", () => {
     local.publish("news", 1, "node-a");
 
     assert.deepEqual(received, [1]);
-  });
-
-  test("close clears services and subscriptions", () => {
-    const local = makeLocal();
-    const received: unknown[] = [];
-
-    local.register("math", { add: () => 0 });
-    local.subscribe("news", (data) => received.push(data));
-    local.close();
-
-    assert.equal(local.has("math"), false);
-
-    local.publish("news", 1, "node-a");
-    assert.deepEqual(received, []);
   });
 });

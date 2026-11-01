@@ -10,8 +10,23 @@
  */
 
 import { eventlite } from "eventlite.js";
+import { MusterError } from "./errors.ts";
 
 export type MetaData = Record<string, unknown>;
+
+export function isMetaData(value: unknown): value is MetaData | undefined {
+  if (value === undefined) {
+    return true;
+  }
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const proto = Object.getPrototypeOf(value);
+
+  return proto === Object.prototype || proto === null;
+}
 
 export type Instance = {
   readonly service: string;
@@ -26,14 +41,21 @@ export interface WatchEvent {
 
 export type WatchHandler = (event: WatchEvent) => void;
 
-export class Registry {
+export interface Observable {
+  watch(service: string, handler: WatchHandler): () => void;
+}
+
+export class Registry implements Observable {
   private readonly table = new Map<string, Instance[]>();
   private readonly events = eventlite<string>({
     allowDuplicate: true,
     isolate: true,
   });
+  private closed = false;
 
   add(service: string, nodeId: string, meta?: MetaData) {
+    this.checkOpen();
+
     const instances = this.table.get(service);
 
     if (instances !== undefined) {
@@ -58,26 +80,8 @@ export class Registry {
   }
 
   remove(service: string, nodeId: string) {
-    const instances = this.table.get(service);
-
-    if (instances === undefined) {
-      return;
-    }
-
-    const index = instances.findIndex((item) => item.nodeId === nodeId);
-
-    if (index < 0) {
-      return;
-    }
-
-    const [instance] = instances.splice(index, 1);
-
-    if (instances.length === 0) {
-      this.table.delete(service);
-    }
-
-    this.events.emit(service, { type: "down", instance });
-    return instance;
+    this.checkOpen();
+    return this.evict(service, nodeId);
   }
 
   lookup(service: string) {
@@ -100,7 +104,9 @@ export class Registry {
   }
 
   watch(service: string, handler: WatchHandler) {
-    const off = this.events.on(service, handler);
+    this.checkOpen();
+
+    const unsubscribe = this.events.on(service, handler);
 
     for (const instance of this.lookup(service)) {
       try {
@@ -110,10 +116,12 @@ export class Registry {
       }
     }
 
-    return off;
+    return unsubscribe;
   }
 
   drop(nodeId: string) {
+    this.checkOpen();
+
     for (const instance of this.snapshot()) {
       if (instance.nodeId === nodeId) {
         this.remove(instance.service, nodeId);
@@ -122,10 +130,45 @@ export class Registry {
   }
 
   close() {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+
     for (const instance of this.snapshot()) {
-      this.remove(instance.service, instance.nodeId);
+      this.evict(instance.service, instance.nodeId);
     }
 
     this.events.removeAllListeners();
+  }
+
+  private evict(service: string, nodeId: string) {
+    const instances = this.table.get(service);
+
+    if (instances === undefined) {
+      return;
+    }
+
+    const index = instances.findIndex((item) => item.nodeId === nodeId);
+
+    if (index < 0) {
+      return;
+    }
+
+    const [instance] = instances.splice(index, 1);
+
+    if (instances.length === 0) {
+      this.table.delete(service);
+    }
+
+    this.events.emit(service, { type: "down", instance });
+    return instance;
+  }
+
+  private checkOpen() {
+    if (this.closed) {
+      throw new MusterError("rejected", "registry is closed");
+    }
   }
 }

@@ -12,12 +12,7 @@
 import { eventlite } from "eventlite.js";
 import { MusterError } from "./errors.ts";
 import type { Instance } from "./registry.ts";
-import type {
-  Envelope,
-  EnvelopeHandler,
-  Enveloper,
-  Service,
-} from "./envelope.ts";
+import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
 
 export type LinkEvents = {
   envelope: EnvelopeHandler;
@@ -25,18 +20,21 @@ export type LinkEvents = {
 };
 
 export abstract class Link implements Enveloper {
-  readonly events = eventlite<LinkEvents>();
-  nodeId?: string;
+  readonly nodeId: string;
+  readonly events = eventlite<LinkEvents>({
+    allowDuplicate: true,
+    isolate: true,
+  });
 
   abstract send(message: Envelope): void;
   abstract close(): void;
 
-  setNodeId(nodeId: string) {
+  constructor(nodeId: string) {
     this.nodeId = nodeId;
   }
 
-  hello(nodeId: string, instances: Instance[], secret?: string) {
-    const services: Service[] = instances.map((instance) =>
+  hello(instances: Instance[], secret?: string) {
+    const services = instances.map((instance) =>
       instance.meta === undefined
         ? { name: instance.service }
         : { name: instance.service, meta: instance.meta },
@@ -44,19 +42,23 @@ export abstract class Link implements Enveloper {
 
     this.send(
       secret === undefined
-        ? { t: "hello", nodeId, services }
-        : { t: "hello", nodeId, services, secret },
+        ? { t: "hello", from: this.nodeId, services }
+        : { t: "hello", from: this.nodeId, services, secret },
     );
   }
 
-  accept(nodeId: string, instances: Instance[]) {
-    const services: Service[] = instances.map((instance) =>
+  accept(instances: Instance[], secret?: string) {
+    const services = instances.map((instance) =>
       instance.meta === undefined
         ? { name: instance.service }
         : { name: instance.service, meta: instance.meta },
     );
 
-    this.send({ t: "accept", nodeId, services });
+    this.send(
+      secret === undefined
+        ? { t: "accept", from: this.nodeId, services }
+        : { t: "accept", from: this.nodeId, services, secret },
+    );
   }
 
   register(instance: Instance) {
@@ -64,35 +66,41 @@ export abstract class Link implements Enveloper {
 
     this.send(
       meta === undefined
-        ? { t: "up", nodeId, service }
-        : { t: "up", nodeId, service, meta },
+        ? { t: "up", from: nodeId, service }
+        : { t: "up", from: nodeId, service, meta },
     );
   }
 
   unregister(instance: Instance) {
     this.send({
       t: "down",
-      nodeId: instance.nodeId,
+      from: instance.nodeId,
       service: instance.service,
     });
   }
 
-  call(id: string, service: string, method: string, args: unknown[]) {
-    this.send({ t: "call", id, service, method, args });
+  call(
+    id: string,
+    to: string,
+    service: string,
+    method: string,
+    args: unknown[],
+  ) {
+    this.send({ t: "call", id, from: this.nodeId, to, service, method, args });
   }
 
-  reply(id: string, value: unknown) {
-    this.send({ t: "reply", id, value });
+  reply(id: string, to: string, value: unknown) {
+    this.send({ t: "reply", id, from: this.nodeId, to, value });
   }
 
-  fail(id: string, error: unknown) {
+  fail(id: string, to: string, error: unknown) {
     const kind = error instanceof MusterError ? error.kind : "failed";
     const message = error instanceof Error ? error.message : String(error);
 
-    this.send({ t: "error", id, kind, message });
+    this.send({ t: "error", id, from: this.nodeId, to, kind, message });
   }
 
-  publish(topic: string, data: unknown, nodeId: string) {
-    this.send({ t: "pub", nodeId, topic, data });
+  publish(topic: string, data: unknown) {
+    this.send({ t: "pub", from: this.nodeId, topic, data });
   }
 }

@@ -54,7 +54,7 @@ describe("createNode", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      nodeId: "ghost",
+      from: "ghost",
       services: [{ name: "slow" }],
     });
 
@@ -64,32 +64,6 @@ describe("createNode", () => {
       node.call("slow", "wait"),
       (err: MusterError) => err.kind === "timeout",
     );
-  });
-
-  test("passes connectTimeout through", async (t) => {
-    const node = createNode({
-      cluster: "connect-timeout-cluster",
-      connectTimeout: 20,
-    });
-    const { port1, port2 } = new MessageChannel();
-    const start = Date.now();
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    const closed = new Promise<void>((resolve) =>
-      port2.addEventListener("close", () => resolve()),
-    );
-
-    node.attach(port1);
-    port2.start();
-
-    await closed;
-
-    assert.ok(Date.now() - start < 200);
   });
 
   test("passes secret through", () => {

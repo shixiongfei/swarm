@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { MusterError } from "./errors.ts";
+import { withTimeout } from "./timeout.ts";
 
 export type Methods<M = Record<string, any>> = Record<
   keyof M,
@@ -30,8 +31,11 @@ export class Local {
     allowDuplicate: true,
     isolate: true,
   });
+  private closed = false;
 
   register(service: string, methods: Methods) {
+    this.checkOpen();
+
     if (this.services.has(service)) {
       throw new MusterError(
         "rejected",
@@ -40,18 +44,24 @@ export class Local {
     }
 
     this.services.set(service, methods);
-    return true;
   }
 
   unregister(service: string) {
+    this.checkOpen();
     return this.services.delete(service);
   }
 
   has(service: string) {
+    if (this.closed) {
+      return false;
+    }
+
     return this.services.has(service);
   }
 
-  invoke(service: string, method: string, args: unknown[]) {
+  invoke(service: string, method: string, args: unknown[], timeout?: number) {
+    this.checkOpen();
+
     const methods = this.services.get(service);
 
     if (methods === undefined) {
@@ -67,19 +77,42 @@ export class Local {
       );
     }
 
-    return handler.apply(methods, args);
+    const value = handler.apply(methods, args);
+
+    if (timeout === undefined) {
+      return value;
+    }
+
+    return withTimeout(
+      value,
+      timeout,
+      () => new MusterError("timeout", `call timed out: ${service}.${method}`),
+    );
   }
 
   subscribe(topic: string, handler: TopicHandler) {
+    this.checkOpen();
     return this.topics.on(topic, handler);
   }
 
   publish(topic: string, data: unknown, nodeId: string) {
+    this.checkOpen();
     this.topics.emit(topic, data, nodeId);
   }
 
   close() {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
     this.services.clear();
     this.topics.removeAllListeners();
+  }
+
+  private checkOpen() {
+    if (this.closed) {
+      throw new MusterError("rejected", "local is closed");
+    }
   }
 }

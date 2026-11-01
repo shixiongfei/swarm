@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Registry } from "./registry.ts";
+import type { MusterError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
 describe("Registry", () => {
@@ -51,16 +52,6 @@ describe("Registry", () => {
 
     assert.equal(registry.add("math", "node-a", { build: 2 }), instance);
     assert.deepEqual(registry.lookup("math"), [instance]);
-    assert.deepEqual(events, [{ type: "up", instance }]);
-  });
-
-  test("add emits up after a watcher is attached", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    registry.watch("math", (event) => events.push(event));
-
-    const instance = registry.add("math", "node-a");
-
     assert.deepEqual(events, [{ type: "up", instance }]);
   });
 
@@ -182,34 +173,40 @@ describe("Registry", () => {
     registry.watch("math", (event) => events.push(event));
 
     const a = registry.add("math", "node-a");
-    registry.add("math", "node-b");
+    const b = registry.add("math", "node-b");
     registry.drop("node-a");
 
-    assert.deepEqual(events.at(-1), { type: "down", instance: a });
+    assert.deepEqual(events, [
+      { type: "up", instance: a },
+      { type: "up", instance: b },
+      { type: "down", instance: a },
+    ]);
   });
 
-  test("off stops delivery and is idempotent", () => {
+  test("unsubscribe stops delivery and is idempotent", () => {
     const registry = new Registry();
     const events: WatchEvent[] = [];
-    const off = registry.watch("math", (event) => events.push(event));
+    const unsubscribe = registry.watch("math", (event) => events.push(event));
     registry.add("math", "node-a");
     const before = events.length;
 
-    off();
-    off();
+    unsubscribe();
+    unsubscribe();
     registry.add("math", "node-b");
 
     assert.equal(events.length, before);
   });
 
-  test("off only removes its own registration", () => {
+  test("unsubscribe only removes its own registration", () => {
     const registry = new Registry();
     const first: WatchEvent[] = [];
     const second: WatchEvent[] = [];
-    const offFirst = registry.watch("math", (event) => first.push(event));
+    const unsubscribeFirst = registry.watch("math", (event) =>
+      first.push(event),
+    );
     registry.watch("math", (event) => second.push(event));
 
-    offFirst();
+    unsubscribeFirst();
     registry.add("math", "node-a");
 
     assert.equal(first.length, 0);
@@ -251,6 +248,7 @@ describe("Registry", () => {
     const b = registry.add("echo", "node-b");
 
     registry.close();
+    registry.close();
 
     assert.deepEqual(events, [
       { type: "up", instance: a },
@@ -259,7 +257,10 @@ describe("Registry", () => {
       { type: "down", instance: b },
     ]);
 
-    registry.add("math", "node-c");
+    assert.throws(
+      () => registry.add("math", "node-c"),
+      (err: MusterError) => err.kind === "rejected",
+    );
     assert.equal(events.length, 4);
   });
 
@@ -273,7 +274,45 @@ describe("Registry", () => {
     assert.deepEqual(registry.snapshot(), []);
     assert.deepEqual(registry.registrations("node-a"), []);
 
-    registry.add("math", "node-a");
+    assert.throws(
+      () => registry.add("math", "node-a"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => registry.remove("math", "node-a"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => registry.drop("node-a"),
+      (err: MusterError) => err.kind === "rejected",
+    );
+    assert.throws(
+      () => registry.watch("math", () => {}),
+      (err: MusterError) => err.kind === "rejected",
+    );
     assert.equal(events.length, 0);
+  });
+
+  test("close rejects re-entry from a down watcher", () => {
+    const registry = new Registry();
+    let error: MusterError | undefined;
+
+    registry.watch("math", (event) => {
+      if (event.type !== "down") {
+        return;
+      }
+
+      try {
+        registry.add("math", "node-b");
+      } catch (err) {
+        error = err as MusterError;
+      }
+    });
+
+    registry.add("math", "node-a");
+    registry.close();
+
+    assert.equal(error !== undefined && error.kind === "rejected", true);
+    assert.deepEqual(registry.lookup("math"), []);
   });
 });
