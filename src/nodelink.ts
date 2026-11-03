@@ -14,7 +14,7 @@ import { MusterError } from "./errors.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import type { Link } from "./link.ts";
-import type { NodeLocal } from "./nodelocal.ts";
+import type { Provider } from "./provider.ts";
 import type { Envelope, Service } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
@@ -23,7 +23,7 @@ type NodeLinkEvents = {
 };
 
 type NodeLinkConfig = {
-  nodeLocal: NodeLocal;
+  provider: Provider;
   secret?: string;
 };
 
@@ -34,9 +34,9 @@ export class NodeLink implements Observable {
   });
   readonly secret?: string;
 
-  private readonly nodeLocal: NodeLocal;
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
+  private readonly provider: Provider;
   private readonly link: Link;
   private peerId?: string;
   private closed = false;
@@ -51,7 +51,7 @@ export class NodeLink implements Observable {
         }
 
         if (this.connect(message.from, message.services)) {
-          this.link.accept(this.nodeLocal.registrations(), this.secret);
+          this.link.accept(this.provider.registrations(), this.secret);
         }
         return;
 
@@ -88,11 +88,7 @@ export class NodeLink implements Observable {
 
         Promise.resolve()
           .then(() =>
-            this.nodeLocal.invoke(
-              message.service,
-              message.method,
-              message.args,
-            ),
+            this.provider.invoke(message.service, message.method, message.args),
           )
           .then(
             (value) => {
@@ -135,7 +131,7 @@ export class NodeLink implements Observable {
 
       case "pub":
         if (this.peerId !== undefined && message.from === this.peerId) {
-          this.nodeLocal.publish(message.topic, message.data, message.from);
+          this.provider.publish(message.topic, message.data, message.from);
         }
         return;
     }
@@ -145,7 +141,7 @@ export class NodeLink implements Observable {
 
   constructor(link: Link, config: NodeLinkConfig) {
     this.link = link;
-    this.nodeLocal = config.nodeLocal;
+    this.provider = config.provider;
     this.secret = config.secret;
 
     this.disposes = [
@@ -157,7 +153,7 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.link.hello(this.nodeLocal.registrations(), this.secret);
+    this.link.hello(this.provider.registrations(), this.secret);
   }
 
   register(instance: Instance) {

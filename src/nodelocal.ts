@@ -11,10 +11,11 @@
 
 import { Local } from "./local.ts";
 import { Registry } from "./registry.ts";
+import type { Provider } from "./provider.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { MetaData, Observable, WatchHandler } from "./registry.ts";
 
-export class NodeLocal implements Observable {
+export class NodeLocal implements Observable, Provider {
   private readonly nodeId: string;
   private readonly registry = new Registry();
   private readonly local = new Local();

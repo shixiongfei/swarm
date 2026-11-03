@@ -100,7 +100,7 @@ export class Node {
     this.checkOpen();
 
     const nodeLink = new NodeLink(new LinkPort(port, this.nodeId), {
-      nodeLocal: this.nodeLocal,
+      provider: this.nodeLocal,
       secret: secret !== undefined ? secret : this.secret,
     });
 
