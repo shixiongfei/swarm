@@ -25,7 +25,7 @@ describe("NodeLink", () => {
     let closed = 0;
 
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
-      nodeLocal: local,
+      provider: local,
     });
 
     link.events.on("close", () => {
@@ -48,7 +48,7 @@ describe("NodeLink", () => {
     const local = new NodeLocal("local-node");
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
-      nodeLocal: local,
+      provider: local,
     });
 
     t.after(() => {
