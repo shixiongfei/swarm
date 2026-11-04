@@ -127,7 +127,7 @@ export class Node {
 
   join(port: MessagePort, secret?: string) {
     this.checkOpen();
-    this.nodeHub.join(port, secret);
+    this.nodeHub.join(new LinkPort(port, this.nodeId), secret);
 
     return this;
   }

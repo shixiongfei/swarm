@@ -10,10 +10,10 @@
  */
 
 import { eventlite } from "eventlite.js";
-import { LinkPort } from "./linkport.ts";
 import { MusterError } from "./errors.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
+import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
@@ -54,8 +54,8 @@ export class NodeHub implements Provider, Observable {
     });
   }
 
-  join(port: MessagePort, secret?: string) {
-    const nodeLink = new NodeLink(new LinkPort(port, this.nodeId), {
+  join(link: Link, secret?: string) {
+    const nodeLink = new NodeLink(link, {
       provider: this,
       secret: secret !== undefined ? secret : this.secret,
     });
