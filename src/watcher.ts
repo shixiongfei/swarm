@@ -83,11 +83,18 @@ export class Watcher implements Observable {
   }
 
   close() {
+    const instances = this.instances();
+
     for (const unsubscribe of this.unsubscribes.values()) {
       unsubscribe();
     }
 
     this.unsubscribes.clear();
+
+    for (const instance of instances) {
+      this.emit({ type: "down", instance });
+    }
+
     this.watches.clear();
     this.handlers.length = 0;
     this.observed.clear();

@@ -187,20 +187,28 @@ describe("Watcher", () => {
     ]);
   });
 
-  test("close stops delivery and clears instances", () => {
+  test("close emits down to global and service watchers", () => {
     const watcher = new Watcher();
     const source = new Registry();
-    const events: WatchEvent[] = [];
+    const globalEvents: WatchEvent[] = [];
+    const mathEvents: WatchEvent[] = [];
 
     watcher.addSource(source);
-    watcher.watch((event) => events.push(event));
-    source.add("math", "node-a");
-    const before = events.length;
+    watcher.watch((event) => globalEvents.push(event));
+    watcher.watch("math", (event) => mathEvents.push(event));
 
+    source.add("math", "node-a");
     watcher.close();
     source.add("echo", "node-b");
 
-    assert.equal(events.length, before);
+    const up = { type: "up", instance: { service: "math", nodeId: "node-a" } };
+    const down = {
+      type: "down",
+      instance: { service: "math", nodeId: "node-a" },
+    };
+
+    assert.deepEqual(globalEvents, [up, down]);
+    assert.deepEqual(mathEvents, [up, down]);
     assert.deepEqual(watcher.instances(), []);
   });
 

@@ -61,6 +61,10 @@ export class Node {
       secret: this.secret,
     });
 
+    this.nodeHub.events.on("publish", (topic, data, from) => {
+      this.nodeLocal.publish(topic, data, from);
+    });
+
     this.watcher.addSource(this.nodeHub);
   }
 

@@ -19,7 +19,7 @@ import type { WatchEvent } from "./registry.ts";
 
 const source = new URL("./index.ts", import.meta.url).href;
 
-type Role = "server" | "watcher" | "client";
+type Role = "server" | "watcher" | "client" | "late" | "self";
 
 function createWorker(role: Role) {
   const { port1, port2 } = new MessageChannel();
@@ -42,6 +42,21 @@ const { parentPort, workerData } = require("node:worker_threads");
   if (${JSON.stringify(role)} === "watcher") {
     node.attach(port);
     node.watch("echo", (event) => parentPort.postMessage({ kind: "echo-" + event.type }));
+    return;
+  }
+
+  if (${JSON.stringify(role)} === "late") {
+    node.attach(port);
+    node.register("late", { ping: () => 1 });
+    return;
+  }
+
+  if (${JSON.stringify(role)} === "self") {
+    node.register("self", { ping: () => 1 });
+    node.watch("self", (event) => {
+      if (event.type === "up") parentPort.postMessage({ kind: "self-up", value: event.instance.nodeId });
+    });
+    node.attach(port);
     return;
   }
 
@@ -106,6 +121,9 @@ describe("NodeHub", () => {
       const client = createWorker("client");
       const serverNews: unknown[] = [];
       const clientNews: unknown[] = [];
+      const mainNews: unknown[] = [];
+
+      node.subscribe("news", (data) => mainNews.push(data));
 
       t.after(async () => {
         node.close();
@@ -135,17 +153,29 @@ describe("NodeHub", () => {
       assert.equal(await node.call("echo", "ping", [5]), 10);
       assert.equal(await called, 42);
 
-      await waitFor(() => serverNews.length === 1 && clientNews.length === 1);
+      await waitFor(
+        () =>
+          serverNews.length === 1 &&
+          clientNews.length === 1 &&
+          mainNews.length === 1,
+      );
 
       assert.deepEqual(serverNews, ["hello"]);
       assert.deepEqual(clientNews, ["hello"]);
+      assert.deepEqual(mainNews, ["hello"]);
 
       node.publish("news", "from-main");
 
-      await waitFor(() => serverNews.length === 2 && clientNews.length === 2);
+      await waitFor(
+        () =>
+          serverNews.length === 2 &&
+          clientNews.length === 2 &&
+          mainNews.length === 2,
+      );
 
       assert.deepEqual(serverNews, ["hello", "from-main"]);
       assert.deepEqual(clientNews, ["hello", "from-main"]);
+      assert.deepEqual(mainNews, ["hello", "from-main"]);
     },
   );
 
@@ -199,4 +229,48 @@ describe("NodeHub", () => {
       );
     },
   );
+  test("keeps a registration made right after attach", { timeout: 5000 }, async (t) => {
+    const node = new Node({ cluster: "hub-late", callTimeout: 1000 });
+    const late = createWorker("late");
+
+    t.after(async () => {
+      node.close();
+      await Promise.allSettled([late.worker.terminate()]);
+    });
+
+    const up = new Promise<WatchEvent>((resolve) =>
+      node.watch("late", (event) => {
+        if (event.type === "up") {
+          resolve(event);
+        }
+      }),
+    );
+
+    node.join(late.port);
+
+    assert.equal((await up).instance.service, "late");
+    assert.equal(await node.call("late", "ping"), 1);
+  });
+
+  test("does not echo a worker's own service back", { timeout: 5000 }, async (t) => {
+    const node = new Node({ cluster: "hub-echo", callTimeout: 1000 });
+    const worker = createWorker("self");
+    const ups: unknown[] = [];
+
+    t.after(async () => {
+      node.close();
+      await Promise.allSettled([worker.worker.terminate()]);
+    });
+
+    collect(worker.worker, "self-up", ups);
+
+    node.join(worker.port);
+
+    await waitFor(() => ups.length > 0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(ups.length, 1);
+    assert.equal(await node.call("self", "ping"), 1);
+  });
+
 });

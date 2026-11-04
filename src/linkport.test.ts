@@ -166,4 +166,42 @@ describe("LinkPort", () => {
       ["a", "b"],
     );
   });
+  test("propagates data clone errors", (t) => {
+    const { port1, port2 } = new MessageChannel();
+    const link = new LinkPort(port1, "node-a");
+
+    t.after(() => {
+      link.close();
+      port2.close();
+    });
+
+    assert.throws(
+      () =>
+        link.send({
+          t: "pub",
+          from: "node-a",
+          topic: "news",
+          data: () => {},
+        }),
+      (err: Error) => err.name === "DataCloneError",
+    );
+  });
+
+  test("ignores a send after the port is closed", (t) => {
+    const { port1, port2 } = new MessageChannel();
+    const link = new LinkPort(port1, "node-a");
+
+    t.after(() => {
+      link.close();
+      port2.close();
+    });
+
+    port2.start();
+    port1.close();
+
+    assert.doesNotThrow(() =>
+      link.send({ t: "pub", from: "node-a", topic: "news", data: 1 }),
+    );
+  });
+
 });

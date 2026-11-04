@@ -9,12 +9,17 @@
  * https://github.com/shixiongfei/muster
  */
 
+import { eventlite } from "eventlite.js";
 import { LinkPort } from "./linkport.ts";
 import { MusterError } from "./errors.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Provider } from "./provider.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
+
+export type NodeHubEvents = {
+  publish: (topic: string, data: unknown, from: string) => void;
+};
 
 export type NodeHubConfig = {
   nodeId: string;
@@ -23,6 +28,11 @@ export type NodeHubConfig = {
 };
 
 export class NodeHub implements Provider, Observable {
+  readonly events = eventlite<NodeHubEvents>({
+    allowDuplicate: true,
+    isolate: true,
+  });
+
   private readonly nodeId: string;
   private readonly callTimeout: number;
   private readonly secret?: string;
@@ -81,12 +91,16 @@ export class NodeHub implements Provider, Observable {
   }
 
   publish(topic: string, data: unknown, from?: string) {
-    for (const link of this.nodeLinks) {
-      if (from !== undefined && link.peerId === from) {
+    for (const nodeLink of this.nodeLinks) {
+      if (from !== undefined && nodeLink.peerId === from) {
         continue;
       }
 
-      link.publish(topic, data);
+      nodeLink.publish(topic, data);
+    }
+
+    if (from !== undefined) {
+      this.events.emit("publish", topic, data, from);
     }
   }
 

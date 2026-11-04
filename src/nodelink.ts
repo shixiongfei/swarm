@@ -50,8 +50,10 @@ export class NodeLink implements Observable {
           return;
         }
 
+        const services = this.provider.registrations();
+
         if (this.connect(message.from, message.services)) {
-          this.link.accept(this.provider.registrations(), this.secret);
+          this.link.accept(services, this.secret);
         }
         return;
 
@@ -161,18 +163,10 @@ export class NodeLink implements Observable {
   }
 
   register(instance: Instance) {
-    if (this.peer === undefined) {
-      return;
-    }
-
     this.link.register(instance);
   }
 
   unregister(instance: Instance) {
-    if (this.peer === undefined) {
-      return;
-    }
-
     this.link.unregister(instance);
   }
 
@@ -220,10 +214,6 @@ export class NodeLink implements Observable {
   }
 
   publish(topic: string, data: unknown) {
-    if (this.peer === undefined) {
-      return;
-    }
-
     this.link.publish(topic, data);
   }
 

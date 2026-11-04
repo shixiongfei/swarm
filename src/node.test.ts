@@ -457,4 +457,51 @@ describe("Node", () => {
     assert.equal(await b.call("echo", "ping"), "pong");
     assert.equal(observed, 0);
   });
+  test("registers a service after attach", { timeout: 1000 }, async (t) => {
+    const a = new Node({ cluster: "late-register-a" });
+    const b = new Node({ cluster: "late-register-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const up = new Promise<WatchEvent>((resolve) => b.watch("late", resolve));
+
+    a.attach(port1);
+    b.attach(port2);
+
+    a.register("late", { ping: () => 1 });
+
+    assert.equal((await up).instance.service, "late");
+    assert.equal(await b.call("late", "ping"), 1);
+  });
+
+  test("publishes after attach", { timeout: 1000 }, async (t) => {
+    const a = new Node({ cluster: "late-publish-a" });
+    const b = new Node({ cluster: "late-publish-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const received = new Promise<unknown>((resolve) =>
+      b.subscribe("news", resolve),
+    );
+
+    a.attach(port1);
+    b.attach(port2);
+
+    a.publish("news", 1);
+
+    assert.equal(await received, 1);
+  });
+
 });

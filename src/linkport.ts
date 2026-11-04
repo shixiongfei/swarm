@@ -63,7 +63,13 @@ export class LinkPort extends Link {
       return;
     }
 
-    this.port.postMessage(message);
+    try {
+      this.port.postMessage(message);
+    } catch (err) {
+      if (err instanceof Error && err.name === "DataCloneError") {
+        throw err;
+      }
+    }
   }
 
   close() {
