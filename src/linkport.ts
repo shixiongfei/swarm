@@ -14,7 +14,7 @@ import { MusterError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
-const attached = new WeakSet<MessagePort>();
+const linked = new WeakSet<MessagePort>();
 
 export class LinkPort extends Link {
   private readonly port: MessagePort;
@@ -25,11 +25,11 @@ export class LinkPort extends Link {
   constructor(port: MessagePort, nodeId: string) {
     super(nodeId);
 
-    if (attached.has(port)) {
-      throw new MusterError("rejected", "port is already attached");
+    if (linked.has(port)) {
+      throw new MusterError("rejected", "port is already linked");
     }
 
-    attached.add(port);
+    linked.add(port);
 
     this.port = port;
 

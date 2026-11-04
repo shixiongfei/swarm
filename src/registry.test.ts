@@ -238,6 +238,115 @@ describe("Registry", () => {
     });
   });
 
+  test("global watch delivers the snapshot before increments", () => {
+    const registry = new Registry();
+    const a = registry.add("math", "node-a");
+    const b = registry.add("echo", "node-b");
+    const events: WatchEvent[] = [];
+
+    registry.watch((event) => events.push(event));
+    const c = registry.add("text", "node-c");
+
+    assert.deepEqual(events, [
+      { type: "up", instance: a },
+      { type: "up", instance: b },
+      { type: "up", instance: c },
+    ]);
+  });
+
+  test("global watch receives down events", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    const instance = registry.add("math", "node-a");
+
+    registry.watch((event) => events.push(event));
+    registry.remove("math", "node-a");
+
+    assert.deepEqual(events, [
+      { type: "up", instance },
+      { type: "down", instance },
+    ]);
+  });
+
+  test("global watch unsubscribe stops delivery", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    const unsubscribe = registry.watch((event) => events.push(event));
+
+    registry.add("math", "node-a");
+    const before = events.length;
+
+    unsubscribe();
+    unsubscribe();
+    registry.add("math", "node-b");
+
+    assert.equal(events.length, before);
+  });
+
+  test("global watch receives down for every instance on close", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    registry.watch((event) => events.push(event));
+
+    const a = registry.add("math", "node-a");
+    const b = registry.add("echo", "node-b");
+
+    registry.close();
+
+    assert.deepEqual(events, [
+      { type: "up", instance: a },
+      { type: "up", instance: b },
+      { type: "down", instance: a },
+      { type: "down", instance: b },
+    ]);
+  });
+
+  test("a throwing global watcher does not break add or other watchers", () => {
+    const registry = new Registry();
+    const events: WatchEvent[] = [];
+    registry.watch(() => {
+      throw new Error("boom");
+    });
+    registry.watch((event) => events.push(event));
+
+    const instance = registry.add("math", "node-a");
+
+    assert.deepEqual(registry.lookup("math"), [instance]);
+    assert.deepEqual(events, [{ type: "up", instance }]);
+  });
+
+  test("a throwing global watcher does not break the snapshot", () => {
+    const registry = new Registry();
+    registry.add("math", "node-a");
+
+    assert.doesNotThrow(() => {
+      registry.watch(() => {
+        throw new Error("boom");
+      });
+    });
+  });
+
+  test("global and service watchers both receive events", () => {
+    const registry = new Registry();
+    const globalEvents: WatchEvent[] = [];
+    const serviceEvents: WatchEvent[] = [];
+
+    registry.watch((event) => globalEvents.push(event));
+    registry.watch("math", (event) => serviceEvents.push(event));
+
+    const instance = registry.add("math", "node-a");
+    registry.remove("math", "node-a");
+
+    assert.deepEqual(globalEvents, [
+      { type: "up", instance },
+      { type: "down", instance },
+    ]);
+    assert.deepEqual(serviceEvents, [
+      { type: "up", instance },
+      { type: "down", instance },
+    ]);
+  });
+
   test("close emits down for every instance", () => {
     const registry = new Registry();
     const events: WatchEvent[] = [];

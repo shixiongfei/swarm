@@ -63,6 +63,147 @@ describe("Watcher", () => {
     ]);
   });
 
+  test("global watch replays observed instances", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    source.add("math", "node-a");
+
+    watcher.addSource(source);
+
+    const events: WatchEvent[] = [];
+    watcher.watch((event) => events.push(event));
+
+    assert.deepEqual(events, [
+      { type: "up", instance: { service: "math", nodeId: "node-a" } },
+    ]);
+  });
+
+  test("global watch receives up and down across sources", () => {
+    const watcher = new Watcher();
+    const local = new Registry();
+    const peer = new Registry();
+    const events: WatchEvent[] = [];
+
+    watcher.addSource(local);
+    watcher.addSource(peer);
+    watcher.watch((event) => events.push(event));
+
+    local.add("math", "node-a");
+    peer.add("math", "node-a");
+    peer.add("math", "node-b");
+    watcher.removeSource(local);
+
+    assert.deepEqual(events, [
+      { type: "up", instance: { service: "math", nodeId: "node-a" } },
+      { type: "up", instance: { service: "math", nodeId: "node-b" } },
+    ]);
+
+    peer.remove("math", "node-a");
+
+    assert.deepEqual(events, [
+      { type: "up", instance: { service: "math", nodeId: "node-a" } },
+      { type: "up", instance: { service: "math", nodeId: "node-b" } },
+      { type: "down", instance: { service: "math", nodeId: "node-a" } },
+    ]);
+  });
+
+  test("addSource replays the source into existing watchers", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const events: WatchEvent[] = [];
+
+    watcher.watch((event) => events.push(event));
+
+    source.add("math", "node-a");
+    watcher.addSource(source);
+
+    assert.deepEqual(events, [
+      { type: "up", instance: { service: "math", nodeId: "node-a" } },
+    ]);
+  });
+
+  test("removeSource emits down to global watchers", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const events: WatchEvent[] = [];
+
+    watcher.addSource(source);
+    watcher.watch((event) => events.push(event));
+    source.add("math", "node-a");
+    watcher.removeSource(source);
+
+    assert.deepEqual(events, [
+      { type: "up", instance: { service: "math", nodeId: "node-a" } },
+      { type: "down", instance: { service: "math", nodeId: "node-a" } },
+    ]);
+  });
+
+  test("global unsubscribe stops delivery", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const events: WatchEvent[] = [];
+    const unsubscribe = watcher.watch((event) => events.push(event));
+
+    watcher.addSource(source);
+    source.add("math", "node-a");
+    const before = events.length;
+
+    unsubscribe();
+    unsubscribe();
+    source.add("math", "node-b");
+
+    assert.equal(events.length, before);
+  });
+
+  test("global and service watchers are independent", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const globalEvents: WatchEvent[] = [];
+    const serviceEvents: WatchEvent[] = [];
+
+    watcher.addSource(source);
+    watcher.watch((event) => globalEvents.push(event));
+    watcher.watch("math", (event) => serviceEvents.push(event));
+
+    source.add("echo", "node-a");
+
+    assert.deepEqual(globalEvents, [
+      { type: "up", instance: { service: "echo", nodeId: "node-a" } },
+    ]);
+    assert.deepEqual(serviceEvents, []);
+  });
+
+  test("instances returns every observed instance", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+
+    watcher.addSource(source);
+    source.add("math", "node-a");
+    source.add("echo", "node-b");
+
+    assert.deepEqual(watcher.instances(), [
+      { service: "math", nodeId: "node-a" },
+      { service: "echo", nodeId: "node-b" },
+    ]);
+  });
+
+  test("close stops delivery and clears instances", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const events: WatchEvent[] = [];
+
+    watcher.addSource(source);
+    watcher.watch((event) => events.push(event));
+    source.add("math", "node-a");
+    const before = events.length;
+
+    watcher.close();
+    source.add("echo", "node-b");
+
+    assert.equal(events.length, before);
+    assert.deepEqual(watcher.instances(), []);
+  });
+
   test("addSource ignores a duplicate source", () => {
     const watcher = new Watcher();
     const source = new Registry();

@@ -14,20 +14,6 @@ import { MusterError } from "./errors.ts";
 
 export type MetaData = Record<string, unknown>;
 
-export function isMetaData(value: unknown): value is MetaData | undefined {
-  if (value === undefined) {
-    return true;
-  }
-
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-
-  const proto = Object.getPrototypeOf(value);
-
-  return proto === Object.prototype || proto === null;
-}
-
 export type Instance = {
   readonly service: string;
   readonly nodeId: string;
@@ -41,13 +27,23 @@ export interface WatchEvent {
 
 export type WatchHandler = (event: WatchEvent) => void;
 
+const up = Symbol("up");
+const down = Symbol("down");
+
+export type RegistryEvents = {
+  [up]: (instance: Instance) => void;
+  [down]: (instance: Instance) => void;
+  [service: string]: (event: WatchEvent) => void;
+};
+
 export interface Observable {
+  watch(handler: WatchHandler): () => void;
   watch(service: string, handler: WatchHandler): () => void;
 }
 
 export class Registry implements Observable {
   private readonly table = new Map<string, Instance[]>();
-  private readonly events = eventlite<string>({
+  private readonly events = eventlite<RegistryEvents>({
     allowDuplicate: true,
     isolate: true,
   });
@@ -75,6 +71,7 @@ export class Registry implements Observable {
       this.table.set(service, [instance]);
     }
 
+    this.events.emit(up, instance);
     this.events.emit(service, { type: "up", instance });
     return instance;
   }
@@ -103,20 +100,20 @@ export class Registry implements Observable {
     return this.snapshot().filter((instance) => instance.nodeId === nodeId);
   }
 
-  watch(service: string, handler: WatchHandler) {
+  watch(handler: WatchHandler): () => void;
+  watch(service: string, handler: WatchHandler): () => void;
+  watch(service: string | WatchHandler, handler?: WatchHandler) {
     this.checkOpen();
 
-    const unsubscribe = this.events.on(service, handler);
-
-    for (const instance of this.lookup(service)) {
-      try {
-        handler({ type: "up", instance });
-      } catch (err) {
-        // An observer must never break the caller.
-      }
+    if (typeof service === "function") {
+      return this.watchAll(service);
     }
 
-    return unsubscribe;
+    if (handler === undefined) {
+      throw new MusterError("rejected", "watch handler is required");
+    }
+
+    return this.watchService(service, handler);
   }
 
   drop(nodeId: string) {
@@ -143,6 +140,45 @@ export class Registry implements Observable {
     this.events.removeAllListeners();
   }
 
+  private watchAll(handler: WatchHandler) {
+    const unsubscribes = [
+      this.events.on(up, (instance) => {
+        handler({ type: "up", instance });
+      }),
+      this.events.on(down, (instance) => {
+        handler({ type: "down", instance });
+      }),
+    ];
+
+    for (const instance of this.snapshot()) {
+      try {
+        handler({ type: "up", instance });
+      } catch (err) {
+        // An observer must never break the caller.
+      }
+    }
+
+    return () => {
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
+    };
+  }
+
+  private watchService(service: string, handler: WatchHandler) {
+    const unsubscribe = this.events.on(service, handler);
+
+    for (const instance of this.lookup(service)) {
+      try {
+        handler({ type: "up", instance });
+      } catch (err) {
+        // An observer must never break the caller.
+      }
+    }
+
+    return unsubscribe;
+  }
+
   private evict(service: string, nodeId: string) {
     const instances = this.table.get(service);
 
@@ -162,6 +198,7 @@ export class Registry implements Observable {
       this.table.delete(service);
     }
 
+    this.events.emit(down, instance);
     this.events.emit(service, { type: "down", instance });
     return instance;
   }
@@ -171,4 +208,18 @@ export class Registry implements Observable {
       throw new MusterError("rejected", "registry is closed");
     }
   }
+}
+
+export function isMetaData(value: unknown): value is MetaData | undefined {
+  if (value === undefined) {
+    return true;
+  }
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const proto = Object.getPrototypeOf(value);
+
+  return proto === Object.prototype || proto === null;
 }

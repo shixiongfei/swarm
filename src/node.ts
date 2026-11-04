@@ -14,6 +14,7 @@ import { MusterError } from "./errors.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
 import { NodeLink } from "./nodelink.ts";
+import { NodeHub } from "./nodehub.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
 import type { Methods, TopicHandler } from "./local.ts";
@@ -31,8 +32,6 @@ export type NodeConfig = {
   callTimeout?: number;
 };
 
-export type NodeOptions = Partial<NodeConfig>;
-
 const nodes = new Map<string, Node>();
 
 export class Node {
@@ -42,6 +41,7 @@ export class Node {
 
   private readonly nodeLocal = new NodeLocal(this.nodeId);
   private readonly nodeLinks: NodeLink[] = [];
+  private readonly nodeHub: NodeHub;
   private readonly watcher = new Watcher();
   private readonly callTimeout: number;
   private closed = false;
@@ -54,6 +54,14 @@ export class Node {
 
     this.callTimeout =
       config.callTimeout !== undefined ? config.callTimeout : 5000;
+
+    this.nodeHub = new NodeHub({
+      nodeId: this.nodeId,
+      callTimeout: this.callTimeout,
+      secret: this.secret,
+    });
+
+    this.watcher.addSource(this.nodeHub);
   }
 
   register(service: string, methods: Methods, meta?: MetaData) {
@@ -113,6 +121,13 @@ export class Node {
     return this;
   }
 
+  join(port: MessagePort, secret?: string) {
+    this.checkOpen();
+    this.nodeHub.join(port, secret);
+
+    return this;
+  }
+
   call(
     service: string,
     method: string,
@@ -148,7 +163,14 @@ export class Node {
         return;
       }
 
-      reject(new MusterError("not-found", `service not found: ${service}`));
+      const call = this.nodeHub.call(service, method, args, timeout);
+
+      if (call === undefined) {
+        reject(new MusterError("not-found", `service not found: ${service}`));
+        return;
+      }
+
+      call.then(resolve, reject);
     });
   }
 
@@ -191,6 +213,7 @@ export class Node {
       nodeLink.publish(topic, data);
     }
 
+    this.nodeHub.publish(topic, data);
     this.nodeLocal.publish(topic, data, this.nodeId);
   }
 
@@ -207,6 +230,7 @@ export class Node {
 
     this.nodeLinks.length = 0;
 
+    this.nodeHub.close();
     this.nodeLocal.close();
     this.watcher.close();
 
@@ -231,6 +255,8 @@ export class Node {
     this.watcher.removeSource(nodeLink);
   }
 }
+
+export type NodeOptions = Partial<NodeConfig>;
 
 export function createNode(options: NodeOptions = {}) {
   const cluster = options.cluster === undefined ? "default" : options.cluster;

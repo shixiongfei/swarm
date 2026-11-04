@@ -9,6 +9,7 @@
  * https://github.com/shixiongfei/muster
  */
 
+import { MusterError } from "./errors.ts";
 import type {
   Instance,
   Observable,
@@ -21,24 +22,23 @@ type Observed = {
   sources: Set<Observable>;
 };
 
-type Watch = {
-  handlers: WatchHandler[];
-  observed: Map<string, Observed>;
-  unsubscribes: Map<Observable, () => void>;
-};
-
-export class Watcher {
+export class Watcher implements Observable {
   private readonly sources = new Set<Observable>();
-  private readonly watches = new Map<string, Watch>();
+  private readonly unsubscribes = new Map<Observable, () => void>();
+  private readonly observed = new Map<string, Map<string, Observed>>();
+  private readonly watches = new Map<string, WatchHandler[]>();
+  private readonly handlers: WatchHandler[] = [];
 
   addSource(source: Observable) {
-    if (!this.sources.add(source)) {
+    if (this.sources.has(source)) {
       return;
     }
 
-    for (const [service, watch] of this.watches) {
-      this.subscribe(watch, service, source);
-    }
+    this.sources.add(source);
+
+    const unsubscribe = source.watch((event) => this.observe(source, event));
+
+    this.unsubscribes.set(source, unsubscribe);
   }
 
   removeSource(source: Observable) {
@@ -46,8 +46,165 @@ export class Watcher {
       return;
     }
 
-    for (const watch of this.watches.values()) {
-      for (const [nodeId, observed] of watch.observed) {
+    const unsubscribe = this.unsubscribes.get(source);
+
+    if (unsubscribe !== undefined) {
+      unsubscribe();
+      this.unsubscribes.delete(source);
+    }
+
+    this.drop(source);
+  }
+
+  watch(handler: WatchHandler): () => void;
+  watch(service: string, handler: WatchHandler): () => void;
+  watch(service: string | WatchHandler, handler?: WatchHandler) {
+    if (typeof service === "function") {
+      return this.watchAll(service);
+    }
+
+    if (handler === undefined) {
+      throw new MusterError("rejected", "watch handler is required");
+    }
+
+    return this.watchService(service, handler);
+  }
+
+  instances() {
+    const instances: Instance[] = [];
+
+    for (const bucket of this.observed.values()) {
+      for (const observed of bucket.values()) {
+        instances.push(observed.instance);
+      }
+    }
+
+    return instances;
+  }
+
+  close() {
+    for (const unsubscribe of this.unsubscribes.values()) {
+      unsubscribe();
+    }
+
+    this.unsubscribes.clear();
+    this.watches.clear();
+    this.handlers.length = 0;
+    this.observed.clear();
+    this.sources.clear();
+  }
+
+  private watchAll(handler: WatchHandler) {
+    this.handlers.push(handler);
+
+    for (const bucket of this.observed.values()) {
+      for (const observed of bucket.values()) {
+        notify([handler], { type: "up", instance: observed.instance });
+      }
+    }
+
+    return () => {
+      const index = this.handlers.indexOf(handler);
+
+      if (index >= 0) {
+        this.handlers.splice(index, 1);
+      }
+    };
+  }
+
+  private watchService(service: string, handler: WatchHandler) {
+    let handlers = this.watches.get(service);
+
+    if (handlers === undefined) {
+      handlers = [];
+      this.watches.set(service, handlers);
+    }
+
+    handlers.push(handler);
+
+    const bucket = this.observed.get(service);
+
+    if (bucket !== undefined) {
+      for (const observed of bucket.values()) {
+        notify([handler], { type: "up", instance: observed.instance });
+      }
+    }
+
+    return () => {
+      const index = handlers.indexOf(handler);
+
+      if (index < 0) {
+        return;
+      }
+
+      handlers.splice(index, 1);
+
+      if (handlers.length === 0) {
+        this.watches.delete(service);
+      }
+    };
+  }
+
+  private observe(source: Observable, event: WatchEvent) {
+    const { instance } = event;
+
+    if (event.type === "up") {
+      let bucket = this.observed.get(instance.service);
+
+      if (bucket === undefined) {
+        bucket = new Map();
+        this.observed.set(instance.service, bucket);
+      }
+
+      const observed = bucket.get(instance.nodeId);
+
+      if (observed !== undefined) {
+        observed.sources.add(source);
+        return;
+      }
+
+      bucket.set(instance.nodeId, { instance, sources: new Set([source]) });
+      this.emit(event);
+      return;
+    }
+
+    const bucket = this.observed.get(instance.service);
+    const observed = bucket?.get(instance.nodeId);
+
+    if (bucket === undefined || observed === undefined) {
+      return;
+    }
+
+    if (!observed.sources.delete(source)) {
+      return;
+    }
+
+    if (observed.sources.size > 0) {
+      return;
+    }
+
+    bucket.delete(instance.nodeId);
+
+    if (bucket.size === 0) {
+      this.observed.delete(instance.service);
+    }
+
+    this.emit({ type: "down", instance: observed.instance });
+  }
+
+  private emit(event: WatchEvent) {
+    notify(this.handlers, event);
+
+    const handlers = this.watches.get(event.instance.service);
+
+    if (handlers !== undefined) {
+      notify(handlers, event);
+    }
+  }
+
+  private drop(source: Observable) {
+    for (const [service, bucket] of this.observed) {
+      for (const [nodeId, observed] of bucket) {
         if (!observed.sources.delete(source)) {
           continue;
         }
@@ -56,120 +213,15 @@ export class Watcher {
           continue;
         }
 
-        watch.observed.delete(nodeId);
-        notify(watch.handlers, { type: "down", instance: observed.instance });
+        bucket.delete(nodeId);
+        this.emit({ type: "down", instance: observed.instance });
       }
 
-      const unsubscribe = watch.unsubscribes.get(source);
-
-      if (unsubscribe !== undefined) {
-        unsubscribe();
-        watch.unsubscribes.delete(source);
+      if (bucket.size === 0) {
+        this.observed.delete(service);
       }
     }
   }
-
-  watch(service: string, handler: WatchHandler) {
-    let watch = this.watches.get(service);
-
-    if (watch === undefined) {
-      watch = this.createWatch(service);
-    }
-
-    watch.handlers.push(handler);
-
-    for (const { instance } of watch.observed.values()) {
-      notify([handler], { type: "up", instance });
-    }
-
-    return () => {
-      const index = watch.handlers.indexOf(handler);
-
-      if (index < 0) {
-        return;
-      }
-
-      watch.handlers.splice(index, 1);
-
-      if (watch.handlers.length > 0) {
-        return;
-      }
-
-      this.watches.delete(service);
-
-      for (const unsubscribe of watch.unsubscribes.values()) {
-        unsubscribe();
-      }
-    };
-  }
-
-  close() {
-    for (const watch of this.watches.values()) {
-      for (const unsubscribe of watch.unsubscribes.values()) {
-        unsubscribe();
-      }
-    }
-
-    this.watches.clear();
-    this.sources.clear();
-  }
-
-  private createWatch(service: string) {
-    const watch: Watch = {
-      handlers: [],
-      observed: new Map(),
-      unsubscribes: new Map(),
-    };
-
-    this.watches.set(service, watch);
-
-    for (const source of this.sources) {
-      this.subscribe(watch, service, source);
-    }
-
-    return watch;
-  }
-
-  private subscribe(watch: Watch, service: string, source: Observable) {
-    const unsubscribe = source.watch(service, (event) =>
-      observe(watch, source, event),
-    );
-
-    watch.unsubscribes.set(source, unsubscribe);
-  }
-}
-
-function observe(watch: Watch, source: Observable, event: WatchEvent) {
-  const { instance } = event;
-
-  if (event.type === "up") {
-    const observed = watch.observed.get(instance.nodeId);
-
-    if (observed !== undefined) {
-      observed.sources.add(source);
-      return;
-    }
-
-    watch.observed.set(instance.nodeId, {
-      instance,
-      sources: new Set([source]),
-    });
-    notify(watch.handlers, event);
-    return;
-  }
-
-  const observed = watch.observed.get(instance.nodeId);
-
-  if (observed === undefined || !observed.sources.delete(source)) {
-    return;
-  }
-
-  if (observed.sources.size > 0) {
-    return;
-  }
-
-  watch.observed.delete(instance.nodeId);
-  notify(watch.handlers, { type: "down", instance: observed.instance });
 }
 
 function notify(handlers: WatchHandler[], event: WatchEvent) {

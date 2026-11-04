@@ -38,7 +38,7 @@ export class NodeLink implements Observable {
   private readonly pending = new PendingCalls();
   private readonly provider: Provider;
   private readonly link: Link;
-  private peerId?: string;
+  private peer?: string;
   private closed = false;
 
   private readonly onEnvelope = (message: Envelope) => {
@@ -66,21 +66,21 @@ export class NodeLink implements Observable {
         return;
 
       case "up":
-        if (this.peerId !== undefined && message.from === this.peerId) {
+        if (this.peer !== undefined && message.from === this.peer) {
           this.registry.add(message.service, message.from, message.meta);
         }
         return;
 
       case "down":
-        if (this.peerId !== undefined && message.from === this.peerId) {
+        if (this.peer !== undefined && message.from === this.peer) {
           this.registry.remove(message.service, message.from);
         }
         return;
 
       case "call":
         if (
-          this.peerId === undefined ||
-          message.from !== this.peerId ||
+          this.peer === undefined ||
+          message.from !== this.peer ||
           message.to !== this.link.nodeId
         ) {
           return;
@@ -108,8 +108,8 @@ export class NodeLink implements Observable {
 
       case "reply":
         if (
-          this.peerId !== undefined &&
-          message.from === this.peerId &&
+          this.peer !== undefined &&
+          message.from === this.peer &&
           message.to === this.link.nodeId
         ) {
           this.pending.settle(message.id, message.value);
@@ -118,8 +118,8 @@ export class NodeLink implements Observable {
 
       case "error":
         if (
-          this.peerId !== undefined &&
-          message.from === this.peerId &&
+          this.peer !== undefined &&
+          message.from === this.peer &&
           message.to === this.link.nodeId
         ) {
           this.pending.reject(
@@ -130,7 +130,7 @@ export class NodeLink implements Observable {
         return;
 
       case "pub":
-        if (this.peerId !== undefined && message.from === this.peerId) {
+        if (this.peer !== undefined && message.from === this.peer) {
           this.provider.publish(message.topic, message.data, message.from);
         }
         return;
@@ -152,12 +152,16 @@ export class NodeLink implements Observable {
     ];
   }
 
+  get peerId() {
+    return this.peer;
+  }
+
   hello() {
     this.link.hello(this.provider.registrations(), this.secret);
   }
 
   register(instance: Instance) {
-    if (this.peerId === undefined) {
+    if (this.peer === undefined) {
       return;
     }
 
@@ -165,7 +169,7 @@ export class NodeLink implements Observable {
   }
 
   unregister(instance: Instance) {
-    if (this.peerId === undefined) {
+    if (this.peer === undefined) {
       return;
     }
 
@@ -176,7 +180,17 @@ export class NodeLink implements Observable {
     return this.registry.lookup(service);
   }
 
-  watch(service: string, handler: WatchHandler) {
+  watch(handler: WatchHandler): () => void;
+  watch(service: string, handler: WatchHandler): () => void;
+  watch(service: string | WatchHandler, handler?: WatchHandler) {
+    if (typeof service === "function") {
+      return this.registry.watch(service);
+    }
+
+    if (handler === undefined) {
+      throw new MusterError("rejected", "watch handler is required");
+    }
+
     return this.registry.watch(service, handler);
   }
 
@@ -206,7 +220,7 @@ export class NodeLink implements Observable {
   }
 
   publish(topic: string, data: unknown) {
-    if (this.peerId === undefined) {
+    if (this.peer === undefined) {
       return;
     }
 
@@ -219,8 +233,8 @@ export class NodeLink implements Observable {
   }
 
   private connect(nodeId: string, services: Service[]) {
-    if (this.peerId !== undefined) {
-      if (this.peerId === nodeId) {
+    if (this.peer !== undefined) {
+      if (this.peer === nodeId) {
         return true;
       }
 
@@ -230,7 +244,7 @@ export class NodeLink implements Observable {
       return false;
     }
 
-    this.peerId = nodeId;
+    this.peer = nodeId;
 
     for (const service of services) {
       this.registry.add(service.name, nodeId, service.meta);

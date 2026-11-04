@@ -100,7 +100,7 @@ describe("LinkPort", () => {
     assert.equal(count, 1);
   });
 
-  test("rejects a port that is already attached", async (t) => {
+  test("rejects a port that is already linked", async (t) => {
     const { port1, port2 } = new MessageChannel();
     const link = new LinkPort(port1, "node-a");
 
@@ -112,7 +112,7 @@ describe("LinkPort", () => {
     assert.throws(
       () => new LinkPort(port1, "node-a"),
       (err: MusterError) =>
-        err.kind === "rejected" && err.message === "port is already attached",
+        err.kind === "rejected" && err.message === "port is already linked",
     );
 
     const received = new Promise<Envelope>((resolve) =>
@@ -123,5 +123,47 @@ describe("LinkPort", () => {
     port2.postMessage({ t: "pub", from: "node-a", topic: "news", data: 1 });
 
     assert.equal((await received).t, "pub");
+  });
+
+  test("links different ports independently", async (t) => {
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+    const a = new LinkPort(first.port1, "node-a");
+    const b = new LinkPort(second.port1, "node-b");
+    const received: Envelope[] = [];
+
+    t.after(() => {
+      a.close();
+      b.close();
+      first.port2.close();
+      second.port2.close();
+    });
+
+    const both = new Promise<void>((resolve) => {
+      const collect = (message: Envelope) => {
+        received.push(message);
+
+        if (received.length === 2) {
+          resolve();
+        }
+      };
+
+      a.events.on("envelope", collect);
+      b.events.on("envelope", collect);
+    });
+
+    first.port2.start();
+    second.port2.start();
+    first.port2.postMessage({ t: "pub", from: "node-a", topic: "a", data: 1 });
+    second.port2.postMessage({ t: "pub", from: "node-b", topic: "b", data: 2 });
+
+    await both;
+
+    assert.deepEqual(
+      received
+        .map((message) => (message.t === "pub" ? message.topic : ""))
+        .sort(),
+      ["a", "b"],
+    );
   });
 });

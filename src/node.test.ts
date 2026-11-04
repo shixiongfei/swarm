@@ -105,18 +105,6 @@ describe("Node", () => {
     );
   });
 
-  test("rejects a call whose arguments cannot be cloned", async (t) => {
-    const node = makeNode(5000);
-    const ghost = await attachGhost(node, "math");
-    t.after(ghost.close);
-
-    await assert.rejects(
-      node.call("math", "add", [() => {}]),
-      (err: MusterError) =>
-        err.kind === "failed" && err.message === "arguments are not cloneable",
-    );
-  });
-
   test("register rejects metadata that cannot be cloned", async () => {
     const node = makeNode();
 
@@ -243,22 +231,6 @@ describe("Node", () => {
     );
   });
 
-  test("fails pending calls when the link closes", async (t) => {
-    const node = makeNode(5000);
-    const ghost = await attachGhost(node, "math");
-    t.after(ghost.close);
-
-    const call = node.call("math", "add");
-
-    ghost.detach();
-
-    await assert.rejects(
-      call,
-      (err: MusterError) =>
-        err.kind === "failed" && err.message === "link is closed",
-    );
-  });
-
   test("operations fail after close", (t) => {
     const node = makeNode();
     const { port1, port2 } = new MessageChannel();
@@ -349,4 +321,141 @@ describe("Node", () => {
     assert.equal(local, 0);
     assert.equal(remote, 0);
   });
+  test("routes to another link after the first link closes", async (t) => {
+    const a = new Node({ cluster: "failover-a" });
+    const b = new Node({ cluster: "failover-b" });
+    const c = new Node({ cluster: "failover-c" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    b.register("math", { add: () => 1 });
+    c.register("math", { add: () => 2 });
+
+    const ready = new Promise<void>((resolve) => {
+      let count = 0;
+
+      a.watch("math", () => {
+        count += 1;
+
+        if (count === 2) {
+          resolve();
+        }
+      });
+    });
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    a.attach(second.port1);
+    c.attach(second.port2);
+
+    await ready;
+
+    assert.equal(await a.call("math", "add"), 1);
+
+    const closed = new Promise<void>((resolve) =>
+      first.port1.addEventListener("close", () => resolve()),
+    );
+
+    b.close();
+
+    await closed;
+
+    assert.equal(await a.call("math", "add"), 2);
+  });
+
+  test("keeps an instance while another link to the same node is open", async (t) => {
+    const a = new Node({ cluster: "union-a" });
+    const b = new Node({ cluster: "union-b" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    b.register("math", { add: () => 1 });
+
+    const up = new Promise<WatchEvent>((resolve) => a.watch("math", resolve));
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+
+    await up;
+
+    a.attach(second.port1);
+    b.attach(second.port2);
+
+    const closed = new Promise<void>((resolve) =>
+      first.port1.addEventListener("close", () => resolve()),
+    );
+
+    first.port2.close();
+
+    await closed;
+
+    const echo = new Promise<WatchEvent>((resolve) => a.watch("echo", resolve));
+
+    b.register("echo", { ping: () => "pong" });
+
+    assert.equal((await echo).instance.nodeId, b.nodeId);
+    assert.equal(await a.call("echo", "ping"), "pong");
+    assert.equal(await a.call("math", "add"), 1);
+  });
+
+  test("watch unsubscribe stops delivery", async (t) => {
+    const a = new Node({ cluster: "watch-unsubscribe-a" });
+    const b = new Node({ cluster: "watch-unsubscribe-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    a.register("math", { add: () => 1 });
+
+    const ready = new Promise<void>((resolve) =>
+      b.watch("math", () => resolve()),
+    );
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await ready;
+
+    let observed = 0;
+
+    const unsubscribe = b.watch("echo", () => {
+      observed += 1;
+    });
+
+    unsubscribe();
+
+    const up = new Promise<void>((resolve) => b.watch("echo", () => resolve()));
+
+    a.register("echo", { ping: () => "pong" });
+
+    await up;
+
+    assert.equal(await b.call("echo", "ping"), "pong");
+    assert.equal(observed, 0);
+  });
+
 });

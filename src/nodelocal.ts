@@ -9,6 +9,7 @@
  * https://github.com/shixiongfei/muster
  */
 
+import { MusterError } from "./errors.ts";
 import { Local } from "./local.ts";
 import { Registry } from "./registry.ts";
 import type { Provider } from "./provider.ts";
@@ -52,7 +53,17 @@ export class NodeLocal implements Observable, Provider {
     return this.registry.registrations(this.nodeId);
   }
 
-  watch(service: string, handler: WatchHandler) {
+  watch(handler: WatchHandler): () => void;
+  watch(service: string, handler: WatchHandler): () => void;
+  watch(service: string | WatchHandler, handler?: WatchHandler) {
+    if (typeof service === "function") {
+      return this.registry.watch(service);
+    }
+
+    if (handler === undefined) {
+      throw new MusterError("rejected", "watch handler is required");
+    }
+
     return this.registry.watch(service, handler);
   }
 
