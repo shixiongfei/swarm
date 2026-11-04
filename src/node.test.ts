@@ -457,5 +457,4 @@ describe("Node", () => {
     assert.equal(await b.call("echo", "ping"), "pong");
     assert.equal(observed, 0);
   });
-
 });

@@ -97,98 +97,106 @@ async function waitFor(check: () => boolean) {
 }
 
 describe("NodeHub", () => {
-  test("routes calls and topics between workers", { timeout: 5000 }, async (t) => {
-    const node = new Node({ cluster: "hub-routes", callTimeout: 2000 });
-    const server = createWorker("server");
-    const client = createWorker("client");
-    const serverNews: unknown[] = [];
-    const clientNews: unknown[] = [];
+  test(
+    "routes calls and topics between workers",
+    { timeout: 5000 },
+    async (t) => {
+      const node = new Node({ cluster: "hub-routes", callTimeout: 2000 });
+      const server = createWorker("server");
+      const client = createWorker("client");
+      const serverNews: unknown[] = [];
+      const clientNews: unknown[] = [];
 
-    t.after(async () => {
-      node.close();
-      await Promise.allSettled([
-        server.worker.terminate(),
-        client.worker.terminate(),
-      ]);
-    });
+      t.after(async () => {
+        node.close();
+        await Promise.allSettled([
+          server.worker.terminate(),
+          client.worker.terminate(),
+        ]);
+      });
 
-    collect(server.worker, "news", serverNews);
-    collect(client.worker, "client-news", clientNews);
+      collect(server.worker, "news", serverNews);
+      collect(client.worker, "client-news", clientNews);
 
-    const up = new Promise<WatchEvent>((resolve) =>
-      node.watch("echo", (event) => {
-        if (event.type === "up") {
-          resolve(event);
-        }
-      }),
-    );
-    const called = message(client.worker, "call");
+      const up = new Promise<WatchEvent>((resolve) =>
+        node.watch("echo", (event) => {
+          if (event.type === "up") {
+            resolve(event);
+          }
+        }),
+      );
+      const called = message(client.worker, "call");
 
-    node.join(server.port);
-    node.join(client.port);
+      node.join(server.port);
+      node.join(client.port);
 
-    await up;
+      await up;
 
-    assert.equal(await node.call("echo", "ping", [5]), 10);
-    assert.equal(await called, 42);
+      assert.equal(await node.call("echo", "ping", [5]), 10);
+      assert.equal(await called, 42);
 
-    await waitFor(() => serverNews.length === 1 && clientNews.length === 1);
+      await waitFor(() => serverNews.length === 1 && clientNews.length === 1);
 
-    assert.deepEqual(serverNews, ["hello"]);
-    assert.deepEqual(clientNews, ["hello"]);
+      assert.deepEqual(serverNews, ["hello"]);
+      assert.deepEqual(clientNews, ["hello"]);
 
-    node.publish("news", "from-main");
+      node.publish("news", "from-main");
 
-    await waitFor(() => serverNews.length === 2 && clientNews.length === 2);
+      await waitFor(() => serverNews.length === 2 && clientNews.length === 2);
 
-    assert.deepEqual(serverNews, ["hello", "from-main"]);
-    assert.deepEqual(clientNews, ["hello", "from-main"]);
-  });
+      assert.deepEqual(serverNews, ["hello", "from-main"]);
+      assert.deepEqual(clientNews, ["hello", "from-main"]);
+    },
+  );
 
-  test("closes only the link of the worker that exits", { timeout: 5000 }, async (t) => {
-    const node = new Node({ cluster: "hub-exit", callTimeout: 1000 });
-    const server = createWorker("server");
-    const watcher = createWorker("watcher");
+  test(
+    "closes only the link of the worker that exits",
+    { timeout: 5000 },
+    async (t) => {
+      const node = new Node({ cluster: "hub-exit", callTimeout: 1000 });
+      const server = createWorker("server");
+      const watcher = createWorker("watcher");
 
-    t.after(async () => {
-      node.close();
-      await Promise.allSettled([
-        server.worker.terminate(),
-        watcher.worker.terminate(),
-      ]);
-    });
+      t.after(async () => {
+        node.close();
+        await Promise.allSettled([
+          server.worker.terminate(),
+          watcher.worker.terminate(),
+        ]);
+      });
 
-    const up = new Promise<WatchEvent>((resolve) =>
-      node.watch("echo", (event) => {
-        if (event.type === "up") {
-          resolve(event);
-        }
-      }),
-    );
-    const down = new Promise<WatchEvent>((resolve) =>
-      node.watch("echo", (event) => {
-        if (event.type === "down") {
-          resolve(event);
-        }
-      }),
-    );
-    const echoUp = message(watcher.worker, "echo-up");
-    const echoDown = message(watcher.worker, "echo-down");
+      const up = new Promise<WatchEvent>((resolve) =>
+        node.watch("echo", (event) => {
+          if (event.type === "up") {
+            resolve(event);
+          }
+        }),
+      );
+      const down = new Promise<WatchEvent>((resolve) =>
+        node.watch("echo", (event) => {
+          if (event.type === "down") {
+            resolve(event);
+          }
+        }),
+      );
+      const echoUp = message(watcher.worker, "echo-up");
+      const echoDown = message(watcher.worker, "echo-down");
 
-    node.join(server.port);
-    node.join(watcher.port);
+      node.join(server.port);
+      node.join(watcher.port);
 
-    const instance = (await up).instance;
+      const instance = (await up).instance;
 
-    await echoUp;
-    await server.worker.terminate();
+      await echoUp;
+      await server.worker.terminate();
 
-    assert.equal((await down).instance.nodeId, instance.nodeId);
-    await echoDown;
+      assert.equal((await down).instance.nodeId, instance.nodeId);
+      await echoDown;
 
-    await assert.rejects(
-      node.call("echo", "ping", [1]),
-      (err: MusterError) => err.kind === "not-found",
-    );
-  });
+      await assert.rejects(
+        node.call("echo", "ping", [1]),
+        (err: MusterError) => err.kind === "not-found",
+      );
+    },
+  );
 });

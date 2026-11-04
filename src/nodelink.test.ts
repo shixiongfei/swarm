@@ -597,5 +597,4 @@ describe("NodeLink", () => {
         err.kind === "failed" && err.message === "link is closed",
     );
   });
-
 });
