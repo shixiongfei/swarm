@@ -13,12 +13,17 @@ import { randomId } from "./random.ts";
 import { MusterError } from "./errors.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
+import { LinkTcp } from "./linktcp.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeHub } from "./nodehub.ts";
+import { TcpClient } from "./tcpclient.ts";
+import { TcpServer } from "./tcpserver.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
+import type { Link } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { MetaData, WatchHandler } from "./registry.ts";
+import type { TcpClientOptions } from "./tcpclient.ts";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -43,6 +48,8 @@ export class Node {
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
   private readonly watcher = new Watcher();
+  private readonly tcpServers: TcpServer[] = [];
+  private readonly tcpClients: TcpClient[] = [];
   private readonly callTimeout: number;
   private closed = false;
 
@@ -110,17 +117,7 @@ export class Node {
 
   attach(port: MessagePort, secret?: string) {
     this.checkOpen();
-
-    const nodeLink = new NodeLink(new LinkPort(port, this.nodeId), {
-      provider: this.nodeLocal,
-      secret: secret !== undefined ? secret : this.secret,
-    });
-
-    this.nodeLinks.push(nodeLink);
-    this.watcher.addSource(nodeLink);
-
-    nodeLink.events.on("close", () => this.detach(nodeLink));
-    nodeLink.hello();
+    this.attachLink(new LinkPort(port, this.nodeId), secret);
 
     return this;
   }
@@ -128,6 +125,62 @@ export class Node {
   join(port: MessagePort, secret?: string) {
     this.checkOpen();
     this.nodeHub.join(new LinkPort(port, this.nodeId), secret);
+
+    return this;
+  }
+
+  async listen(url: string | URL, backlog?: number) {
+    this.checkOpen();
+
+    const { host, port, secret } = parseTcpUrl(url);
+    const server = new TcpServer(host, port, backlog);
+
+    server.events.on("online", (socket) => {
+      this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
+    });
+
+    this.tcpServers.push(server);
+
+    try {
+      await server.listen();
+    } catch (err) {
+      const index = this.tcpServers.indexOf(server);
+
+      if (index >= 0) {
+        this.tcpServers.splice(index, 1);
+      }
+
+      throw err;
+    }
+
+    return this;
+  }
+
+  async connect(url: string | URL, options?: TcpClientOptions) {
+    this.checkOpen();
+
+    const { host, port, secret } = parseTcpUrl(url);
+    const client = new TcpClient(host, port, options);
+
+    client.events.on("online", (socket) => {
+      this.attachLink(new LinkTcp(socket, this.nodeId), secret);
+    });
+
+    this.tcpClients.push(client);
+
+    try {
+      await client.connect();
+    } catch (err) {
+      const index = this.tcpClients.indexOf(client);
+
+      if (index >= 0) {
+        this.tcpClients.splice(index, 1);
+      }
+
+      client.close();
+
+      throw err;
+    }
 
     return this;
   }
@@ -228,6 +281,18 @@ export class Node {
 
     this.closed = true;
 
+    for (const client of this.tcpClients) {
+      client.close();
+    }
+
+    this.tcpClients.length = 0;
+
+    for (const server of this.tcpServers) {
+      server.close();
+    }
+
+    this.tcpServers.length = 0;
+
     for (const nodeLink of this.nodeLinks.slice()) {
       nodeLink.close();
     }
@@ -249,6 +314,19 @@ export class Node {
     }
   }
 
+  private attachLink(link: Link, secret?: string) {
+    const nodeLink = new NodeLink(link, {
+      provider: this.nodeLocal,
+      secret: secret !== undefined ? secret : this.secret,
+    });
+
+    this.nodeLinks.push(nodeLink);
+    this.watcher.addSource(nodeLink);
+
+    nodeLink.events.on("close", () => this.detach(nodeLink));
+    nodeLink.hello();
+  }
+
   private detach(nodeLink: NodeLink) {
     const index = this.nodeLinks.indexOf(nodeLink);
 
@@ -258,6 +336,46 @@ export class Node {
 
     this.watcher.removeSource(nodeLink);
   }
+}
+
+function parseTcpUrl(url: string | URL) {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new MusterError("rejected", `invalid tcp url: ${url}`);
+  }
+
+  if (
+    parsed.protocol !== "tcp:" ||
+    parsed.hostname === "" ||
+    parsed.port === ""
+  ) {
+    throw new MusterError("rejected", `invalid tcp url: ${url}`);
+  }
+
+  const port = Number(parsed.port);
+
+  if (!Number.isInteger(port) || port > 65535) {
+    throw new MusterError("rejected", `invalid tcp port: ${url}`);
+  }
+
+  let secret: string | undefined;
+
+  if (parsed.password !== "") {
+    try {
+      secret = decodeURIComponent(parsed.password);
+    } catch {
+      throw new MusterError("rejected", `invalid tcp secret: ${url}`);
+    }
+  }
+
+  return {
+    host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
+    port,
+    secret,
+  };
 }
 
 export type NodeOptions = Partial<NodeConfig>;
@@ -279,11 +397,7 @@ export function createNode(options: NodeOptions = {}) {
   return node;
 }
 
-export type { Methods, TopicHandler } from "./local.ts";
-
-export type {
-  Instance,
-  MetaData,
-  WatchEvent,
-  WatchHandler,
-} from "./registry.ts";
+export type { TcpClientOptions };
+export type { Methods, TopicHandler };
+export type { MetaData, WatchHandler };
+export type { Instance, WatchEvent } from "./registry.ts";
