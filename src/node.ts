@@ -14,6 +14,7 @@ import { MusterError } from "./errors.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
 import { LinkTcp } from "./linktcp.ts";
+import { LinkWs } from "./linkws.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeHub } from "./nodehub.ts";
 import { Watcher } from "./watcher.ts";
@@ -131,13 +132,7 @@ export class Node {
   async listen(url: string | URL, backlog?: number) {
     this.checkOpen();
 
-    const { host, port, secret } = parseTcpUrl(url);
-    const { TcpServer } = await import("./tcpserver.ts");
-    const server = new TcpServer(host, port, backlog);
-
-    server.events.on("online", (socket) => {
-      this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
-    });
+    const server = await this.createServer(url, backlog);
 
     this.servers.push(server);
 
@@ -159,13 +154,7 @@ export class Node {
   async connect(url: string | URL, options?: ClientOptions) {
     this.checkOpen();
 
-    const { host, port, secret } = parseTcpUrl(url);
-    const { TcpClient } = await import("./tcpclient.ts");
-    const client = new TcpClient(host, port, options);
-
-    client.events.on("online", (socket) => {
-      this.attachLink(new LinkTcp(socket, this.nodeId), secret);
-    });
+    const client = await this.createClient(url, options);
 
     this.clients.push(client);
 
@@ -315,6 +304,60 @@ export class Node {
     }
   }
 
+  private async createServer(
+    url: string | URL,
+    backlog: number | undefined,
+  ): Promise<Server> {
+    const { protocol, host, port, secret } = parseUrl(url);
+
+    if (protocol === "tcp:") {
+      const { TcpServer } = await import("./tcpserver.ts");
+      const server = new TcpServer(host, port, backlog);
+
+      server.events.on("online", (socket) => {
+        this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
+      });
+
+      return server;
+    }
+
+    const { WsServer } = await import("./wsserver.ts");
+    const server = new WsServer(host, port, backlog);
+
+    server.events.on("online", (socket) => {
+      this.nodeHub.join(new LinkWs(socket, this.nodeId), secret);
+    });
+
+    return server;
+  }
+
+  private async createClient(
+    url: string | URL,
+    options: ClientOptions | undefined,
+  ): Promise<Client> {
+    const { protocol, host, port, secret } = parseUrl(url);
+
+    if (protocol === "tcp:") {
+      const { TcpClient } = await import("./tcpclient.ts");
+      const client = new TcpClient(host, port, options);
+
+      client.events.on("online", (socket) => {
+        this.attachLink(new LinkTcp(socket, this.nodeId), secret);
+      });
+
+      return client;
+    }
+
+    const { WsClient } = await import("./wsclient.ts");
+    const client = new WsClient(url, options);
+
+    client.events.on("online", (socket) => {
+      this.attachLink(new LinkWs(socket, this.nodeId), secret);
+    });
+
+    return client;
+  }
+
   private attachLink(link: Link, secret?: string) {
     const nodeLink = new NodeLink(link, {
       provider: this.nodeLocal,
@@ -339,27 +382,32 @@ export class Node {
   }
 }
 
-function parseTcpUrl(url: string | URL) {
+function parseUrl(url: string | URL): {
+  protocol: "tcp:" | "ws:";
+  host: string;
+  port: number;
+  secret: string | undefined;
+} {
   let parsed: URL;
 
   try {
     parsed = new URL(url);
   } catch {
-    throw new MusterError("rejected", `invalid tcp url: ${url}`);
+    throw new MusterError("rejected", `invalid url: ${url}`);
   }
 
   if (
-    parsed.protocol !== "tcp:" ||
+    (parsed.protocol !== "tcp:" && parsed.protocol !== "ws:") ||
     parsed.hostname === "" ||
     parsed.port === ""
   ) {
-    throw new MusterError("rejected", `invalid tcp url: ${url}`);
+    throw new MusterError("rejected", `invalid url: ${url}`);
   }
 
   const port = Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
-    throw new MusterError("rejected", `invalid tcp port: ${url}`);
+    throw new MusterError("rejected", `invalid port: ${url}`);
   }
 
   let secret: string | undefined;
@@ -368,7 +416,7 @@ function parseTcpUrl(url: string | URL) {
     try {
       secret = decodeURIComponent(parsed.password);
     } catch {
-      throw new MusterError("rejected", `invalid tcp secret: ${url}`);
+      throw new MusterError("rejected", `invalid secret: ${url}`);
     }
   }
 
@@ -376,6 +424,7 @@ function parseTcpUrl(url: string | URL) {
     host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
     port,
     secret,
+    protocol: parsed.protocol === "ws:" ? "ws:" : "tcp:",
   };
 }
 

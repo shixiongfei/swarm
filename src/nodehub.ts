@@ -71,14 +71,14 @@ export class NodeHub implements Provider, Observable {
   }
 
   invoke(service: string, method: string, args: unknown[], timeout?: number) {
-    for (const link of this.nodeLinks) {
-      const [instance] = link.lookup(service);
+    for (const nodeLink of this.nodeLinks) {
+      const [instance] = nodeLink.lookup(service);
 
       if (instance === undefined) {
         continue;
       }
 
-      return link.call(
+      return nodeLink.call(
         instance.nodeId,
         service,
         method,
@@ -105,14 +105,14 @@ export class NodeHub implements Provider, Observable {
   }
 
   call(service: string, method: string, args: unknown[], timeout: number) {
-    for (const link of this.nodeLinks) {
-      const [instance] = link.lookup(service);
+    for (const nodeLink of this.nodeLinks) {
+      const [instance] = nodeLink.lookup(service);
 
       if (instance === undefined) {
         continue;
       }
 
-      return link.call(instance.nodeId, service, method, args, timeout);
+      return nodeLink.call(instance.nodeId, service, method, args, timeout);
     }
 
     return undefined;
@@ -139,8 +139,8 @@ export class NodeHub implements Provider, Observable {
 
     this.closed = true;
 
-    for (const link of this.nodeLinks.slice()) {
-      link.close();
+    for (const nodeLink of this.nodeLinks.slice()) {
+      nodeLink.close();
     }
 
     this.nodeLinks.length = 0;
@@ -152,8 +152,8 @@ export class NodeHub implements Provider, Observable {
       return;
     }
 
-    for (const link of this.nodeLinks) {
-      const known = link
+    for (const nodeLink of this.nodeLinks) {
+      const known = nodeLink
         .lookup(instance.service)
         .some((item) => item.nodeId === instance.nodeId);
 
@@ -161,7 +161,7 @@ export class NodeHub implements Provider, Observable {
         continue;
       }
 
-      link.register({
+      nodeLink.register({
         service: instance.service,
         nodeId: this.nodeId,
         meta: instance.meta,
@@ -177,8 +177,8 @@ export class NodeHub implements Provider, Observable {
       return;
     }
 
-    for (const link of this.nodeLinks) {
-      link.unregister({ service: instance.service, nodeId: this.nodeId });
+    for (const nodeLink of this.nodeLinks) {
+      nodeLink.unregister({ service: instance.service, nodeId: this.nodeId });
     }
   }
 

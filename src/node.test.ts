@@ -11,12 +11,42 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { createServer } from "node:net";
 import { Node } from "./node.ts";
+import type { AddressInfo } from "node:net";
 import type { MusterError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
+}
+
+async function freePort() {
+  const server = createServer();
+
+  await new Promise<void>((resolve) =>
+    server.listen(0, "127.0.0.1", resolve),
+  );
+
+  const port = (server.address() as AddressInfo).port;
+
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  return port;
+}
+
+async function connectPair(
+  protocol: "tcp" | "ws",
+  hub: Node,
+  peer: Node,
+) {
+  const port = await freePort();
+  const url = `${protocol}://127.0.0.1:${port}`;
+
+  assert.equal(await hub.listen(url), hub);
+  assert.equal(await peer.connect(url), peer);
+
+  return port;
 }
 
 async function attachGhost(node: Node, service: string) {
@@ -503,5 +533,168 @@ describe("Node", () => {
 
     assert.equal(await received, 1);
   });
-
 });
+
+for (const protocol of ["tcp", "ws"] as const) {
+  describe(`Node ${protocol.toUpperCase()}`, () => {
+    test("listen and connect return the node", async (t) => {
+      const hub = new Node({ cluster: `${protocol}-return-hub` });
+      const peer = new Node({ cluster: `${protocol}-return-peer` });
+
+      t.after(() => {
+        hub.close();
+        peer.close();
+      });
+
+      await connectPair(protocol, hub, peer);
+    });
+
+    test(
+      "calls a service registered on the connected peer",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-call-hub` });
+        const peer = new Node({ cluster: `${protocol}-call-peer` });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          hub.watch("math", resolve),
+        );
+
+        await connectPair(protocol, hub, peer);
+
+        peer.register("math", { add: (a: number, b: number) => a + b });
+
+        assert.equal((await up).instance.nodeId, peer.nodeId);
+        assert.equal(await hub.call("math", "add", [2, 3]), 5);
+      },
+    );
+
+    test(
+      "publishes from the peer to the hub",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-publish-hub` });
+        const peer = new Node({ cluster: `${protocol}-publish-peer` });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        await connectPair(protocol, hub, peer);
+
+        const ready = new Promise<WatchEvent>((resolve) =>
+          hub.watch("math", resolve),
+        );
+        const received = new Promise<unknown>((resolve) =>
+          hub.subscribe("news", resolve),
+        );
+
+        peer.register("math", { add: () => 0 });
+
+        await ready;
+        peer.publish("news", { id: 1 });
+
+        assert.deepEqual(await received, { id: 1 });
+      },
+    );
+
+    test(
+      "accepts a url object and a url secret",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-secret-hub` });
+        const peer = new Node({ cluster: `${protocol}-secret-peer` });
+        const port = await freePort();
+        const url = `${protocol}://:s3cret@127.0.0.1:${port}`;
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          hub.watch("math", resolve),
+        );
+
+        await hub.listen(new URL(url));
+        await peer.connect(url);
+
+        peer.register("math", { add: () => 7 });
+
+        await up;
+        assert.equal(await hub.call("math", "add"), 7);
+      },
+    );
+
+    test("listen rejects a malformed url", async (t) => {
+      const node = new Node({ cluster: `${protocol}-invalid-listen` });
+
+      t.after(() => node.close());
+
+      await assert.rejects(
+        node.listen("http://127.0.0.1:1234"),
+        (err: MusterError) =>
+          err.kind === "rejected" &&
+          err.message === "invalid url: http://127.0.0.1:1234",
+      );
+      await assert.rejects(
+        node.listen(`${protocol}://127.0.0.1`),
+        (err: MusterError) =>
+          err.kind === "rejected" &&
+          err.message === `invalid url: ${protocol}://127.0.0.1`,
+      );
+    });
+
+    test(
+      "connect rejects when nothing listens",
+      { timeout: 3000 },
+      async (t) => {
+        const node = new Node({ cluster: `${protocol}-refused` });
+        const port = await freePort();
+
+        t.after(() => node.close());
+
+        await assert.rejects(
+          node.connect(`${protocol}://127.0.0.1:${port}`),
+          (err: MusterError) => err.kind === "failed",
+        );
+      },
+    );
+
+    test(
+      "close stops listening and rejects later calls",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-close-hub` });
+        const peer = new Node({ cluster: `${protocol}-close-peer` });
+
+        t.after(() => peer.close());
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          hub.watch("math", resolve),
+        );
+
+        await connectPair(protocol, hub, peer);
+
+        peer.register("math", { add: () => 1 });
+
+        await up;
+        assert.equal(await hub.call("math", "add"), 1);
+
+        hub.close();
+
+        assert.throws(
+          () => hub.call("math", "add"),
+          (err: MusterError) => err.kind === "rejected",
+        );
+      },
+    );
+  });
+}
+
