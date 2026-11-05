@@ -16,14 +16,13 @@ import { LinkPort } from "./linkport.ts";
 import { LinkTcp } from "./linktcp.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeHub } from "./nodehub.ts";
-import { TcpClient } from "./tcpclient.ts";
-import { TcpServer } from "./tcpserver.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
+import type { Client, ClientOptions } from "./client.ts";
+import type { Server } from "./server.ts";
 import type { Link } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { MetaData, WatchHandler } from "./registry.ts";
-import type { TcpClientOptions } from "./tcpclient.ts";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -48,8 +47,8 @@ export class Node {
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
   private readonly watcher = new Watcher();
-  private readonly tcpServers: TcpServer[] = [];
-  private readonly tcpClients: TcpClient[] = [];
+  private readonly servers: Server[] = [];
+  private readonly clients: Client[] = [];
   private readonly callTimeout: number;
   private closed = false;
 
@@ -133,21 +132,22 @@ export class Node {
     this.checkOpen();
 
     const { host, port, secret } = parseTcpUrl(url);
+    const { TcpServer } = await import("./tcpserver.ts");
     const server = new TcpServer(host, port, backlog);
 
     server.events.on("online", (socket) => {
       this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
     });
 
-    this.tcpServers.push(server);
+    this.servers.push(server);
 
     try {
       await server.listen();
     } catch (err) {
-      const index = this.tcpServers.indexOf(server);
+      const index = this.servers.indexOf(server);
 
       if (index >= 0) {
-        this.tcpServers.splice(index, 1);
+        this.servers.splice(index, 1);
       }
 
       throw err;
@@ -156,25 +156,26 @@ export class Node {
     return this;
   }
 
-  async connect(url: string | URL, options?: TcpClientOptions) {
+  async connect(url: string | URL, options?: ClientOptions) {
     this.checkOpen();
 
     const { host, port, secret } = parseTcpUrl(url);
+    const { TcpClient } = await import("./tcpclient.ts");
     const client = new TcpClient(host, port, options);
 
     client.events.on("online", (socket) => {
       this.attachLink(new LinkTcp(socket, this.nodeId), secret);
     });
 
-    this.tcpClients.push(client);
+    this.clients.push(client);
 
     try {
       await client.connect();
     } catch (err) {
-      const index = this.tcpClients.indexOf(client);
+      const index = this.clients.indexOf(client);
 
       if (index >= 0) {
-        this.tcpClients.splice(index, 1);
+        this.clients.splice(index, 1);
       }
 
       client.close();
@@ -281,17 +282,17 @@ export class Node {
 
     this.closed = true;
 
-    for (const client of this.tcpClients) {
+    for (const client of this.clients) {
       client.close();
     }
 
-    this.tcpClients.length = 0;
+    this.clients.length = 0;
 
-    for (const server of this.tcpServers) {
+    for (const server of this.servers) {
       server.close();
     }
 
-    this.tcpServers.length = 0;
+    this.servers.length = 0;
 
     for (const nodeLink of this.nodeLinks.slice()) {
       nodeLink.close();
@@ -397,7 +398,7 @@ export function createNode(options: NodeOptions = {}) {
   return node;
 }
 
-export type { TcpClientOptions };
+export type { ClientOptions };
 export type { Methods, TopicHandler };
 export type { MetaData, WatchHandler };
 export type { Instance, WatchEvent } from "./registry.ts";

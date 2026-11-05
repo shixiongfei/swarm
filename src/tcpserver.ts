@@ -9,30 +9,21 @@
  * https://github.com/shixiongfei/muster
  */
 
-import { eventlite } from "eventlite.js";
 import { createServer } from "node:net";
 import { MusterError } from "./errors.ts";
-import type { Server, Socket } from "node:net";
+import { Server } from "./server.ts";
+import type { Server as NetServer, Socket } from "node:net";
 
-export type TcpServerEvents = {
-  online: (socket: Socket) => void;
-  offline: (socket: Socket) => void;
-  error: (error: Error) => void;
-};
-
-export class TcpServer {
-  readonly events = eventlite<TcpServerEvents>({
-    allowDuplicate: true,
-    isolate: true,
-  });
-
+export class TcpServer extends Server<Socket> {
   private readonly binding: { host: string; port: number };
   private readonly backlog: number | undefined;
-  private readonly sockets = new Set<Socket>();
-  private readonly server: Server = createServer(this.accept.bind(this));
-  private closed = false;
+  private readonly server: NetServer = createServer((socket) =>
+    this.onSocket(socket),
+  );
 
   constructor(host: string, port: number, backlog?: number) {
+    super();
+
     this.binding = { host, port };
     this.backlog = backlog;
   }
@@ -53,16 +44,8 @@ export class TcpServer {
       : this.binding.port;
   }
 
-  get size() {
-    return this.sockets.size;
-  }
-
-  get connections() {
-    return Array.from(this.sockets);
-  }
-
-  async listen() {
-    if (this.closed) {
+  async listen(): Promise<this> {
+    if (this.isClosed) {
       throw new MusterError("rejected", "tcp server is closed");
     }
 
@@ -89,7 +72,7 @@ export class TcpServer {
       );
     });
 
-    if (this.closed) {
+    if (this.isClosed) {
       this.server.close();
       throw new MusterError("rejected", "tcp server is closed");
     }
@@ -98,42 +81,20 @@ export class TcpServer {
     return this;
   }
 
-  close() {
-    if (this.closed) {
-      return;
-    }
-
-    this.closed = true;
-
+  protected stop() {
     if (this.server.listening) {
       this.server.close();
     }
-
-    for (const socket of this.sockets) {
-      socket.destroy();
-      this.events.emit("offline", socket);
-    }
-
-    this.sockets.clear();
   }
 
-  private accept(socket: Socket) {
-    if (this.closed) {
-      socket.destroy();
-      return;
-    }
+  protected destroy(socket: Socket) {
+    socket.destroy();
+  }
 
-    this.sockets.add(socket);
-
+  private onSocket(socket: Socket) {
     socket.on("error", () => socket.destroy());
-    socket.once("close", () => {
-      if (!this.sockets.delete(socket)) {
-        return;
-      }
+    socket.once("close", () => this.drop(socket));
 
-      this.events.emit("offline", socket);
-    });
-
-    this.events.emit("online", socket);
+    this.accept(socket);
   }
 }
