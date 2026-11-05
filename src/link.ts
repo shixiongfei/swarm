@@ -33,31 +33,19 @@ export abstract class Link implements Enveloper {
     this.nodeId = nodeId;
   }
 
-  hello(instances: Instance[], secret?: string) {
-    const services = instances.map((instance) =>
-      instance.meta === undefined
-        ? { name: instance.service }
-        : { name: instance.service, meta: instance.meta },
-    );
-
+  hello(token?: string) {
     this.send(
-      secret === undefined
-        ? { t: "hello", from: this.nodeId, services }
-        : { t: "hello", from: this.nodeId, services, secret },
+      token === undefined
+        ? { t: "hello", from: this.nodeId }
+        : { t: "hello", from: this.nodeId, token },
     );
   }
 
-  accept(instances: Instance[], secret?: string) {
-    const services = instances.map((instance) =>
-      instance.meta === undefined
-        ? { name: instance.service }
-        : { name: instance.service, meta: instance.meta },
-    );
-
+  accept(token?: string) {
     this.send(
-      secret === undefined
-        ? { t: "accept", from: this.nodeId, services }
-        : { t: "accept", from: this.nodeId, services, secret },
+      token === undefined
+        ? { t: "accept", from: this.nodeId }
+        : { t: "accept", from: this.nodeId, token },
     );
   }
 

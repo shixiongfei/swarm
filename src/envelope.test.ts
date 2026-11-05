@@ -20,15 +20,13 @@ describe("parseEnvelope", () => {
       {
         t: "hello",
         from: "node-a",
-        services: [{ name: "math" }],
-        secret: "s3cret",
+        token: "token-value",
       },
-      { t: "accept", from: "node-a", services: [{ name: "math" }] },
+      { t: "accept", from: "node-a" },
       {
         t: "accept",
         from: "node-a",
-        services: [{ name: "echo" }],
-        secret: "s3cret",
+        token: "token-value",
       },
       { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
       { t: "down", from: "node-a", service: "math" },
@@ -68,18 +66,11 @@ describe("parseEnvelope", () => {
 
   test("rejects malformed envelopes", () => {
     const values: unknown[] = [
-      { t: "hello", from: "node-a" },
-      { t: "hello", from: "node-a", services: [{ name: 1 }] },
-      { t: "hello", from: "node-a", services: [], secret: 1 },
-      { t: "hello", from: 1, services: [] },
-      {
-        t: "hello",
-        from: "node-a",
-        services: [Object.assign([], { name: "math" })],
-      },
-      { t: "hello", from: "node-a", services: [{ name: "math", meta: 1 }] },
-      { t: "accept", from: "node-a" },
-      { t: "accept", from: "node-a", services: [], secret: 1 },
+      { t: "hello" },
+      { t: "hello", from: 1 },
+      { t: "hello", from: "node-a", token: 1 },
+      { t: "accept" },
+      { t: "accept", from: "node-a", token: 1 },
       { t: "up", from: "node-a" },
       { t: "up", from: 1, service: "math" },
       { t: "up", from: "node-a", service: "math", meta: [] },

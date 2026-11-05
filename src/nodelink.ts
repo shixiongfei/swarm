@@ -13,9 +13,10 @@ import { eventlite } from "eventlite.js";
 import { MusterError } from "./errors.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
+import { signToken, verifyToken } from "./token.ts";
 import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
-import type { Envelope, Service } from "./envelope.ts";
+import type { Envelope } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 type NodeLinkEvents = {
@@ -44,27 +45,24 @@ export class NodeLink implements Observable {
   private readonly onEnvelope = (message: Envelope) => {
     switch (message.t) {
       case "hello":
-        if (this.secret !== undefined && message.secret !== this.secret) {
-          this.dispose("link is closed");
-          this.link.close();
+        if (this.reject(message)) {
           return;
         }
 
-        const services = this.provider.registrations();
-
-        if (this.connect(message.from, message.services)) {
-          this.link.accept(services, this.secret);
+        if (this.connect(message.from)) {
+          this.link.accept(this.token());
+          this.announce();
         }
         return;
 
       case "accept":
-        if (this.secret !== undefined && message.secret !== this.secret) {
-          this.dispose("link is closed");
-          this.link.close();
+        if (this.reject(message)) {
           return;
         }
 
-        this.connect(message.from, message.services);
+        if (this.connect(message.from)) {
+          this.announce();
+        }
         return;
 
       case "up":
@@ -159,7 +157,7 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.link.hello(this.provider.registrations(), this.secret);
+    this.link.hello(this.token());
   }
 
   register(instance: Instance) {
@@ -222,7 +220,37 @@ export class NodeLink implements Observable {
     this.link.close();
   }
 
-  private connect(nodeId: string, services: Service[]) {
+  private token() {
+    return this.secret === undefined
+      ? undefined
+      : signToken(this.secret, this.link.nodeId);
+  }
+
+  private reject(message: { from: string; token?: string }) {
+    if (
+      this.secret !== undefined &&
+      !verifyToken(message.token, this.secret, message.from)
+    ) {
+      this.dispose("link is closed");
+      this.link.close();
+
+      return true;
+    }
+
+    return false;
+  }
+
+  private announce() {
+    for (const instance of this.provider.registrations()) {
+      this.link.register({
+        service: instance.service,
+        nodeId: this.link.nodeId,
+        meta: instance.meta,
+      });
+    }
+  }
+
+  private connect(nodeId: string) {
     if (this.peer !== undefined) {
       if (this.peer === nodeId) {
         return true;
@@ -235,10 +263,6 @@ export class NodeLink implements Observable {
     }
 
     this.peer = nodeId;
-
-    for (const service of services) {
-      this.registry.add(service.name, nodeId, service.meta);
-    }
 
     return true;
   }

@@ -12,14 +12,12 @@
 import { createServer } from "node:net";
 import { MusterError } from "./errors.ts";
 import { Server } from "./server.ts";
-import type { Server as NetServer, Socket } from "node:net";
+import type { Socket } from "node:net";
 
 export class TcpServer extends Server<Socket> {
   private readonly binding: { host: string; port: number };
   private readonly backlog: number | undefined;
-  private readonly server: NetServer = createServer((socket) =>
-    this.onSocket(socket),
-  );
+  private readonly server = createServer((socket) => this.onSocket(socket));
 
   constructor(host: string, port: number, backlog?: number) {
     super();
@@ -44,7 +42,7 @@ export class TcpServer extends Server<Socket> {
       : this.binding.port;
   }
 
-  async listen(): Promise<this> {
+  async listen() {
     if (this.isClosed) {
       throw new MusterError("rejected", "tcp server is closed");
     }

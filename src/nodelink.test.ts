@@ -16,6 +16,7 @@ import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
 import { MusterError } from "./errors.ts";
+import { signToken } from "./token.ts";
 import type { WatchEvent } from "./registry.ts";
 
 describe("NodeLink", () => {
@@ -233,11 +234,8 @@ describe("NodeLink", () => {
     node.attach(port1);
     port2.start();
 
-    port2.postMessage({
-      t: "hello",
-      from: "first",
-      services: [{ name: "math" }],
-    });
+    port2.postMessage({ t: "hello", from: "first" });
+    port2.postMessage({ t: "up", from: "first", service: "math" });
 
     await up("math");
 
@@ -245,11 +243,7 @@ describe("NodeLink", () => {
       port2.addEventListener("close", () => resolve()),
     );
 
-    port2.postMessage({
-      t: "hello",
-      from: "second",
-      services: [{ name: "echo" }],
-    });
+    port2.postMessage({ t: "hello", from: "second" });
 
     await closed;
 
@@ -291,7 +285,7 @@ describe("NodeLink", () => {
     );
   });
 
-  test("closes a link whose hello secret does not match", async (t) => {
+  test("closes a link whose hello token is invalid", async (t) => {
     const a = new Node({ cluster: "secret-a", secret: "s3cret" });
     const { port1, port2 } = new MessageChannel();
 
@@ -310,7 +304,7 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "hello",
       from: "peer-node",
-      services: [{ name: "math" }],
+      token: signToken("wrong-secret", "peer-node"),
     });
 
     await closed;
@@ -321,7 +315,7 @@ describe("NodeLink", () => {
     );
   });
 
-  test("closes a link whose accept secret does not match", async (t) => {
+  test("closes a link whose accept token is missing", async (t) => {
     const node = new Node({ cluster: "accept-secret", secret: "s3cret" });
     const { port1, port2 } = new MessageChannel();
 
@@ -340,7 +334,6 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "accept",
       from: "peer-node",
-      services: [{ name: "math" }],
     });
 
     await closed;
@@ -402,11 +395,8 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({
-      t: "hello",
-      from: "peer",
-      services: [{ name: "math" }],
-    });
+    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({ t: "up", from: "peer", service: "math" });
 
     await up;
 
@@ -447,11 +437,8 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({
-      t: "hello",
-      from: "peer",
-      services: [{ name: "remote" }],
-    });
+    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({ t: "up", from: "peer", service: "remote" });
 
     await up;
 
@@ -515,11 +502,8 @@ describe("NodeLink", () => {
     });
 
     port2.start();
-    port2.postMessage({
-      t: "hello",
-      from: "peer-node",
-      services: [{ name: "math" }],
-    });
+    port2.postMessage({ t: "hello", from: "peer-node" });
+    port2.postMessage({ t: "up", from: "peer-node", service: "math" });
 
     assert.deepEqual((await up).instance, {
       service: "math",

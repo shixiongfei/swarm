@@ -13,7 +13,7 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { MusterError } from "./errors.ts";
 import { Server } from "./server.ts";
-import type { IncomingMessage, Server as HttpServer } from "node:http";
+import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { WebSocket } from "ws";
 

@@ -57,11 +57,8 @@ async function attachGhost(node: Node, service: string) {
 
   node.attach(port1);
   port2.start();
-  port2.postMessage({
-    t: "hello",
-    from: "ghost",
-    services: [{ name: service }],
-  });
+  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "up", from: "ghost", service });
 
   await ready;
 

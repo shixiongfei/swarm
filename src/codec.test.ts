@@ -20,10 +20,9 @@ const envelopes: Envelope[] = [
   {
     t: "hello",
     from: "node-a",
-    services: [{ name: "math", meta: { build: 1 } }],
-    secret: "s3cret",
+    token: "token-value",
   },
-  { t: "accept", from: "node-b", services: [{ name: "echo" }] },
+  { t: "accept", from: "node-b" },
   { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
   { t: "down", from: "node-a", service: "math" },
   {
@@ -121,7 +120,7 @@ describe("codec", () => {
       [],
       {},
       { t: "unknown" },
-      { t: "hello", from: "node-a" },
+      { t: "hello", from: 1 },
     ];
 
     for (const value of values) {

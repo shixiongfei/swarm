@@ -13,11 +13,9 @@ import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
-export type Service = { name: string; meta?: MetaData };
-
 export type Envelope =
-  | { t: "hello"; from: string; services: Service[]; secret?: string }
-  | { t: "accept"; from: string; services: Service[]; secret?: string }
+  | { t: "hello"; from: string; token?: string }
+  | { t: "accept"; from: string; token?: string }
   | { t: "up"; from: string; service: string; meta?: MetaData }
   | { t: "down"; from: string; service: string }
   | {
@@ -54,41 +52,12 @@ const errorKinds: readonly ErrorKind[] = [
   "failed",
 ];
 
-function isService(value: unknown): value is Service {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-
-  const service = value as Service;
-
-  return typeof service.name === "string" && isMetaData(service.meta);
-}
-
-function isServices(value: unknown): value is Service[] {
-  return Array.isArray(value) && value.every(isService);
-}
-
-function isHello(
-  message: Extract<Envelope, { t: "hello" }>,
+function isHandshake(
+  message: Extract<Envelope, { t: "hello" | "accept" }>,
 ): Envelope | undefined {
   if (
     typeof message.from !== "string" ||
-    !isServices(message.services) ||
-    (message.secret !== undefined && typeof message.secret !== "string")
-  ) {
-    return undefined;
-  }
-
-  return message;
-}
-
-function isAccept(
-  message: Extract<Envelope, { t: "accept" }>,
-): Envelope | undefined {
-  if (
-    typeof message.from !== "string" ||
-    !isServices(message.services) ||
-    (message.secret !== undefined && typeof message.secret !== "string")
+    (message.token !== undefined && typeof message.token !== "string")
   ) {
     return undefined;
   }
@@ -182,9 +151,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
 
   switch (message.t) {
     case "hello":
-      return isHello(message);
     case "accept":
-      return isAccept(message);
+      return isHandshake(message);
     case "up":
       return isUp(message);
     case "down":
