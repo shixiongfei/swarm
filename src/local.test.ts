@@ -6,13 +6,13 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Local } from "./local.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 
 function makeLocal() {
   return new Local();
@@ -33,7 +33,7 @@ describe("Local", () => {
 
     assert.throws(
       () => local.register("math", {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
   });
 
@@ -82,11 +82,11 @@ describe("Local", () => {
 
     assert.throws(
       () => local.invoke("nope", "add", []),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
     assert.throws(
       () => local.invoke("math", "nope", []),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -96,7 +96,7 @@ describe("Local", () => {
 
     assert.throws(
       () => local.invoke("math", "toString", []),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -136,7 +136,7 @@ describe("Local", () => {
 
     await assert.rejects(
       local.invoke("slow", "wait", [], 20),
-      (err: MusterError) => err.kind === "timeout",
+      (err: SwarmError) => err.kind === "timeout",
     );
   });
 
@@ -149,23 +149,23 @@ describe("Local", () => {
     assert.equal(local.has("math"), false);
     assert.throws(
       () => local.register("math", {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => local.unregister("math"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => local.invoke("math", "add", []),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => local.subscribe("news", () => {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => local.publish("news", 1, "node-a"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.doesNotThrow(() => local.close());
   });

@@ -6,10 +6,10 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { Local } from "./local.ts";
 import { Registry } from "./registry.ts";
 import type { Provider } from "./provider.ts";
@@ -61,7 +61,7 @@ export class NodeLocal implements Observable, Provider {
     }
 
     if (handler === undefined) {
-      throw new MusterError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "watch handler is required");
     }
 
     return this.registry.watch(service, handler);

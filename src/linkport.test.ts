@@ -6,13 +6,13 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { LinkPort } from "./linkport.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
 describe("LinkPort", () => {
@@ -111,7 +111,7 @@ describe("LinkPort", () => {
 
     assert.throws(
       () => new LinkPort(port1, "node-a"),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "rejected" && err.message === "port is already linked",
     );
 
@@ -203,5 +203,4 @@ describe("LinkPort", () => {
       link.send({ t: "pub", from: "node-a", topic: "news", data: 1 }),
     );
   });
-
 });

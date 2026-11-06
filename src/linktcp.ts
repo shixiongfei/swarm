@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { Link } from "./link.ts";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { decode, encode } from "./codec.ts";
 import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
@@ -98,7 +98,7 @@ export class LinkTcp extends Link {
     const payload = encode(message);
 
     if (payload.byteLength > maxFrameSize) {
-      throw new MusterError("failed", "envelope is too large");
+      throw new SwarmError("failed", "envelope is too large");
     }
 
     const frame = new Uint8Array(headerSize + payload.byteLength);

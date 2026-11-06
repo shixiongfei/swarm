@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
@@ -87,7 +87,7 @@ export class NodeHub implements Provider, Observable {
       );
     }
 
-    throw new MusterError("not-found", `service not found: ${service}`);
+    throw new SwarmError("not-found", `service not found: ${service}`);
   }
 
   publish(topic: string, data: unknown, from?: string) {
@@ -126,7 +126,7 @@ export class NodeHub implements Provider, Observable {
     }
 
     if (handler === undefined) {
-      throw new MusterError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "watch handler is required");
     }
 
     return this.watcher.watch(service, handler);

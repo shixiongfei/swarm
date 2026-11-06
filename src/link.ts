@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import type { Instance } from "./registry.ts";
 import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
 
@@ -82,7 +82,7 @@ export abstract class Link implements Enveloper {
   }
 
   fail(id: string, to: string, error: unknown) {
-    const kind = error instanceof MusterError ? error.kind : "failed";
+    const kind = error instanceof SwarmError ? error.kind : "failed";
     const message = error instanceof Error ? error.message : String(error);
 
     this.send({ t: "error", id, from: this.nodeId, to, kind, message });

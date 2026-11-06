@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { withTimeout } from "./timeout.ts";
 
 export type Methods<M = Record<string, any>> = Record<
@@ -37,7 +37,7 @@ export class Local {
     this.checkOpen();
 
     if (this.services.has(service)) {
-      throw new MusterError(
+      throw new SwarmError(
         "rejected",
         `service already registered: ${service}`,
       );
@@ -65,13 +65,13 @@ export class Local {
     const methods = this.services.get(service);
 
     if (methods === undefined) {
-      throw new MusterError("not-found", `service not found: ${service}`);
+      throw new SwarmError("not-found", `service not found: ${service}`);
     }
 
     const handler = hasOwn(methods, method) ? methods[method] : undefined;
 
     if (typeof handler !== "function") {
-      throw new MusterError(
+      throw new SwarmError(
         "not-found",
         `method not found: ${service}.${method}`,
       );
@@ -86,7 +86,7 @@ export class Local {
     return withTimeout(
       value,
       timeout,
-      () => new MusterError("timeout", `call timed out: ${service}.${method}`),
+      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
     );
   }
 
@@ -112,7 +112,7 @@ export class Local {
 
   private checkOpen() {
     if (this.closed) {
-      throw new MusterError("rejected", "local is closed");
+      throw new SwarmError("rejected", "local is closed");
     }
   }
 }

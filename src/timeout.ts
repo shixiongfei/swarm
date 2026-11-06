@@ -6,15 +6,15 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 
 export function withTimeout<T>(
   value: T | Promise<T>,
   timeout: number,
-  error: () => MusterError,
+  error: () => SwarmError,
   onTimeout?: () => void,
 ) {
   return new Promise<Awaited<T>>((resolve, reject) => {

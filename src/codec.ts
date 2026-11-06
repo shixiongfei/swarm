@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { Packr, Unpackr } from "msgpackr";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -27,7 +27,7 @@ export function encode(message: Envelope): Uint8Array {
   try {
     return packr.pack(message);
   } catch (err) {
-    throw new MusterError("failed", "envelope is not encodable");
+    throw new SwarmError("failed", "envelope is not encodable");
   }
 }
 

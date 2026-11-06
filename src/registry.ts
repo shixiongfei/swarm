@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 
 export type MetaData = Record<string, unknown>;
 
@@ -110,7 +110,7 @@ export class Registry implements Observable {
     }
 
     if (handler === undefined) {
-      throw new MusterError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "watch handler is required");
     }
 
     return this.watchService(service, handler);
@@ -205,7 +205,7 @@ export class Registry implements Observable {
 
   private checkOpen() {
     if (this.closed) {
-      throw new MusterError("rejected", "registry is closed");
+      throw new SwarmError("rejected", "registry is closed");
     }
   }
 }

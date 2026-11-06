@@ -6,7 +6,7 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { describe, test } from "node:test";
 import { createServer } from "node:net";
 import { Node } from "./node.ts";
 import type { AddressInfo } from "node:net";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
 function makeNode(callTimeout = 50) {
@@ -24,9 +24,7 @@ function makeNode(callTimeout = 50) {
 async function freePort() {
   const server = createServer();
 
-  await new Promise<void>((resolve) =>
-    server.listen(0, "127.0.0.1", resolve),
-  );
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
   const port = (server.address() as AddressInfo).port;
 
@@ -35,11 +33,7 @@ async function freePort() {
   return port;
 }
 
-async function connectPair(
-  protocol: "tcp" | "ws",
-  hub: Node,
-  peer: Node,
-) {
+async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
   const port = await freePort();
   const url = `${protocol}://127.0.0.1:${port}`;
 
@@ -104,7 +98,7 @@ describe("Node", () => {
 
     await assert.rejects(
       node.call("math", "add"),
-      (err: MusterError) => err.kind === "timeout",
+      (err: SwarmError) => err.kind === "timeout",
     );
   });
 
@@ -115,7 +109,7 @@ describe("Node", () => {
 
     await assert.rejects(
       node.call("math", "add", [], { timeout: 20 }),
-      (err: MusterError) => err.kind === "timeout",
+      (err: SwarmError) => err.kind === "timeout",
     );
   });
 
@@ -128,7 +122,7 @@ describe("Node", () => {
 
     await assert.rejects(
       node.call("slow", "wait"),
-      (err: MusterError) => err.kind === "timeout",
+      (err: SwarmError) => err.kind === "timeout",
     );
   });
 
@@ -137,13 +131,13 @@ describe("Node", () => {
 
     assert.throws(
       () => node.register("math", { add: () => 0 }, { build: () => {} }),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "rejected" && err.message === "meta is not cloneable",
     );
 
     await assert.rejects(
       node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -157,13 +151,13 @@ describe("Node", () => {
           { add: () => 0 },
           new Date() as unknown as MetaData,
         ),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "rejected" && err.message === "meta is not a plain object",
     );
 
     await assert.rejects(
       node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -188,7 +182,7 @@ describe("Node", () => {
 
     await assert.rejects(
       node.call("nope", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -202,7 +196,7 @@ describe("Node", () => {
     assert.equal(await node.call("math", "add"), 10);
     await assert.rejects(
       node.call("math", "mul"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -253,7 +247,7 @@ describe("Node", () => {
 
     await assert.rejects(
       call,
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "node is closed",
     );
   });
@@ -272,35 +266,35 @@ describe("Node", () => {
 
     assert.throws(
       () => node.register("math", {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.unregister("math"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.watch("math", () => {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.subscribe("news", () => {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.publish("news", 1),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.get("math"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.attach(port1),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => node.call("math", "add"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
   });
 
@@ -339,7 +333,7 @@ describe("Node", () => {
 
     assert.throws(
       () => a.publish("news", () => {}),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "data is not cloneable",
     );
 
@@ -571,35 +565,31 @@ for (const protocol of ["tcp", "ws"] as const) {
       },
     );
 
-    test(
-      "publishes from the peer to the hub",
-      { timeout: 3000 },
-      async (t) => {
-        const hub = new Node({ cluster: `${protocol}-publish-hub` });
-        const peer = new Node({ cluster: `${protocol}-publish-peer` });
+    test("publishes from the peer to the hub", { timeout: 3000 }, async (t) => {
+      const hub = new Node({ cluster: `${protocol}-publish-hub` });
+      const peer = new Node({ cluster: `${protocol}-publish-peer` });
 
-        t.after(() => {
-          hub.close();
-          peer.close();
-        });
+      t.after(() => {
+        hub.close();
+        peer.close();
+      });
 
-        await connectPair(protocol, hub, peer);
+      await connectPair(protocol, hub, peer);
 
-        const ready = new Promise<WatchEvent>((resolve) =>
-          hub.watch("math", resolve),
-        );
-        const received = new Promise<unknown>((resolve) =>
-          hub.subscribe("news", resolve),
-        );
+      const ready = new Promise<WatchEvent>((resolve) =>
+        hub.watch("math", resolve),
+      );
+      const received = new Promise<unknown>((resolve) =>
+        hub.subscribe("news", resolve),
+      );
 
-        peer.register("math", { add: () => 0 });
+      peer.register("math", { add: () => 0 });
 
-        await ready;
-        peer.publish("news", { id: 1 });
+      await ready;
+      peer.publish("news", { id: 1 });
 
-        assert.deepEqual(await received, { id: 1 });
-      },
-    );
+      assert.deepEqual(await received, { id: 1 });
+    });
 
     test(
       "accepts a url object and a url secret",
@@ -636,13 +626,13 @@ for (const protocol of ["tcp", "ws"] as const) {
 
       await assert.rejects(
         node.listen("http://127.0.0.1:1234"),
-        (err: MusterError) =>
+        (err: SwarmError) =>
           err.kind === "rejected" &&
           err.message === "invalid url: http://127.0.0.1:1234",
       );
       await assert.rejects(
         node.listen(`${protocol}://127.0.0.1`),
-        (err: MusterError) =>
+        (err: SwarmError) =>
           err.kind === "rejected" &&
           err.message === `invalid url: ${protocol}://127.0.0.1`,
       );
@@ -659,7 +649,7 @@ for (const protocol of ["tcp", "ws"] as const) {
 
         await assert.rejects(
           node.connect(`${protocol}://127.0.0.1:${port}`),
-          (err: MusterError) => err.kind === "failed",
+          (err: SwarmError) => err.kind === "failed",
         );
       },
     );
@@ -688,10 +678,9 @@ for (const protocol of ["tcp", "ws"] as const) {
 
         assert.throws(
           () => hub.call("math", "add"),
-          (err: MusterError) => err.kind === "rejected",
+          (err: SwarmError) => err.kind === "rejected",
         );
       },
     );
   });
 }
-

@@ -6,16 +6,16 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { randomId } from "./random.ts";
 import { withTimeout } from "./timeout.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 
 type Entry = {
   resolve(value: unknown): void;
-  reject(error: MusterError): void;
+  reject(error: SwarmError): void;
 };
 
 export class PendingCalls {
@@ -24,8 +24,8 @@ export class PendingCalls {
   call(
     send: (id: string) => void,
     timeout: number,
-    timeoutError: () => MusterError,
-    sendError: (cause: unknown) => MusterError,
+    timeoutError: () => SwarmError,
+    sendError: (cause: unknown) => SwarmError,
   ) {
     const id = randomId();
 
@@ -56,7 +56,7 @@ export class PendingCalls {
     entry.resolve(value);
   }
 
-  reject(id: string, error: MusterError) {
+  reject(id: string, error: SwarmError) {
     const entry = this.entries.get(id);
 
     if (entry === undefined) {
@@ -67,7 +67,7 @@ export class PendingCalls {
     entry.reject(error);
   }
 
-  clear(error: () => MusterError) {
+  clear(error: () => SwarmError) {
     if (this.entries.size === 0) {
       return;
     }

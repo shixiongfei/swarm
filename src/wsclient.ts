@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { WebSocket } from "ws";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { Client } from "./client.ts";
 import type { ClientOptions } from "./client.ts";
 
@@ -39,8 +39,8 @@ export class WsClient extends Client<WebSocket> {
 
         reject(
           this.isClosed
-            ? new MusterError("rejected", "client is closed")
-            : new MusterError("failed", error.message),
+            ? new SwarmError("rejected", "client is closed")
+            : new SwarmError("failed", error.message),
         );
       };
 
@@ -49,8 +49,8 @@ export class WsClient extends Client<WebSocket> {
 
         reject(
           this.isClosed
-            ? new MusterError("rejected", "client is closed")
-            : new MusterError("failed", "connection closed before connect"),
+            ? new SwarmError("rejected", "client is closed")
+            : new SwarmError("failed", "connection closed before connect"),
         );
       };
 

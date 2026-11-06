@@ -6,12 +6,12 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { Server } from "./server.ts";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -52,7 +52,7 @@ export class WsServer extends Server<WebSocket> {
 
   async listen() {
     if (this.isClosed) {
-      throw new MusterError("rejected", "ws server is closed");
+      throw new SwarmError("rejected", "ws server is closed");
     }
 
     if (this.http.listening) {
@@ -61,7 +61,7 @@ export class WsServer extends Server<WebSocket> {
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
-        reject(new MusterError("failed", error.message));
+        reject(new SwarmError("failed", error.message));
       };
 
       this.http.once("error", onError);
@@ -80,7 +80,7 @@ export class WsServer extends Server<WebSocket> {
 
     if (this.isClosed) {
       this.http.close();
-      throw new MusterError("rejected", "ws server is closed");
+      throw new SwarmError("rejected", "ws server is closed");
     }
 
     this.http.on("error", (error) => this.events.emit("error", error));

@@ -6,18 +6,18 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { withTimeout } from "./timeout.ts";
 
 describe("withTimeout", () => {
   test("resolves a value before the deadline", async () => {
     assert.equal(
-      await withTimeout(7, 50, () => new MusterError("timeout", "late")),
+      await withTimeout(7, 50, () => new SwarmError("timeout", "late")),
       7,
     );
   });
@@ -27,7 +27,7 @@ describe("withTimeout", () => {
       await withTimeout(
         Promise.resolve(7),
         50,
-        () => new MusterError("timeout", "late"),
+        () => new SwarmError("timeout", "late"),
       ),
       7,
     );
@@ -40,7 +40,7 @@ describe("withTimeout", () => {
       withTimeout(
         Promise.reject(failure),
         50,
-        () => new MusterError("timeout", "late"),
+        () => new SwarmError("timeout", "late"),
       ),
       (err: Error) => err === failure,
     );
@@ -53,7 +53,7 @@ describe("withTimeout", () => {
       await withTimeout(
         7,
         20,
-        () => new MusterError("timeout", "late"),
+        () => new SwarmError("timeout", "late"),
         () => {
           calls += 1;
         },
@@ -73,12 +73,12 @@ describe("withTimeout", () => {
       withTimeout(
         new Promise<never>(() => {}),
         20,
-        () => new MusterError("timeout", "late"),
+        () => new SwarmError("timeout", "late"),
         () => {
           calls += 1;
         },
       ),
-      (err: MusterError) => err.kind === "timeout" && err.message === "late",
+      (err: SwarmError) => err.kind === "timeout" && err.message === "late",
     );
 
     assert.equal(calls, 1);

@@ -6,14 +6,14 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { pack } from "msgpackr";
 import { decode, encode } from "./codec.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
 const envelopes: Envelope[] = [
@@ -164,7 +164,7 @@ describe("codec", () => {
     for (const value of values) {
       assert.throws(
         () => encode(value),
-        (err: MusterError) =>
+        (err: SwarmError) =>
           err.kind === "failed" && err.message === "envelope is not encodable",
       );
     }

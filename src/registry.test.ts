@@ -6,13 +6,13 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Registry } from "./registry.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
 describe("Registry", () => {
@@ -368,7 +368,7 @@ describe("Registry", () => {
 
     assert.throws(
       () => registry.add("math", "node-c"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.equal(events.length, 4);
   });
@@ -385,26 +385,26 @@ describe("Registry", () => {
 
     assert.throws(
       () => registry.add("math", "node-a"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => registry.remove("math", "node-a"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => registry.drop("node-a"),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
       () => registry.watch("math", () => {}),
-      (err: MusterError) => err.kind === "rejected",
+      (err: SwarmError) => err.kind === "rejected",
     );
     assert.equal(events.length, 0);
   });
 
   test("close rejects re-entry from a down watcher", () => {
     const registry = new Registry();
-    let error: MusterError | undefined;
+    let error: SwarmError | undefined;
 
     registry.watch("math", (event) => {
       if (event.type !== "down") {
@@ -414,7 +414,7 @@ describe("Registry", () => {
       try {
         registry.add("math", "node-b");
       } catch (err) {
-        error = err as MusterError;
+        error = err as SwarmError;
       }
     });
 

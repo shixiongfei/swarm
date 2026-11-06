@@ -6,7 +6,7 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { describe, test } from "node:test";
 import { Worker } from "node:worker_threads";
 import type { Transferable } from "node:worker_threads";
 import { Node } from "./node.ts";
-import type { MusterError } from "./errors.ts";
+import type { SwarmError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
 const source = new URL("./index.ts", import.meta.url).href;
@@ -225,52 +225,59 @@ describe("NodeHub", () => {
 
       await assert.rejects(
         node.call("echo", "ping", [1]),
-        (err: MusterError) => err.kind === "not-found",
+        (err: SwarmError) => err.kind === "not-found",
       );
     },
   );
-  test("keeps a registration made right after attach", { timeout: 5000 }, async (t) => {
-    const node = new Node({ cluster: "hub-late", callTimeout: 1000 });
-    const late = createWorker("late");
+  test(
+    "keeps a registration made right after attach",
+    { timeout: 5000 },
+    async (t) => {
+      const node = new Node({ cluster: "hub-late", callTimeout: 1000 });
+      const late = createWorker("late");
 
-    t.after(async () => {
-      node.close();
-      await Promise.allSettled([late.worker.terminate()]);
-    });
+      t.after(async () => {
+        node.close();
+        await Promise.allSettled([late.worker.terminate()]);
+      });
 
-    const up = new Promise<WatchEvent>((resolve) =>
-      node.watch("late", (event) => {
-        if (event.type === "up") {
-          resolve(event);
-        }
-      }),
-    );
+      const up = new Promise<WatchEvent>((resolve) =>
+        node.watch("late", (event) => {
+          if (event.type === "up") {
+            resolve(event);
+          }
+        }),
+      );
 
-    node.join(late.port);
+      node.join(late.port);
 
-    assert.equal((await up).instance.service, "late");
-    assert.equal(await node.call("late", "ping"), 1);
-  });
+      assert.equal((await up).instance.service, "late");
+      assert.equal(await node.call("late", "ping"), 1);
+    },
+  );
 
-  test("does not echo a worker's own service back", { timeout: 5000 }, async (t) => {
-    const node = new Node({ cluster: "hub-echo", callTimeout: 1000 });
-    const worker = createWorker("self");
-    const ups: unknown[] = [];
+  test(
+    "does not echo a worker's own service back",
+    { timeout: 5000 },
+    async (t) => {
+      const node = new Node({ cluster: "hub-echo", callTimeout: 1000 });
+      const worker = createWorker("self");
+      const ups: unknown[] = [];
 
-    t.after(async () => {
-      node.close();
-      await Promise.allSettled([worker.worker.terminate()]);
-    });
+      t.after(async () => {
+        node.close();
+        await Promise.allSettled([worker.worker.terminate()]);
+      });
 
-    collect(worker.worker, "self-up", ups);
+      collect(worker.worker, "self-up", ups);
 
-    node.join(worker.port);
+      node.join(worker.port);
 
-    await waitFor(() => ups.length > 0);
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => ups.length > 0);
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
-    assert.equal(ups.length, 1);
-    assert.equal(await node.call("self", "ping"), 1);
-  });
-
+      assert.equal(ups.length, 1);
+      assert.equal(await node.call("self", "ping"), 1);
+    },
+  );
 });

@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { randomId } from "./random.ts";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
 import { LinkTcp } from "./linktcp.ts";
@@ -84,11 +84,11 @@ export class Node {
       try {
         ownedMeta = structuredClone(meta);
       } catch (err) {
-        throw new MusterError("rejected", "meta is not cloneable");
+        throw new SwarmError("rejected", "meta is not cloneable");
       }
 
       if (!isMetaData(ownedMeta)) {
-        throw new MusterError("rejected", "meta is not a plain object");
+        throw new SwarmError("rejected", "meta is not a plain object");
       }
     }
 
@@ -213,7 +213,7 @@ export class Node {
       const call = this.nodeHub.call(service, method, args, timeout);
 
       if (call === undefined) {
-        reject(new MusterError("not-found", `service not found: ${service}`));
+        reject(new SwarmError("not-found", `service not found: ${service}`));
         return;
       }
 
@@ -253,7 +253,7 @@ export class Node {
     try {
       structuredClone(data);
     } catch (err) {
-      throw new MusterError("failed", "data is not cloneable");
+      throw new SwarmError("failed", "data is not cloneable");
     }
 
     for (const nodeLink of this.nodeLinks) {
@@ -300,7 +300,7 @@ export class Node {
 
   private checkOpen() {
     if (this.closed) {
-      throw new MusterError("rejected", "node is closed");
+      throw new SwarmError("rejected", "node is closed");
     }
   }
 
@@ -393,7 +393,7 @@ function parseUrl(url: string | URL): {
   try {
     parsed = new URL(url);
   } catch {
-    throw new MusterError("rejected", `invalid url: ${url}`);
+    throw new SwarmError("rejected", `invalid url: ${url}`);
   }
 
   if (
@@ -401,13 +401,13 @@ function parseUrl(url: string | URL): {
     parsed.hostname === "" ||
     parsed.port === ""
   ) {
-    throw new MusterError("rejected", `invalid url: ${url}`);
+    throw new SwarmError("rejected", `invalid url: ${url}`);
   }
 
   const port = Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
-    throw new MusterError("rejected", `invalid port: ${url}`);
+    throw new SwarmError("rejected", `invalid port: ${url}`);
   }
 
   let secret: string | undefined;
@@ -416,7 +416,7 @@ function parseUrl(url: string | URL): {
     try {
       secret = decodeURIComponent(parsed.password);
     } catch {
-      throw new MusterError("rejected", `invalid secret: ${url}`);
+      throw new SwarmError("rejected", `invalid secret: ${url}`);
     }
   }
 

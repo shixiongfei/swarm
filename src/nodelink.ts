@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
@@ -98,7 +98,7 @@ export class NodeLink implements Observable {
                 this.link.fail(
                   message.id,
                   message.from,
-                  new MusterError("failed", "reply is not cloneable"),
+                  new SwarmError("failed", "reply is not cloneable"),
                 );
               }
             },
@@ -124,7 +124,7 @@ export class NodeLink implements Observable {
         ) {
           this.pending.reject(
             message.id,
-            new MusterError(message.kind, message.message),
+            new SwarmError(message.kind, message.message),
           );
         }
         return;
@@ -180,7 +180,7 @@ export class NodeLink implements Observable {
     }
 
     if (handler === undefined) {
-      throw new MusterError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "watch handler is required");
     }
 
     return this.registry.watch(service, handler);
@@ -194,17 +194,17 @@ export class NodeLink implements Observable {
     timeout: number,
   ) {
     if (this.closed) {
-      return Promise.reject(new MusterError("failed", "link is closed"));
+      return Promise.reject(new SwarmError("failed", "link is closed"));
     }
 
     return this.pending.call(
       (id) => this.link.call(id, to, service, method, args),
       timeout,
-      () => new MusterError("timeout", `call timed out: ${service}.${method}`),
+      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
-          ? new MusterError("failed", "arguments are not cloneable")
-          : new MusterError(
+          ? new SwarmError("failed", "arguments are not cloneable")
+          : new SwarmError(
               "failed",
               cause instanceof Error ? cause.message : String(cause),
             ),
@@ -274,7 +274,7 @@ export class NodeLink implements Observable {
 
     this.closed = true;
 
-    this.pending.clear(() => new MusterError("failed", message));
+    this.pending.clear(() => new SwarmError("failed", message));
 
     for (const dispose of this.disposes) {
       dispose();

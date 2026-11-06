@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { createServer } from "node:net";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { Server } from "./server.ts";
 import type { Socket } from "node:net";
 
@@ -44,7 +44,7 @@ export class TcpServer extends Server<Socket> {
 
   async listen() {
     if (this.isClosed) {
-      throw new MusterError("rejected", "tcp server is closed");
+      throw new SwarmError("rejected", "tcp server is closed");
     }
 
     if (this.server.listening) {
@@ -53,7 +53,7 @@ export class TcpServer extends Server<Socket> {
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
-        reject(new MusterError("failed", error.message));
+        reject(new SwarmError("failed", error.message));
       };
 
       this.server.once("error", onError);
@@ -72,7 +72,7 @@ export class TcpServer extends Server<Socket> {
 
     if (this.isClosed) {
       this.server.close();
-      throw new MusterError("rejected", "tcp server is closed");
+      throw new SwarmError("rejected", "tcp server is closed");
     }
 
     this.server.on("error", (error) => this.events.emit("error", error));

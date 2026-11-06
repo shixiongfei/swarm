@@ -6,13 +6,13 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WebSocket } from "ws";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { WsServer } from "./wsserver.ts";
 
 const host = "127.0.0.1";
@@ -117,8 +117,7 @@ test("listen rejects when the port is already in use", async () => {
 
   await assert.rejects(
     () => second.listen(),
-    (error: unknown) =>
-      error instanceof MusterError && error.kind === "failed",
+    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
   );
 
   first.close();

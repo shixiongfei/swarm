@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { Link } from "./link.ts";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -26,7 +26,7 @@ export class LinkPort extends Link {
     super(nodeId);
 
     if (linked.has(port)) {
-      throw new MusterError("rejected", "port is already linked");
+      throw new SwarmError("rejected", "port is already linked");
     }
 
     linked.add(port);

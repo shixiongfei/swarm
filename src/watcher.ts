@@ -6,10 +6,10 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import type {
   Instance,
   Observable,
@@ -64,7 +64,7 @@ export class Watcher implements Observable {
     }
 
     if (handler === undefined) {
-      throw new MusterError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "watch handler is required");
     }
 
     return this.watchService(service, handler);

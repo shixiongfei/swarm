@@ -6,12 +6,12 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { TcpClient } from "./tcpclient.ts";
 import { TcpServer } from "./tcpserver.ts";
 import type { Socket } from "node:net";
@@ -151,8 +151,7 @@ test("connect rejects when the server is unavailable", async () => {
 
   await assert.rejects(
     () => client.connect(),
-    (error: unknown) =>
-      error instanceof MusterError && error.kind === "failed",
+    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
   );
 
   client.close();

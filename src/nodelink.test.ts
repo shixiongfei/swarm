@@ -6,7 +6,7 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { signToken } from "./token.ts";
 import type { WatchEvent } from "./registry.ts";
 
@@ -61,7 +61,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       link.call("peer", "math", "add", [], 50),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "link is closed",
     );
   });
@@ -80,7 +80,7 @@ describe("NodeLink", () => {
 
     a.register("boom", {
       fail: () => {
-        throw new MusterError("rejected", "denied");
+        throw new SwarmError("rejected", "denied");
       },
     });
 
@@ -93,7 +93,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       b.call("boom", "fail"),
-      (err: MusterError) => err.kind === "rejected" && err.message === "denied",
+      (err: SwarmError) => err.kind === "rejected" && err.message === "denied",
     );
   });
 
@@ -178,15 +178,15 @@ describe("NodeLink", () => {
     assert.equal(await b.call("math", "add", [2, 3]), 5);
     await assert.rejects(
       b.call("boom", "fail"),
-      (err: MusterError) => err.kind === "failed" && err.message === "boom",
+      (err: SwarmError) => err.kind === "failed" && err.message === "boom",
     );
     await assert.rejects(
       b.call("boom", "crash"),
-      (err: MusterError) => err.kind === "failed" && err.message === "oops",
+      (err: SwarmError) => err.kind === "failed" && err.message === "oops",
     );
     await assert.rejects(
       b.call("math", "nope"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
 
     const news = new Promise((resolve) => b.subscribe("news", resolve));
@@ -249,11 +249,11 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
     await assert.rejects(
       node.call("echo", "ping"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -280,7 +280,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       b.call("ret", "bad"),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "reply is not cloneable",
     );
   });
@@ -311,7 +311,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       a.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -340,7 +340,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       node.call("math", "add"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -409,7 +409,7 @@ describe("NodeLink", () => {
     assert.deepEqual(received, [2]);
     await assert.rejects(
       node.call("fake", "x"),
-      (err: MusterError) => err.kind === "not-found",
+      (err: SwarmError) => err.kind === "not-found",
     );
   });
 
@@ -553,7 +553,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       link.call("peer-node", "math", "add", [() => {}], 50),
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "arguments are not cloneable",
     );
   });
@@ -577,7 +577,7 @@ describe("NodeLink", () => {
 
     await assert.rejects(
       call,
-      (err: MusterError) =>
+      (err: SwarmError) =>
         err.kind === "failed" && err.message === "link is closed",
     );
   });

@@ -1,5 +1,5 @@
 {
-  "name": "@shidev/muster",
+  "name": "@shidev/swarm",
   "version": "0.1.0",
   "description": "Zero-config service discovery and location-transparent calls between Node.js processes: no daemon, no broker.",
   "type": "module",
@@ -25,17 +25,17 @@
     "!src/*.test.*"
   ],
   "keywords": [
-    "muster",
+    "swarm",
     "discovery",
     "registry"
   ],
-  "homepage": "https://github.com/shixiongfei/muster#readme",
+  "homepage": "https://github.com/shixiongfei/swarm#readme",
   "bugs": {
-    "url": "https://github.com/shixiongfei/muster/issues"
+    "url": "https://github.com/shixiongfei/swarm/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shixiongfei/muster.git"
+    "url": "git+https://github.com/shixiongfei/swarm.git"
   },
   "license": "Apache-2.0",
   "author": "shixiongfei",

@@ -6,11 +6,11 @@
  * Author: Xiongfei Shi <xiongfei.shi(a)icloud.com>
  * License: Apache-2.0
  *
- * https://github.com/shixiongfei/muster
+ * https://github.com/shixiongfei/swarm
  */
 
 import { eventlite } from "eventlite.js";
-import { MusterError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 
 export type ClientEvents<S = any> = {
   online: (socket: S) => void;
@@ -55,11 +55,11 @@ export abstract class Client<S = any> {
 
   async connect(): Promise<this> {
     if (this.closed) {
-      throw new MusterError("rejected", "client is closed");
+      throw new SwarmError("rejected", "client is closed");
     }
 
     if (this.connecting) {
-      throw new MusterError("rejected", "client is connecting");
+      throw new SwarmError("rejected", "client is connecting");
     }
 
     if (this.socket !== undefined) {
