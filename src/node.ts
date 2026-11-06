@@ -251,16 +251,19 @@ export class Node {
     this.checkOpen();
 
     try {
-      structuredClone(data);
+      for (const nodeLink of this.nodeLinks) {
+        nodeLink.publish(topic, data);
+      }
+
+      this.nodeHub.publish(topic, data);
     } catch (err) {
-      throw new SwarmError("failed", "data is not cloneable");
+      if (err instanceof Error && err.name === "DataCloneError") {
+        throw new SwarmError("failed", "data is not cloneable");
+      }
+
+      throw err;
     }
 
-    for (const nodeLink of this.nodeLinks) {
-      nodeLink.publish(topic, data);
-    }
-
-    this.nodeHub.publish(topic, data);
     this.nodeLocal.publish(topic, data, this.nodeId);
   }
 

@@ -342,6 +342,7 @@ describe("Node", () => {
     assert.equal(local, 0);
     assert.equal(remote, 0);
   });
+
   test("routes to another link after the first link closes", async (t) => {
     const a = new Node({ cluster: "failover-a" });
     const b = new Node({ cluster: "failover-b" });
@@ -590,6 +591,80 @@ for (const protocol of ["tcp", "ws"] as const) {
 
       assert.deepEqual(await received, { id: 1 });
     });
+
+    test(
+      "publishes nothing when the payload is not encodable",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-circular-hub` });
+        const peer = new Node({ cluster: `${protocol}-circular-peer` });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        await connectPair(protocol, hub, peer);
+
+        let local = 0;
+        let remote = 0;
+
+        peer.subscribe("news", () => {
+          local += 1;
+        });
+        hub.subscribe("news", () => {
+          remote += 1;
+        });
+
+        const circular: { self?: unknown } = {};
+        circular.self = circular;
+
+        assert.throws(
+          () => peer.publish("news", circular),
+          (err: SwarmError) =>
+            err.kind === "failed" &&
+            err.message === "envelope is not encodable",
+        );
+
+        assert.equal(local, 0);
+        assert.equal(remote, 0);
+      },
+    );
+
+    test(
+      "publishes nothing when the payload exceeds the envelope limit",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-oversize-hub` });
+        const peer = new Node({ cluster: `${protocol}-oversize-peer` });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        await connectPair(protocol, hub, peer);
+
+        let local = 0;
+        let remote = 0;
+
+        peer.subscribe("news", () => {
+          local += 1;
+        });
+        hub.subscribe("news", () => {
+          remote += 1;
+        });
+
+        assert.throws(
+          () => peer.publish("news", "x".repeat(9 * 1024 * 1024)),
+          (err: SwarmError) =>
+            err.kind === "failed" && err.message === "envelope is too large",
+        );
+
+        assert.equal(local, 0);
+        assert.equal(remote, 0);
+      },
+    );
 
     test(
       "accepts a url object and a url secret",

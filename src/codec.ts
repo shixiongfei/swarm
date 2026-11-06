@@ -14,6 +14,8 @@ import { SwarmError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
+export const maxEnvelopeSize = 8 * 1024 * 1024;
+
 const packr = new Packr({
   useRecords: false,
   writeFunction: () => {

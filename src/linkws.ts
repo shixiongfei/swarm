@@ -11,11 +11,9 @@
 
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
-import { decode, encode } from "./codec.ts";
+import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Envelope } from "./envelope.ts";
 import type { RawData, WebSocket } from "ws";
-
-const maxFrameSize = 8 * 1024 * 1024;
 
 function toBytes(data: RawData): Uint8Array {
   if (data instanceof ArrayBuffer) {
@@ -81,7 +79,7 @@ export class LinkWs extends Link {
 
     const payload = encode(message);
 
-    if (payload.byteLength > maxFrameSize) {
+    if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError("failed", "envelope is too large");
     }
 

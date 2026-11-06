@@ -36,6 +36,7 @@ export class WsClient extends Client<WebSocket> {
 
       const onError = (error: Error) => {
         this.clearSocket(socket);
+        socket.terminate();
 
         reject(
           this.isClosed

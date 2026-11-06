@@ -130,6 +130,13 @@ export abstract class Client<S = any> {
       this.timer = undefined;
       void this.connect().catch(() => this.scheduleReconnect());
     }, delay);
+
+    if (
+      typeof this.timer === "object" &&
+      typeof this.timer.unref === "function"
+    ) {
+      this.timer.unref();
+    }
   }
 
   private clearTimer() {

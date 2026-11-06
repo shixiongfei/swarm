@@ -11,12 +11,11 @@
 
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
-import { decode, encode } from "./codec.ts";
+import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
 const headerSize = 4;
-const maxFrameSize = 8 * 1024 * 1024;
 
 export class LinkTcp extends Link {
   private readonly socket: Socket;
@@ -47,7 +46,7 @@ export class LinkTcp extends Link {
       );
       const length = view.getUint32(0, false);
 
-      if (length > maxFrameSize) {
+      if (length > maxEnvelopeSize) {
         this.close();
         this.events.emit("close");
         return;
@@ -97,7 +96,7 @@ export class LinkTcp extends Link {
 
     const payload = encode(message);
 
-    if (payload.byteLength > maxFrameSize) {
+    if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError("failed", "envelope is too large");
     }
 
