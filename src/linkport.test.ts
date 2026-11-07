@@ -235,4 +235,33 @@ describe("LinkPort", () => {
       }),
     );
   });
+
+  test(
+    "closes when the peer sends a close message",
+    { timeout: 3000 },
+    async (t) => {
+      const { port1, port2 } = new MessageChannel();
+      const link = new LinkPort(port1, "node-a");
+      let count = 0;
+
+      t.after(() => {
+        link.close();
+        port2.close();
+      });
+
+      const closed = new Promise<void>((resolve) => {
+        link.events.on("close", () => {
+          count += 1;
+          resolve();
+        });
+      });
+
+      port2.start();
+      port2.postMessage({ t: "close" });
+
+      await closed;
+
+      assert.equal(count, 1);
+    },
+  );
 });

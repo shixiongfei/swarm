@@ -37,7 +37,7 @@ async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
   const port = await freePort();
   const url = `${protocol}://127.0.0.1:${port}`;
 
-  assert.equal(await hub.listen(url), hub);
+  await hub.listen(url);
   assert.equal(await peer.connect(url), peer);
 
   return port;
@@ -929,6 +929,36 @@ for (const protocol of ["tcp", "ws"] as const) {
     );
 
     test(
+      "returns the bound address when listening on port 0",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-ephemeral` });
+        const peer = new Node({ cluster: `${protocol}-ephemeral-peer` });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        hub.register("core", { ping: () => "core" });
+
+        const address = await hub.listen(`${protocol}://127.0.0.1:0`);
+
+        assert.equal(address.host, "127.0.0.1");
+        assert.ok(address.port > 0);
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          peer.watch("core", resolve),
+        );
+
+        await peer.connect(`${protocol}://127.0.0.1:${address.port}`);
+        await up;
+
+        assert.equal(await peer.call("core", "ping"), "core");
+      },
+    );
+
+    test(
       "accepts a url object and a url secret",
       { timeout: 3000 },
       async (t) => {
@@ -1052,3 +1082,30 @@ for (const protocol of ["tcp", "ws"] as const) {
     );
   });
 }
+
+test(
+  "connect turns a wss url into a websocket client",
+  { timeout: 3000 },
+  async (t) => {
+    const node = new Node({ cluster: "wss-client" });
+
+    t.after(() => node.close());
+
+    await assert.rejects(
+      () => node.connect("wss://127.0.0.1:1", { reconnect: false }),
+      (err: SwarmError) => err.kind === "failed",
+    );
+  },
+);
+
+test("listen rejects a wss url", async (t) => {
+  const node = new Node({ cluster: "wss-listen" });
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    () => node.listen("wss://127.0.0.1:0"),
+    (err: SwarmError) =>
+      err.kind === "rejected" && err.message === "wss listen is not supported",
+  );
+});

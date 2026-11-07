@@ -34,7 +34,22 @@ export class LinkPort extends Link {
 
     this.port = port;
 
+    const onClose = () => {
+      const closed = this.closed;
+
+      this.close();
+
+      if (!closed) {
+        this.events.emit("close");
+      }
+    };
+
     const onMessage = (event: MessageEvent) => {
+      if (event.data?.t === "close") {
+        onClose();
+        return;
+      }
+
       const message = parseEnvelope(event.data);
 
       if (message === undefined) {
@@ -42,11 +57,6 @@ export class LinkPort extends Link {
       }
 
       this.events.emit("envelope", message);
-    };
-
-    const onClose = () => {
-      this.close();
-      this.events.emit("close");
     };
 
     this.dispose = () => {
@@ -86,6 +96,7 @@ export class LinkPort extends Link {
 
     this.closed = true;
     this.dispose();
+    this.port.postMessage({ t: "close" });
     this.port.close();
   }
 }

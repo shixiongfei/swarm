@@ -151,7 +151,7 @@ export class Node {
       throw err;
     }
 
-    return this;
+    return { host: server.host, port: server.port };
   }
 
   async connect(url: string | URL, options?: ClientOptions) {
@@ -305,7 +305,11 @@ export class Node {
     url: string | URL,
     backlog: number | undefined,
   ): Promise<Server> {
-    const { protocol, host, port, secret } = parseUrl(url);
+    const { protocol, secure, host, port, secret } = parseUrl(url);
+
+    if (secure) {
+      throw new SwarmError("rejected", "wss listen is not supported");
+    }
 
     if (protocol === "tcp:") {
       const { TcpServer } = await import("./tcpserver.ts");
@@ -388,6 +392,7 @@ export class Node {
 
 function parseUrl(url: string | URL): {
   protocol: "tcp:" | "ws:";
+  secure: boolean;
   host: string;
   port: number;
   secret: string | undefined;
@@ -401,7 +406,9 @@ function parseUrl(url: string | URL): {
   }
 
   if (
-    (parsed.protocol !== "tcp:" && parsed.protocol !== "ws:") ||
+    (parsed.protocol !== "tcp:" &&
+      parsed.protocol !== "ws:" &&
+      parsed.protocol !== "wss:") ||
     parsed.hostname === "" ||
     parsed.port === ""
   ) {
@@ -431,7 +438,8 @@ function parseUrl(url: string | URL): {
     host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
     port,
     secret,
-    protocol: parsed.protocol === "ws:" ? "ws:" : "tcp:",
+    protocol: parsed.protocol === "tcp:" ? "tcp:" : "ws:",
+    secure: parsed.protocol === "wss:",
   };
 }
 

@@ -38,6 +38,9 @@ export abstract class Server<S = any> {
     return this.closed;
   }
 
+  abstract get host(): string;
+  abstract get port(): number;
+
   abstract listen(): Promise<this>;
 
   close() {
