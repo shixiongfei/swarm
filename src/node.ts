@@ -32,6 +32,10 @@ export type ServiceProxy<M extends Methods<M> = Methods> = {
   ) => Promise<Awaited<ReturnType<M[K]>>>;
 };
 
+export type ServiceResult =
+  | { nodeId: string; ok: true; value: unknown }
+  | { nodeId: string; ok: false; error: unknown };
+
 export type NodeConfig = {
   cluster: string;
   secret?: string;
@@ -293,6 +297,55 @@ export class Node {
     if (nodes.get(this.cluster) === this) {
       nodes.delete(this.cluster);
     }
+  }
+
+  async collect(
+    service: string,
+    method: string,
+    args: unknown[] = [],
+    options: { timeout?: number } = {},
+  ) {
+    this.checkOpen();
+
+    const timeout =
+      options.timeout === undefined ? this.callTimeout : options.timeout;
+    const calls: Array<Promise<ServiceResult>> = [];
+
+    if (this.nodeLocal.has(service)) {
+      calls.push(
+        Promise.resolve()
+          .then(() => this.nodeLocal.invoke(service, method, args, timeout))
+          .then(
+            (value) => ({ nodeId: this.nodeId, ok: true as const, value }),
+            (error) => ({ nodeId: this.nodeId, ok: false as const, error }),
+          ),
+      );
+    }
+
+    const targets = new Map<string, NodeLink>();
+
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      const peer = nodeLink.peerId;
+
+      if (peer !== undefined && nodeLink.has(service) && !targets.has(peer)) {
+        targets.set(peer, nodeLink);
+      }
+    }
+
+    for (const [peer, nodeLink] of targets) {
+      calls.push(
+        nodeLink.call(peer, service, method, args, timeout).then(
+          (value) => ({ nodeId: peer, ok: true as const, value }),
+          (error) => ({ nodeId: peer, ok: false as const, error }),
+        ),
+      );
+    }
+
+    if (calls.length === 0) {
+      throw new SwarmError("not-found", `service ${service} is not available`);
+    }
+
+    return Promise.all(calls);
   }
 
   private checkOpen() {

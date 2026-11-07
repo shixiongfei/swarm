@@ -1109,3 +1109,112 @@ test("listen rejects a wss url", async (t) => {
       err.kind === "rejected" && err.message === "wss listen is not supported",
   );
 });
+
+test("collect invokes local and remote instances and dedupes by peer", async (t) => {
+  const local = new Node({ cluster: "collect-local" });
+  const remote = new Node({ cluster: "collect-remote" });
+
+  t.after(() => {
+    local.close();
+    remote.close();
+  });
+
+  local.register("math", {
+    add: async (a: number, b: number) => a + b,
+  });
+  remote.register("math", {
+    add: async (a: number, b: number) => a + b + 2,
+  });
+
+  const tcpPort = await freePort();
+  const wsPort = await freePort();
+
+  await remote.listen(`tcp://127.0.0.1:${tcpPort}`);
+  await remote.listen(`ws://127.0.0.1:${wsPort}`);
+
+  const up = new Promise<void>((resolve) =>
+    local.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === remote.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await local.connect(`tcp://127.0.0.1:${tcpPort}`);
+  await local.connect(`ws://127.0.0.1:${wsPort}`);
+  await up;
+
+  const results = await local.collect("math", "add", [1, 2]);
+
+  assert.equal(results.length, 2);
+  assert.deepEqual(results[0], { nodeId: local.nodeId, ok: true, value: 3 });
+  assert.deepEqual(results[1], { nodeId: remote.nodeId, ok: true, value: 5 });
+});
+
+test("collect isolates a failing local instance", async (t) => {
+  const local = new Node({ cluster: "collect-iso-local" });
+  const remote = new Node({ cluster: "collect-iso-remote" });
+
+  t.after(() => {
+    local.close();
+    remote.close();
+  });
+
+  const failure = new Error("boom");
+
+  local.register("math", {
+    add: () => {
+      throw failure;
+    },
+  });
+  remote.register("math", {
+    add: async (a: number, b: number) => a + b,
+  });
+
+  const port = await freePort();
+
+  await remote.listen(`tcp://127.0.0.1:${port}`);
+
+  const up = new Promise<void>((resolve) =>
+    local.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === remote.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await local.connect(`tcp://127.0.0.1:${port}`);
+  await up;
+
+  const results = await local.collect("math", "add", [1, 2]);
+
+  assert.equal(results.length, 2);
+  assert.deepEqual(results[0], {
+    nodeId: local.nodeId,
+    ok: false,
+    error: failure,
+  });
+  assert.deepEqual(results[1], { nodeId: remote.nodeId, ok: true, value: 3 });
+});
+
+test("collect rejects when no provider exists", async (t) => {
+  const node = new Node({ cluster: "collect-none" });
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    () => node.collect("missing", "add", [1, 2]),
+    (error: SwarmError) => error.kind === "not-found",
+  );
+});
+
+test("collect rejects after close", async () => {
+  const node = new Node({ cluster: "collect-closed" });
+
+  node.close();
+
+  await assert.rejects(
+    () => node.collect("math", "add", [1, 2]),
+    (error: SwarmError) => error.kind === "rejected",
+  );
+});
