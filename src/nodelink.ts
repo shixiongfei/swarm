@@ -45,24 +45,25 @@ export class NodeLink implements Observable {
   private readonly onEnvelope = (message: Envelope) => {
     switch (message.t) {
       case "hello":
-        if (this.reject(message)) {
+        if (this.secret === undefined) {
+          this.open(message.from, true);
           return;
         }
 
-        if (this.connect(message.from)) {
-          this.link.accept(this.token());
-          this.announce();
-        }
+        this.authenticate(message.from, message.token, true).catch(() =>
+          this.dispose("link is closed"),
+        );
         return;
 
       case "accept":
-        if (this.reject(message)) {
+        if (this.secret === undefined) {
+          this.open(message.from, false);
           return;
         }
 
-        if (this.connect(message.from)) {
-          this.announce();
-        }
+        this.authenticate(message.from, message.token, false).catch(() =>
+          this.dispose("link is closed"),
+        );
         return;
 
       case "up":
@@ -170,7 +171,17 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.link.hello(this.token());
+    if (this.closed) {
+      this.dispose("link is closed");
+      return;
+    }
+
+    if (this.secret === undefined) {
+      this.link.hello();
+      return;
+    }
+
+    this.token().then((token) => this.link.hello(token));
   }
 
   register(instance: Instance) {
@@ -240,24 +251,49 @@ export class NodeLink implements Observable {
     this.link.close();
   }
 
-  private token() {
+  private open(from: string, reply: boolean, token?: string) {
+    if (this.closed || !this.connect(from)) {
+      return;
+    }
+
+    if (reply) {
+      this.link.accept(token);
+    }
+
+    this.announce();
+  }
+
+  private async authenticate(
+    from: string,
+    token: string | undefined,
+    reply: boolean,
+  ) {
+    if (this.closed || (await this.reject(from, token))) {
+      return;
+    }
+
+    this.open(from, reply, reply ? await this.token() : undefined);
+  }
+
+  private async token() {
     return this.secret === undefined
       ? undefined
       : signToken(this.secret, this.link.nodeId);
   }
 
-  private reject(message: { from: string; token?: string }) {
-    if (
-      this.secret !== undefined &&
-      !verifyToken(message.token, this.secret, message.from)
-    ) {
-      this.dispose("link is closed");
-      this.link.close();
-
-      return true;
+  private async reject(from: string, token: string | undefined) {
+    if (this.secret === undefined) {
+      return false;
     }
 
-    return false;
+    if (await verifyToken(token, this.secret, from)) {
+      return false;
+    }
+
+    this.dispose("link is closed");
+    this.link.close();
+
+    return true;
   }
 
   private announce() {

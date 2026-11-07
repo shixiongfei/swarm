@@ -304,7 +304,7 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "hello",
       from: "peer-node",
-      token: signToken("wrong-secret", "peer-node"),
+      token: await signToken("wrong-secret", "peer-node"),
     });
 
     await closed;
