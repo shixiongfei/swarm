@@ -22,6 +22,7 @@ export type ClientOptions = {
   reconnect?: boolean;
   retryDelay?: number;
   maxRetryDelay?: number;
+  secret?: string;
 };
 
 export abstract class Client<S = any> {
@@ -71,6 +72,10 @@ export abstract class Client<S = any> {
 
     try {
       await this.open();
+    } catch (err) {
+      this.lastError = err instanceof Error ? err : undefined;
+      this.scheduleReconnect();
+      throw err;
     } finally {
       this.connecting = false;
     }
@@ -130,13 +135,6 @@ export abstract class Client<S = any> {
       this.timer = undefined;
       void this.connect().catch(() => this.scheduleReconnect());
     }, delay);
-
-    if (
-      typeof this.timer === "object" &&
-      typeof this.timer.unref === "function"
-    ) {
-      this.timer.unref();
-    }
   }
 
   private clearTimer() {

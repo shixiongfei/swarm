@@ -19,6 +19,7 @@ const headerSize = 4;
 const minBufferSize = 16;
 const shrinkBufferSize = 64 * 1024;
 const maxBufferSize = headerSize + maxEnvelopeSize;
+const maxQueueSize = maxEnvelopeSize * 2;
 
 export class LinkTcp extends Link {
   readonly transport = "socket";
@@ -27,6 +28,9 @@ export class LinkTcp extends Link {
   private head = 0;
   private tail = 0;
   private closed = false;
+  private writable = true;
+  private queued = 0;
+  private readonly queue: Uint8Array[] = [];
 
   private readonly onData = (chunk: Uint8Array) => {
     if (this.closed) {
@@ -49,6 +53,25 @@ export class LinkTcp extends Link {
     this.abort();
   };
 
+  private readonly onDrain = () => {
+    if (this.closed) {
+      return;
+    }
+
+    this.writable = true;
+
+    while (this.writable && this.queue.length > 0) {
+      const frame = this.queue.shift();
+
+      if (frame === undefined) {
+        break;
+      }
+
+      this.queued -= frame.byteLength;
+      this.writable = this.socket.write(frame) !== false;
+    }
+  };
+
   constructor(socket: Socket, nodeId: string) {
     super(nodeId);
 
@@ -58,6 +81,7 @@ export class LinkTcp extends Link {
     socket.on("data", this.onData);
     socket.on("error", this.onError);
     socket.on("close", this.onClose);
+    socket.on("drain", this.onDrain);
   }
 
   send(message: Envelope) {
@@ -76,7 +100,17 @@ export class LinkTcp extends Link {
     new DataView(frame.buffer).setUint32(0, payload.byteLength, false);
     frame.set(payload, headerSize);
 
-    this.socket.write(frame);
+    if (this.writable === false) {
+      if (this.queued + frame.byteLength > maxQueueSize) {
+        throw new SwarmError("failed", "link is congested", true);
+      }
+
+      this.queued += frame.byteLength;
+      this.queue.push(frame);
+      return;
+    }
+
+    this.writable = this.socket.write(frame) !== false;
   }
 
   close() {
@@ -88,10 +122,13 @@ export class LinkTcp extends Link {
     this.buffer = new Uint8Array(0);
     this.head = 0;
     this.tail = 0;
+    this.queue.length = 0;
+    this.queued = 0;
 
     this.socket.off("data", this.onData);
     this.socket.off("error", this.onError);
     this.socket.off("close", this.onClose);
+    this.socket.off("drain", this.onDrain);
     this.socket.destroy();
   }
 

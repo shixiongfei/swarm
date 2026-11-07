@@ -26,6 +26,7 @@ export type Envelope =
       service: string;
       method: string;
       args: unknown[];
+      timeout?: number;
     }
   | { t: "reply"; id: string; from: string; to: string; value: unknown }
   | {
@@ -36,7 +37,9 @@ export type Envelope =
       kind: ErrorKind;
       message: string;
     }
-  | { t: "pub"; from: string; origin: string; topic: string; data: unknown };
+  | { t: "pub"; from: string; origin: string; topic: string; data: unknown }
+  | { t: "ping"; from: string }
+  | { t: "pong"; from: string };
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
@@ -96,7 +99,9 @@ function isCall(
     typeof message.to !== "string" ||
     typeof message.service !== "string" ||
     typeof message.method !== "string" ||
-    !Array.isArray(message.args)
+    !Array.isArray(message.args) ||
+    (message.timeout !== undefined &&
+      (typeof message.timeout !== "number" || message.timeout <= 0))
   ) {
     return undefined;
   }
@@ -146,6 +151,12 @@ function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
   return message;
 }
 
+function isPeer(
+  message: Extract<Envelope, { t: "ping" | "pong" }>,
+): Envelope | undefined {
+  return typeof message.from === "string" ? message : undefined;
+}
+
 export function parseEnvelope(value: unknown): Envelope | undefined {
   if (typeof value !== "object" || value === null) {
     return undefined;
@@ -169,6 +180,9 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isError(message);
     case "pub":
       return isPub(message);
+    case "ping":
+    case "pong":
+      return isPeer(message);
     default:
       return undefined;
   }

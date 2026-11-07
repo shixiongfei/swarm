@@ -23,6 +23,9 @@ type NodeLinkEvents = {
   close: () => void;
 };
 
+const heartbeatInterval = 15000;
+const heartbeatTimeout = 45000;
+
 type NodeLinkConfig = {
   provider: Provider;
   secret?: string;
@@ -41,8 +44,14 @@ export class NodeLink implements Observable {
   private readonly link: Link;
   private peer?: string;
   private closed = false;
+  private lastSeen = Date.now();
+  private heartbeat?: ReturnType<typeof setInterval>;
+  private pingAt?: number;
+  private rtt?: number;
 
   private readonly onEnvelope = (message: Envelope) => {
+    this.lastSeen = Date.now();
+
     switch (message.t) {
       case "hello":
         if (this.secret === undefined) {
@@ -89,7 +98,12 @@ export class NodeLink implements Observable {
 
         Promise.resolve()
           .then(() =>
-            this.provider.invoke(message.service, message.method, message.args),
+            this.provider.invoke(
+              message.service,
+              message.method,
+              message.args,
+              message.timeout,
+            ),
           )
           .then(
             (value) => {
@@ -144,6 +158,27 @@ export class NodeLink implements Observable {
           );
         }
         return;
+
+      case "ping":
+        if (this.peer !== undefined && message.from === this.peer) {
+          this.link.send({ t: "pong", from: this.link.nodeId });
+        }
+        return;
+
+      case "pong":
+        if (
+          this.peer !== undefined &&
+          message.from === this.peer &&
+          this.pingAt !== undefined
+        ) {
+          const sample = Date.now() - this.pingAt;
+
+          this.rtt =
+            this.rtt === undefined ? sample : (this.rtt * 3 + sample) / 4;
+
+          this.pingAt = undefined;
+        }
+        return;
     }
   };
 
@@ -164,6 +199,10 @@ export class NodeLink implements Observable {
 
   get peerId() {
     return this.peer;
+  }
+
+  get latency() {
+    return this.rtt;
   }
 
   get transport() {
@@ -226,7 +265,7 @@ export class NodeLink implements Observable {
     }
 
     return this.pending.call(
-      (id) => this.link.call(id, to, service, method, args),
+      (id) => this.link.call(id, to, service, method, args, timeout),
       timeout,
       () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
@@ -260,7 +299,28 @@ export class NodeLink implements Observable {
       this.link.accept(token);
     }
 
+    this.lastSeen = Date.now();
+
+    if (this.heartbeat === undefined) {
+      this.heartbeat = setInterval(() => this.beat(), heartbeatInterval);
+    }
+
     this.announce();
+  }
+
+  private beat() {
+    if (this.lastSeen + heartbeatTimeout < Date.now()) {
+      this.dispose("link is timed out");
+      this.link.close();
+      return;
+    }
+
+    if (this.pingAt !== undefined) {
+      return;
+    }
+
+    this.pingAt = Date.now();
+    this.link.send({ t: "ping", from: this.link.nodeId });
   }
 
   private async authenticate(
@@ -329,6 +389,11 @@ export class NodeLink implements Observable {
     }
 
     this.closed = true;
+
+    if (this.heartbeat !== undefined) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = undefined;
+    }
 
     this.pending.clear(() => new SwarmError("failed", message, true));
 

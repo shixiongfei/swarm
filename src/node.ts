@@ -164,13 +164,15 @@ export class Node {
     try {
       await client.connect();
     } catch (err) {
-      const index = this.clients.indexOf(client);
+      if (options !== undefined && options.reconnect === false) {
+        const index = this.clients.indexOf(client);
 
-      if (index >= 0) {
-        this.clients.splice(index, 1);
+        if (index >= 0) {
+          this.clients.splice(index, 1);
+        }
+
+        client.close();
       }
-
-      client.close();
 
       throw err;
     }
@@ -189,31 +191,28 @@ export class Node {
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
-    return new Promise<unknown>((resolve, reject) => {
-      if (this.nodeLocal.has(service)) {
-        try {
-          resolve(this.nodeLocal.invoke(service, method, args, timeout));
-        } catch (err) {
-          reject(err);
-        }
-        return;
-      }
-
+    if (this.nodeLocal.has(service)) {
       try {
-        resolve(
-          this.balancer.invoke(
-            service,
-            method,
-            args,
-            timeout,
-            this.nodeLinks,
-            this.nodeHub.links,
-          ),
-        );
+        return this.nodeLocal.invoke(service, method, args, timeout);
       } catch (err) {
-        reject(err);
+        if (!(err instanceof SwarmError) || err.kind !== "not-found") {
+          return Promise.reject(err);
+        }
       }
-    });
+    }
+
+    try {
+      return this.balancer.invoke(
+        service,
+        method,
+        args,
+        timeout,
+        this.nodeLinks,
+        this.nodeHub.links,
+      );
+    } catch (err) {
+      return Promise.reject(err);
+    }
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -333,7 +332,11 @@ export class Node {
     url: string | URL,
     options: ClientOptions | undefined,
   ): Promise<Client> {
-    const { protocol, host, port, secret } = parseUrl(url);
+    const { protocol, host, port, secret: urlSecret } = parseUrl(url);
+    const secret =
+      options !== undefined && options.secret !== undefined
+        ? options.secret
+        : urlSecret;
 
     if (protocol === "tcp:") {
       const { TcpClient } = await import("./tcpclient.ts");
@@ -391,7 +394,7 @@ function parseUrl(url: string | URL): {
   try {
     parsed = new URL(url);
   } catch {
-    throw new SwarmError("rejected", `invalid url: ${url}`);
+    throw new SwarmError("rejected", "invalid url");
   }
 
   if (
@@ -399,13 +402,16 @@ function parseUrl(url: string | URL): {
     parsed.hostname === "" ||
     parsed.port === ""
   ) {
-    throw new SwarmError("rejected", `invalid url: ${url}`);
+    throw new SwarmError(
+      "rejected",
+      `invalid url: ${parsed.protocol}//${parsed.host}`,
+    );
   }
 
   const port = Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
-    throw new SwarmError("rejected", `invalid port: ${url}`);
+    throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);
   }
 
   let secret: string | undefined;
@@ -414,7 +420,7 @@ function parseUrl(url: string | URL): {
     try {
       secret = decodeURIComponent(parsed.password);
     } catch {
-      throw new SwarmError("rejected", `invalid secret: ${url}`);
+      throw new SwarmError("rejected", "invalid secret");
     }
   }
 

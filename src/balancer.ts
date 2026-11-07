@@ -13,8 +13,11 @@ import { SwarmError } from "./errors.ts";
 import type { Transport } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
+const bucketSize = 10;
+
 export type Scannable = {
   readonly transport: Transport;
+  readonly latency?: number;
   has(service: string): boolean;
 };
 
@@ -52,15 +55,43 @@ export class Balancer {
     this.cursors.set(service, cursor + 1);
 
     const portStart = ports.length === 0 ? 0 : cursor % ports.length;
-    const socketStart = sockets.length === 0 ? 0 : cursor % sockets.length;
     const ordered = [];
 
     for (let i = 0; i < ports.length; i++) {
       ordered.push(ports[(portStart + i) % ports.length]);
     }
 
-    for (let i = 0; i < sockets.length; i++) {
-      ordered.push(sockets[(socketStart + i) % sockets.length]);
+    const buckets = new Map<number, T[]>();
+
+    for (const socket of sockets) {
+      const key =
+        socket.latency === undefined
+          ? Infinity
+          : Math.floor(socket.latency / bucketSize);
+
+      const bucket = buckets.get(key);
+
+      if (bucket === undefined) {
+        buckets.set(key, [socket]);
+      } else {
+        bucket.push(socket);
+      }
+    }
+
+    const keys = Array.from(buckets.keys()).sort((a, b) => a - b);
+
+    for (const key of keys) {
+      const bucket = buckets.get(key);
+
+      if (bucket === undefined) {
+        continue;
+      }
+
+      const start = cursor % bucket.length;
+
+      for (let i = 0; i < bucket.length; i++) {
+        ordered.push(bucket[(start + i) % bucket.length]);
+      }
     }
 
     return ordered;

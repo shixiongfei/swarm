@@ -18,6 +18,7 @@ import type { Transport } from "./link.ts";
 function stub(transport: Transport, ...services: string[]) {
   return {
     transport,
+    latency: undefined as number | undefined,
     has: (service: string) => services.includes(service),
   };
 }
@@ -41,30 +42,52 @@ describe("Balancer", () => {
     assert.deepEqual(balancer.order("math", [a, b]), [a, b]);
   });
 
-  test("rotates port and socket groups independently", () => {
+  test("rotates port links and orders sockets by latency", () => {
     const balancer = new Balancer();
     const p1 = stub("port", "math");
     const p2 = stub("port", "math");
     const s1 = stub("socket", "math");
     const s2 = stub("socket", "math");
 
+    s1.latency = 10;
+    s2.latency = 2;
+
     assert.deepEqual(balancer.order("math", [p1, p2], [s1, s2]), [
       p1,
       p2,
-      s1,
-      s2,
-    ]);
-    assert.deepEqual(balancer.order("math", [p1, p2], [s1, s2]), [
-      p2,
-      p1,
       s2,
       s1,
     ]);
     assert.deepEqual(balancer.order("math", [p1, p2], [s1, s2]), [
-      p1,
       p2,
-      s1,
+      p1,
       s2,
+      s1,
+    ]);
+  });
+
+  test("rotates sockets inside the same latency bucket", () => {
+    const balancer = new Balancer();
+    const a = stub("socket", "math");
+    const b = stub("socket", "math");
+
+    a.latency = 12;
+    b.latency = 14;
+
+    assert.deepEqual(balancer.order("math", [a, b]), [a, b]);
+    assert.deepEqual(balancer.order("math", [a, b]), [b, a]);
+  });
+
+  test("places sockets without a measurement after measured ones", () => {
+    const balancer = new Balancer();
+    const measured = stub("socket", "math");
+    const unknown = stub("socket", "math");
+
+    measured.latency = 30;
+
+    assert.deepEqual(balancer.order("math", [unknown, measured]), [
+      measured,
+      unknown,
     ]);
   });
 

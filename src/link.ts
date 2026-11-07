@@ -72,8 +72,22 @@ export abstract class Link implements Enveloper {
     service: string,
     method: string,
     args: unknown[],
+    timeout?: number,
   ) {
-    this.send({ t: "call", id, from: this.nodeId, to, service, method, args });
+    this.send(
+      timeout === undefined
+        ? { t: "call", id, from: this.nodeId, to, service, method, args }
+        : {
+            t: "call",
+            id,
+            from: this.nodeId,
+            to,
+            service,
+            method,
+            args,
+            timeout,
+          },
+    );
   }
 
   reply(id: string, to: string, value: unknown) {

@@ -26,10 +26,6 @@ export function withTimeout<T>(
       reject(error());
     }, timeout);
 
-    if (typeof timer === "object" && typeof timer.unref === "function") {
-      timer.unref();
-    }
-
     Promise.resolve(value).then(
       (result) => {
         clearTimeout(timer);

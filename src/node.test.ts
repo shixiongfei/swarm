@@ -194,10 +194,6 @@ describe("Node", () => {
     node.register("math", { add: () => 10 });
 
     assert.equal(await node.call("math", "add"), 10);
-    await assert.rejects(
-      node.call("math", "mul"),
-      (err: SwarmError) => err.kind === "not-found",
-    );
   });
 
   test("get returns a proxy that calls the service", async () => {
@@ -986,6 +982,37 @@ for (const protocol of ["tcp", "ws"] as const) {
           () => hub.call("math", "add"),
           (err: SwarmError) => err.kind === "rejected",
         );
+      },
+    );
+
+    test(
+      "falls back to a remote method when the local one is missing",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({ cluster: `${protocol}-fallback-hub` });
+        const peer = new Node({ cluster: `${protocol}-fallback-peer` });
+
+        t.after(() => peer.close());
+        t.after(() => hub.close());
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          hub.watch("math", (event) => {
+            if (event.type === "up" && event.instance.nodeId === peer.nodeId) {
+              resolve(event);
+            }
+          }),
+        );
+
+        hub.register("math", { add: (a: number, b: number) => a + b });
+
+        await connectPair(protocol, hub, peer);
+
+        peer.register("math", { mul: (a: number, b: number) => a * b });
+
+        await up;
+
+        assert.equal(await hub.call("math", "add", [2, 3]), 5);
+        assert.equal(await hub.call("math", "mul", [2, 3]), 6);
       },
     );
   });
