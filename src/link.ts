@@ -19,8 +19,11 @@ export type LinkEvents = {
   close: () => void;
 };
 
+export type Transport = "port" | "socket";
+
 export abstract class Link implements Enveloper {
   readonly nodeId: string;
+  abstract readonly transport: Transport;
   readonly events = eventlite<LinkEvents>({
     allowDuplicate: true,
     isolate: true,
@@ -60,11 +63,7 @@ export abstract class Link implements Enveloper {
   }
 
   unregister(instance: Instance) {
-    this.send({
-      t: "down",
-      from: instance.nodeId,
-      service: instance.service,
-    });
+    this.send({ t: "down", from: instance.nodeId, service: instance.service });
   }
 
   call(
@@ -88,7 +87,10 @@ export abstract class Link implements Enveloper {
     this.send({ t: "error", id, from: this.nodeId, to, kind, message });
   }
 
-  publish(topic: string, data: unknown) {
-    this.send({ t: "pub", from: this.nodeId, topic, data });
+  publish(topic: string, data: unknown, from?: string) {
+    if (from === undefined) {
+      from = this.nodeId;
+    }
+    this.send({ t: "pub", from, topic, data });
   }
 }

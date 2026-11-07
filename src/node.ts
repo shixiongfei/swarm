@@ -11,6 +11,7 @@
 
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
+import { Balancer } from "./balancer.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
 import { LinkTcp } from "./linktcp.ts";
@@ -47,6 +48,7 @@ export class Node {
   private readonly nodeLocal = new NodeLocal(this.nodeId);
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
+  private readonly balancer = new Balancer();
   private readonly watcher = new Watcher();
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
@@ -196,28 +198,20 @@ export class Node {
         return;
       }
 
-      for (const nodeLink of this.nodeLinks) {
-        const [instance] = nodeLink.lookup(service);
-
-        if (instance === undefined) {
-          continue;
-        }
-
-        nodeLink
-          .call(instance.nodeId, service, method, args, timeout)
-          .then(resolve, reject);
-
-        return;
+      try {
+        resolve(
+          this.balancer.invoke(
+            service,
+            method,
+            args,
+            timeout,
+            this.nodeLinks,
+            this.nodeHub.links,
+          ),
+        );
+      } catch (err) {
+        reject(err);
       }
-
-      const call = this.nodeHub.call(service, method, args, timeout);
-
-      if (call === undefined) {
-        reject(new SwarmError("not-found", `service not found: ${service}`));
-        return;
-      }
-
-      call.then(resolve, reject);
     });
   }
 

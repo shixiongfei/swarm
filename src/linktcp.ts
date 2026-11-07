@@ -16,10 +16,14 @@ import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
 const headerSize = 4;
+const maxBufferSize = headerSize + maxEnvelopeSize;
 
 export class LinkTcp extends Link {
+  readonly transport = "socket";
   private readonly socket: Socket;
   private buffer: Uint8Array = new Uint8Array(0);
+  private head = 0;
+  private tail = 0;
   private closed = false;
 
   private readonly onData = (chunk: Uint8Array) => {
@@ -27,55 +31,20 @@ export class LinkTcp extends Link {
       return;
     }
 
-    if (this.buffer.byteLength === 0) {
-      this.buffer = chunk;
-    } else {
-      const merged = new Uint8Array(this.buffer.byteLength + chunk.byteLength);
-
-      merged.set(this.buffer, 0);
-      merged.set(chunk, this.buffer.byteLength);
-
-      this.buffer = merged;
+    if (!this.append(chunk)) {
+      this.abort();
+      return;
     }
 
-    while (this.buffer.byteLength >= headerSize) {
-      const view = new DataView(
-        this.buffer.buffer,
-        this.buffer.byteOffset,
-        headerSize,
-      );
-      const length = view.getUint32(0, false);
-
-      if (length > maxEnvelopeSize) {
-        this.close();
-        this.events.emit("close");
-        return;
-      }
-
-      if (this.buffer.byteLength < headerSize + length) {
-        return;
-      }
-
-      const frame = this.buffer.subarray(headerSize, headerSize + length);
-
-      this.buffer = this.buffer.subarray(headerSize + length);
-
-      const message = decode(frame);
-
-      if (message !== undefined) {
-        this.events.emit("envelope", message);
-      }
-    }
+    this.drain();
   };
 
   private readonly onError = () => {
-    this.close();
-    this.events.emit("close");
+    this.abort();
   };
 
   private readonly onClose = () => {
-    this.close();
-    this.events.emit("close");
+    this.abort();
   };
 
   constructor(socket: Socket, nodeId: string) {
@@ -115,10 +84,84 @@ export class LinkTcp extends Link {
 
     this.closed = true;
     this.buffer = new Uint8Array(0);
+    this.head = 0;
+    this.tail = 0;
 
     this.socket.off("data", this.onData);
     this.socket.off("error", this.onError);
     this.socket.off("close", this.onClose);
     this.socket.destroy();
+  }
+
+  private append(chunk: Uint8Array) {
+    const pending = this.tail - this.head;
+    const needed = pending + chunk.byteLength;
+
+    if (needed > maxBufferSize) {
+      return false;
+    }
+
+    if (needed > this.buffer.byteLength) {
+      let capacity = this.buffer.byteLength === 0 ? 16 : this.buffer.byteLength;
+
+      while (capacity < needed) {
+        capacity *= 2;
+      }
+
+      const buffer = new Uint8Array(Math.min(capacity, maxBufferSize));
+
+      buffer.set(this.buffer.subarray(this.head, this.tail), 0);
+      this.buffer = buffer;
+      this.head = 0;
+      this.tail = pending;
+    } else if (this.tail + chunk.byteLength > this.buffer.byteLength) {
+      this.buffer.copyWithin(0, this.head, this.tail);
+      this.head = 0;
+      this.tail = pending;
+    }
+
+    this.buffer.set(chunk, this.tail);
+    this.tail += chunk.byteLength;
+
+    return true;
+  }
+
+  private drain() {
+    while (this.tail - this.head >= headerSize) {
+      const view = new DataView(
+        this.buffer.buffer,
+        this.buffer.byteOffset + this.head,
+        headerSize,
+      );
+      const length = view.getUint32(0, false);
+
+      if (length > maxEnvelopeSize) {
+        this.abort();
+        return;
+      }
+
+      if (this.tail - this.head < headerSize + length) {
+        return;
+      }
+
+      const start = this.head + headerSize;
+      const message = decode(this.buffer.subarray(start, start + length));
+
+      this.head = start + length;
+
+      if (message !== undefined) {
+        this.events.emit("envelope", message);
+      }
+    }
+
+    if (this.head === this.tail) {
+      this.head = 0;
+      this.tail = 0;
+    }
+  }
+
+  private abort() {
+    this.close();
+    this.events.emit("close");
   }
 }

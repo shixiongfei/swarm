@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { Balancer } from "./balancer.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
@@ -37,6 +38,7 @@ export class NodeHub implements Provider, Observable {
   private readonly callTimeout: number;
   private readonly secret?: string;
   private readonly nodeLinks: NodeLink[] = [];
+  private readonly balancer = new Balancer();
   private readonly watcher = new Watcher();
   private closed = false;
 
@@ -66,28 +68,19 @@ export class NodeHub implements Provider, Observable {
     nodeLink.events.on("close", () => this.detach(nodeLink));
   }
 
+  get links(): readonly NodeLink[] {
+    return this.nodeLinks;
+  }
+
   registrations() {
     return this.watcher.instances();
   }
 
   invoke(service: string, method: string, args: unknown[], timeout?: number) {
-    for (const nodeLink of this.nodeLinks) {
-      const [instance] = nodeLink.lookup(service);
-
-      if (instance === undefined) {
-        continue;
-      }
-
-      return nodeLink.call(
-        instance.nodeId,
-        service,
-        method,
-        args,
-        timeout !== undefined ? timeout : this.callTimeout,
-      );
+    if (timeout === undefined) {
+      timeout = this.callTimeout;
     }
-
-    throw new SwarmError("not-found", `service not found: ${service}`);
+    return this.balancer.invoke(service, method, args, timeout, this.nodeLinks);
   }
 
   publish(topic: string, data: unknown, from?: string) {
@@ -96,26 +89,12 @@ export class NodeHub implements Provider, Observable {
         continue;
       }
 
-      nodeLink.publish(topic, data);
+      nodeLink.publish(topic, data, from);
     }
 
     if (from !== undefined) {
       this.events.emit("publish", topic, data, from);
     }
-  }
-
-  call(service: string, method: string, args: unknown[], timeout: number) {
-    for (const nodeLink of this.nodeLinks) {
-      const [instance] = nodeLink.lookup(service);
-
-      if (instance === undefined) {
-        continue;
-      }
-
-      return nodeLink.call(instance.nodeId, service, method, args, timeout);
-    }
-
-    return undefined;
   }
 
   watch(handler: WatchHandler): () => void;
@@ -153,11 +132,7 @@ export class NodeHub implements Provider, Observable {
     }
 
     for (const nodeLink of this.nodeLinks) {
-      const known = nodeLink
-        .lookup(instance.service)
-        .some((item) => item.nodeId === instance.nodeId);
-
-      if (known) {
+      if (nodeLink.has(instance.service, instance.nodeId)) {
         continue;
       }
 
@@ -172,7 +147,7 @@ export class NodeHub implements Provider, Observable {
   private unregister(instance: Instance) {
     if (
       this.closed ||
-      this.nodeLinks.some((link) => link.lookup(instance.service).length > 0)
+      this.nodeLinks.some((link) => link.has(instance.service))
     ) {
       return;
     }

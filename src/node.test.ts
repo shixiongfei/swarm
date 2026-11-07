@@ -298,6 +298,29 @@ describe("Node", () => {
     );
   });
 
+  test("passes the publisher nodeId to subscribers", async (t) => {
+    const a = new Node({ cluster: "from-a" });
+    const b = new Node({ cluster: "from-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const received = new Promise((resolve) =>
+      b.subscribe("news", (data, from) => resolve({ data, from })),
+    );
+
+    a.attach(port1);
+    b.attach(port2);
+    a.publish("news", { ok: true });
+
+    assert.deepEqual(await received, { data: { ok: true }, from: a.nodeId });
+  });
+
   test("publishes nothing when the payload cannot be cloned", async (t) => {
     const a = new Node({ cluster: "publish-a" });
     const b = new Node({ cluster: "publish-b" });
@@ -393,6 +416,174 @@ describe("Node", () => {
     await closed;
 
     assert.equal(await a.call("math", "add"), 2);
+  });
+
+  test("balances calls across links serving the same service", async (t) => {
+    const a = new Node({ cluster: "balance-a" });
+    const b = new Node({ cluster: "balance-b" });
+    const c = new Node({ cluster: "balance-c" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    let bCalls = 0;
+    let cCalls = 0;
+
+    b.register("math", {
+      add: () => {
+        bCalls += 1;
+        return 1;
+      },
+    });
+    c.register("math", {
+      add: () => {
+        cCalls += 1;
+        return 2;
+      },
+    });
+
+    const ready = new Promise<void>((resolve) => {
+      let count = 0;
+
+      a.watch("math", () => {
+        count += 1;
+
+        if (count === 2) {
+          resolve();
+        }
+      });
+    });
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    a.attach(second.port1);
+    c.attach(second.port2);
+
+    await ready;
+
+    assert.deepEqual(
+      [
+        await a.call("math", "add"),
+        await a.call("math", "add"),
+        await a.call("math", "add"),
+        await a.call("math", "add"),
+      ],
+      [1, 2, 1, 2],
+    );
+    assert.equal(bCalls, 2);
+    assert.equal(cCalls, 2);
+  });
+
+  test("retries the next link when a call fails in transport", async (t) => {
+    const a = new Node({ cluster: "retry-a" });
+    const b = new Node({ cluster: "retry-b" });
+    const c = new Node({ cluster: "retry-c" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    b.register("math", { add: () => new Promise(() => {}) });
+    c.register("math", { add: () => 2 });
+
+    const ready = new Promise<void>((resolve) => {
+      let count = 0;
+
+      a.watch("math", () => {
+        count += 1;
+
+        if (count === 2) {
+          resolve();
+        }
+      });
+    });
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    a.attach(second.port1);
+    c.attach(second.port2);
+
+    await ready;
+
+    const result = a.call("math", "add");
+
+    b.close();
+
+    assert.equal(await result, 2);
+  });
+
+  test("does not retry on a service error", async (t) => {
+    const a = new Node({ cluster: "no-retry-a" });
+    const b = new Node({ cluster: "no-retry-b" });
+    const c = new Node({ cluster: "no-retry-c" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    let cCalls = 0;
+
+    b.register("math", {
+      add: () => {
+        throw new Error("boom");
+      },
+    });
+    c.register("math", {
+      add: () => {
+        cCalls += 1;
+        return 2;
+      },
+    });
+
+    const ready = new Promise<void>((resolve) => {
+      let count = 0;
+
+      a.watch("math", () => {
+        count += 1;
+
+        if (count === 2) {
+          resolve();
+        }
+      });
+    });
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    a.attach(second.port1);
+    c.attach(second.port2);
+
+    await ready;
+
+    await assert.rejects(
+      a.call("math", "add"),
+      (err: SwarmError) => err.kind === "failed" && err.message === "boom",
+    );
+    assert.equal(cCalls, 0);
   });
 
   test("keeps an instance while another link to the same node is open", async (t) => {

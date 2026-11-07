@@ -280,4 +280,49 @@ describe("NodeHub", () => {
       assert.equal(await node.call("self", "ping"), 1);
     },
   );
+
+  test("forwards the original publisher when relaying topics", async (t) => {
+    const hub = new Node({ cluster: "origin-hub" });
+    const b = new Node({ cluster: "origin-b" });
+    const c = new Node({ cluster: "origin-c" });
+    const chanB = new MessageChannel();
+    const chanC = new MessageChannel();
+
+    t.after(() => {
+      hub.close();
+      b.close();
+      c.close();
+    });
+
+    b.register("b-ready", { ping: () => 1 });
+    c.register("c-ready", { ping: () => 1 });
+
+    const bReady = new Promise((resolve) => hub.watch("b-ready", resolve));
+    const cReady = new Promise((resolve) => hub.watch("c-ready", resolve));
+
+    hub.join(chanB.port1);
+    b.attach(chanB.port2);
+    hub.join(chanC.port1);
+    c.attach(chanC.port2);
+
+    await bReady;
+    await cReady;
+
+    const received = new Promise((resolve) =>
+      c.subscribe("news", (data, from) => resolve({ data, from })),
+    );
+    const hubReceived = new Promise((resolve) =>
+      hub.subscribe("news", (data, from) => resolve({ data, from })),
+    );
+    let bLocal = 0;
+    b.subscribe("news", () => {
+      bLocal += 1;
+    });
+
+    b.publish("news", "hello");
+
+    assert.deepEqual(await received, { data: "hello", from: b.nodeId });
+    assert.deepEqual(await hubReceived, { data: "hello", from: b.nodeId });
+    assert.equal(bLocal, 1);
+  });
 });

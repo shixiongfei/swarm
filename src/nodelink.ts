@@ -130,7 +130,7 @@ export class NodeLink implements Observable {
         return;
 
       case "pub":
-        if (this.peer !== undefined && message.from === this.peer) {
+        if (this.peer !== undefined) {
           this.provider.publish(message.topic, message.data, message.from);
         }
         return;
@@ -156,6 +156,10 @@ export class NodeLink implements Observable {
     return this.peer;
   }
 
+  get transport() {
+    return this.link.transport;
+  }
+
   hello() {
     this.link.hello(this.token());
   }
@@ -170,6 +174,10 @@ export class NodeLink implements Observable {
 
   lookup(service: string) {
     return this.registry.lookup(service);
+  }
+
+  has(service: string, nodeId?: string) {
+    return this.registry.has(service, nodeId);
   }
 
   watch(handler: WatchHandler): () => void;
@@ -194,13 +202,14 @@ export class NodeLink implements Observable {
     timeout: number,
   ) {
     if (this.closed) {
-      return Promise.reject(new SwarmError("failed", "link is closed"));
+      return Promise.reject(new SwarmError("failed", "link is closed", true));
     }
 
     return this.pending.call(
       (id) => this.link.call(id, to, service, method, args),
       timeout,
-      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
+      () =>
+        new SwarmError("timeout", `call timed out: ${service}.${method}`, true),
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
           ? new SwarmError("failed", "arguments are not cloneable")
@@ -211,8 +220,8 @@ export class NodeLink implements Observable {
     );
   }
 
-  publish(topic: string, data: unknown) {
-    this.link.publish(topic, data);
+  publish(topic: string, data: unknown, from?: string) {
+    this.link.publish(topic, data, from);
   }
 
   close() {
@@ -274,7 +283,7 @@ export class NodeLink implements Observable {
 
     this.closed = true;
 
-    this.pending.clear(() => new SwarmError("failed", message));
+    this.pending.clear(() => new SwarmError("failed", message, true));
 
     for (const dispose of this.disposes) {
       dispose();

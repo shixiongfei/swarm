@@ -13,11 +13,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { connect, createServer } from "node:net";
 import { LinkTcp } from "./linktcp.ts";
-import { encode } from "./codec.ts";
+import { encode, maxEnvelopeSize } from "./codec.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
 const host = "127.0.0.1";
+
+function frame(envelope: Envelope) {
+  const payload = encode(envelope);
+  const bytes = new Uint8Array(4 + payload.byteLength);
+
+  new DataView(bytes.buffer).setUint32(0, payload.byteLength, false);
+  bytes.set(payload, 4);
+
+  return bytes;
+}
 
 async function waitFor(check: () => boolean, timeout = 2000) {
   const deadline = Date.now() + timeout;
@@ -116,6 +126,74 @@ test("decodes a frame split across chunks", async (t) => {
   await waitFor(() => received.length === 1);
 
   assert.deepEqual(received[0], envelope);
+});
+
+test("decodes a whole frame followed by a partial frame", async (t) => {
+  const { server, socket, peer } = await createPair();
+  const remote = new LinkTcp(peer, "peer-node");
+  const received: Envelope[] = [];
+
+  remote.events.on("envelope", (message) => received.push(message));
+
+  t.after(() => {
+    socket.destroy();
+    remote.close();
+    server.close();
+  });
+
+  const first: Envelope = {
+    t: "pub",
+    from: "client-node",
+    topic: "news",
+    data: 1,
+  };
+  const second: Envelope = {
+    t: "pub",
+    from: "client-node",
+    topic: "news",
+    data: 2,
+  };
+  const firstFrame = frame(first);
+  const secondFrame = frame(second);
+  const combined = new Uint8Array(
+    firstFrame.byteLength + secondFrame.byteLength,
+  );
+
+  combined.set(firstFrame, 0);
+  combined.set(secondFrame, firstFrame.byteLength);
+
+  socket.write(combined.subarray(0, combined.byteLength - 2));
+
+  await waitFor(() => received.length === 1);
+
+  socket.write(combined.subarray(combined.byteLength - 2));
+
+  await waitFor(() => received.length === 2);
+
+  assert.deepEqual(received, [first, second]);
+});
+
+test("closes when a frame header exceeds the envelope limit", async (t) => {
+  const { server, socket, peer } = await createPair();
+  const remote = new LinkTcp(peer, "peer-node");
+  let closes = 0;
+
+  remote.events.on("close", () => {
+    closes += 1;
+  });
+
+  t.after(() => {
+    socket.destroy();
+    server.close();
+  });
+
+  const header = new Uint8Array(4);
+
+  new DataView(header.buffer).setUint32(0, maxEnvelopeSize + 1, false);
+
+  socket.write(header);
+
+  await waitFor(() => closes === 1);
 });
 
 test("emits close once when the peer closes", async (t) => {

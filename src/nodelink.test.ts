@@ -370,7 +370,7 @@ describe("NodeLink", () => {
     assert.equal(await b.call("math", "add"), 1);
   });
 
-  test("ignores messages that spoof another sender", async (t) => {
+  test("ignores service announcements that spoof another sender", async (t) => {
     const node = new Node({ cluster: "spoof-sender" });
     const { port1, port2 } = new MessageChannel();
     const received: unknown[] = [];
@@ -401,7 +401,6 @@ describe("NodeLink", () => {
     await up;
 
     port2.postMessage({ t: "up", from: "spoof", service: "fake" });
-    port2.postMessage({ t: "pub", from: "spoof", topic: "news", data: 1 });
     port2.postMessage({ t: "pub", from: "peer", topic: "news", data: 2 });
 
     await second;

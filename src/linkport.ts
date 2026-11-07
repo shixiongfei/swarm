@@ -17,6 +17,7 @@ import type { Envelope } from "./envelope.ts";
 const linked = new WeakSet<MessagePort>();
 
 export class LinkPort extends Link {
+  readonly transport = "port";
   private readonly port: MessagePort;
 
   private readonly dispose: () => void;

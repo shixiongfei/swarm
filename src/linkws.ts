@@ -37,6 +37,7 @@ function toBytes(data: RawData): Uint8Array {
 }
 
 export class LinkWs extends Link {
+  readonly transport = "socket";
   private readonly socket: WebSocket;
   private closed = false;
 

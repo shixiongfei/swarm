@@ -86,6 +86,20 @@ export class Registry implements Observable {
     return instances === undefined ? [] : instances.slice();
   }
 
+  has(service: string, nodeId?: string) {
+    const instances = this.table.get(service);
+
+    if (instances === undefined || instances.length === 0) {
+      return false;
+    }
+
+    if (nodeId === undefined) {
+      return true;
+    }
+
+    return instances.some((item) => item.nodeId === nodeId);
+  }
+
   snapshot() {
     const instances: Instance[] = [];
 

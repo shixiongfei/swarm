@@ -125,6 +125,16 @@ describe("Registry", () => {
     assert.deepEqual(registry.lookup("nope"), []);
   });
 
+  test("has matches by service or by node", () => {
+    const registry = new Registry();
+    registry.add("math", "node-a");
+
+    assert.equal(registry.has("math"), true);
+    assert.equal(registry.has("math", "node-a"), true);
+    assert.equal(registry.has("math", "node-b"), false);
+    assert.equal(registry.has("nope"), false);
+  });
+
   test("snapshot returns every instance in insertion order", () => {
     const registry = new Registry();
 
