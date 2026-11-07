@@ -793,6 +793,41 @@ for (const protocol of ["tcp", "ws"] as const) {
       },
     );
 
+    test(
+      "discovers a service registered before listen when secret is set",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({
+          cluster: `${protocol}-secret-hub`,
+          secret: "s3cret",
+        });
+        const peer = new Node({
+          cluster: `${protocol}-secret-peer`,
+          secret: "s3cret",
+        });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        hub.register("core", { ping: () => "core" });
+
+        const up = new Promise<WatchEvent>((resolve) =>
+          peer.watch("core", resolve),
+        );
+
+        const port = await freePort();
+        const url = `${protocol}://127.0.0.1:${port}`;
+
+        await hub.listen(url);
+        await peer.connect(url);
+        await up;
+
+        assert.equal(await peer.call("core", "ping"), "core");
+      },
+    );
+
     test("publishes from the peer to the hub", { timeout: 3000 }, async (t) => {
       const hub = new Node({ cluster: `${protocol}-publish-hub` });
       const peer = new Node({ cluster: `${protocol}-publish-peer` });

@@ -40,8 +40,10 @@ export class NodeLink implements Observable {
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
+  private readonly queued: Envelope[] = [];
   private readonly provider: Provider;
   private readonly link: Link;
+  private handshake?: Promise<void>;
   private peer?: string;
   private closed = false;
   private lastSeen = Date.now();
@@ -52,6 +54,15 @@ export class NodeLink implements Observable {
   private readonly onEnvelope = (message: Envelope) => {
     this.lastSeen = Date.now();
 
+    if (this.handshake !== undefined) {
+      this.queued.push(message);
+      return;
+    }
+
+    this.dispatch(message);
+  };
+
+  private dispatch(message: Envelope) {
     switch (message.t) {
       case "hello":
         if (this.secret === undefined) {
@@ -59,9 +70,9 @@ export class NodeLink implements Observable {
           return;
         }
 
-        this.authenticate(message.from, message.token, true).catch(() =>
-          this.dispose("link is closed"),
-        );
+        this.handshake = this.authenticate(message.from, message.token, true)
+          .then(() => this.replay())
+          .catch(() => this.dispose("link is closed"));
         return;
 
       case "accept":
@@ -70,9 +81,9 @@ export class NodeLink implements Observable {
           return;
         }
 
-        this.authenticate(message.from, message.token, false).catch(() =>
-          this.dispose("link is closed"),
-        );
+        this.handshake = this.authenticate(message.from, message.token, false)
+          .then(() => this.replay())
+          .catch(() => this.dispose("link is closed"));
         return;
 
       case "up":
@@ -180,7 +191,15 @@ export class NodeLink implements Observable {
         }
         return;
     }
-  };
+  }
+
+  private replay() {
+    this.handshake = undefined;
+
+    for (const message of this.queued.splice(0)) {
+      this.dispatch(message);
+    }
+  }
 
   private readonly disposes: Array<() => void>;
 
@@ -389,6 +408,8 @@ export class NodeLink implements Observable {
     }
 
     this.closed = true;
+    this.handshake = undefined;
+    this.queued.length = 0;
 
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
