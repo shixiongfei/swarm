@@ -19,7 +19,7 @@ import type { Provider } from "./provider.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 export type NodeHubEvents = {
-  publish: (topic: string, data: unknown, from: string) => void;
+  publish: (topic: string, data: unknown, origin: string) => void;
 };
 
 export type NodeHubConfig = {
@@ -83,17 +83,17 @@ export class NodeHub implements Provider, Observable {
     return this.balancer.invoke(service, method, args, timeout, this.nodeLinks);
   }
 
-  publish(topic: string, data: unknown, from?: string) {
+  publish(topic: string, data: unknown, origin: string, from?: string) {
     for (const nodeLink of this.nodeLinks) {
       if (from !== undefined && nodeLink.peerId === from) {
         continue;
       }
 
-      nodeLink.publish(topic, data, from);
+      nodeLink.publish(topic, data, origin);
     }
 
     if (from !== undefined) {
-      this.events.emit("publish", topic, data, from);
+      this.events.emit("publish", topic, data, origin);
     }
   }
 

@@ -84,7 +84,7 @@ export class Balancer {
       const peer = link.peerId;
 
       if (peer === undefined) {
-        throw new SwarmError("failed", "link is not connected");
+        throw new SwarmError("failed", "link is not connected", true);
       }
 
       try {

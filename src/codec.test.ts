@@ -43,7 +43,13 @@ const envelopes: Envelope[] = [
     kind: "timeout",
     message: "call timed out",
   },
-  { t: "pub", from: "node-a", topic: "news", data: { ok: true } },
+  {
+    t: "pub",
+    from: "node-a",
+    origin: "node-a",
+    topic: "news",
+    data: { ok: true },
+  },
 ];
 
 describe("codec", () => {

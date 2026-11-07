@@ -78,14 +78,38 @@ test("sends envelopes over a socket", async (t) => {
     server.close();
   });
 
-  client.send({ t: "pub", from: "client-node", topic: "news", data: 1 });
-  client.send({ t: "pub", from: "client-node", topic: "news", data: 2 });
+  client.send({
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 1,
+  });
+  client.send({
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 2,
+  });
 
   await waitFor(() => received.length === 2);
 
   assert.deepEqual(received, [
-    { t: "pub", from: "client-node", topic: "news", data: 1 },
-    { t: "pub", from: "client-node", topic: "news", data: 2 },
+    {
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 1,
+    },
+    {
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    },
   ]);
 });
 
@@ -144,12 +168,14 @@ test("decodes a whole frame followed by a partial frame", async (t) => {
   const first: Envelope = {
     t: "pub",
     from: "client-node",
+    origin: "client-node",
     topic: "news",
     data: 1,
   };
   const second: Envelope = {
     t: "pub",
     from: "client-node",
+    origin: "client-node",
     topic: "news",
     data: 2,
   };
@@ -231,6 +257,52 @@ test("ignores a send after close", async (t) => {
   client.close();
 
   assert.doesNotThrow(() => {
-    client.send({ t: "pub", from: "client-node", topic: "news", data: 1 });
+    client.send({
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 1,
+    });
   });
+});
+
+test("shrinks the receive buffer after a large frame", async (t) => {
+  const { server, socket, peer } = await createPair();
+  const remote = new LinkTcp(peer, "peer-node");
+  const received: Envelope[] = [];
+
+  remote.events.on("envelope", (message) => received.push(message));
+
+  t.after(() => {
+    socket.destroy();
+    remote.close();
+    server.close();
+  });
+
+  const large: Envelope = {
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: "a".repeat(1024 * 1024),
+  };
+  const small: Envelope = {
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 2,
+  };
+
+  socket.write(frame(large));
+  socket.write(frame(small));
+
+  await waitFor(() => received.length === 2);
+
+  const capacity = (remote as unknown as { buffer: Uint8Array }).buffer
+    .byteLength;
+
+  assert.ok(capacity < 64 * 1024);
+  assert.deepEqual(received, [large, small]);
 });

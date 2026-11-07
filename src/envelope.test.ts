@@ -48,7 +48,13 @@ describe("parseEnvelope", () => {
         kind: "timeout",
         message: "call timed out",
       },
-      { t: "pub", from: "node-a", topic: "news", data: { ok: true } },
+      {
+        t: "pub",
+        from: "node-a",
+        origin: "node-a",
+        topic: "news",
+        data: { ok: true },
+      },
     ];
 
     for (const envelope of envelopes) {
@@ -110,7 +116,8 @@ describe("parseEnvelope", () => {
         kind: "failed",
         message: 1,
       },
-      { t: "pub", from: "node-a" },
+      { t: "pub", from: "node-a", origin: "node-a" },
+      { t: "pub", from: "node-a", topic: "news" },
     ];
 
     for (const value of values) {

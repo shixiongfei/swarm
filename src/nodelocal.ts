@@ -45,8 +45,8 @@ export class NodeLocal implements Observable, Provider {
     return this.local.invoke(service, method, args, timeout);
   }
 
-  publish(topic: string, data: unknown, from: string) {
-    this.local.publish(topic, data, from);
+  publish(topic: string, data: unknown, origin: string) {
+    this.local.publish(topic, data, origin);
   }
 
   registrations() {

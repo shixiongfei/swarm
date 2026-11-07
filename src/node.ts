@@ -70,8 +70,8 @@ export class Node {
       secret: this.secret,
     });
 
-    this.nodeHub.events.on("publish", (topic, data, from) => {
-      this.nodeLocal.publish(topic, data, from);
+    this.nodeHub.events.on("publish", (topic, data, origin) => {
+      this.nodeLocal.publish(topic, data, origin);
     });
 
     this.watcher.addSource(this.nodeHub);
@@ -246,10 +246,10 @@ export class Node {
 
     try {
       for (const nodeLink of this.nodeLinks) {
-        nodeLink.publish(topic, data);
+        nodeLink.publish(topic, data, this.nodeId);
       }
 
-      this.nodeHub.publish(topic, data);
+      this.nodeHub.publish(topic, data, this.nodeId);
     } catch (err) {
       if (err instanceof Error && err.name === "DataCloneError") {
         throw new SwarmError("failed", "data is not cloneable");

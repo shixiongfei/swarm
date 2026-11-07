@@ -87,10 +87,10 @@ export abstract class Link implements Enveloper {
     this.send({ t: "error", id, from: this.nodeId, to, kind, message });
   }
 
-  publish(topic: string, data: unknown, from?: string) {
-    if (from === undefined) {
-      from = this.nodeId;
+  publish(topic: string, data: unknown, origin?: string) {
+    if (origin === undefined) {
+      origin = this.nodeId;
     }
-    this.send({ t: "pub", from, topic, data });
+    this.send({ t: "pub", from: this.nodeId, origin, topic, data });
   }
 }

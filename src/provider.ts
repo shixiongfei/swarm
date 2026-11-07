@@ -21,5 +21,5 @@ export interface Provider {
     timeout?: number,
   ): any;
 
-  publish(topic: string, data: unknown, from: string): void;
+  publish(topic: string, data: unknown, origin: string, from: string): void;
 }

@@ -36,7 +36,7 @@ export type Envelope =
       kind: ErrorKind;
       message: string;
     }
-  | { t: "pub"; from: string; topic: string; data: unknown };
+  | { t: "pub"; from: string; origin: string; topic: string; data: unknown };
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
@@ -135,7 +135,11 @@ function isError(
 }
 
 function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
-  if (typeof message.from !== "string" || typeof message.topic !== "string") {
+  if (
+    typeof message.from !== "string" ||
+    typeof message.origin !== "string" ||
+    typeof message.topic !== "string"
+  ) {
     return undefined;
   }
 

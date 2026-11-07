@@ -66,14 +66,38 @@ test("sends envelopes over a socket", async (t) => {
     server.close();
   });
 
-  client.send({ t: "pub", from: "client-node", topic: "news", data: 1 });
-  client.send({ t: "pub", from: "client-node", topic: "news", data: 2 });
+  client.send({
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 1,
+  });
+  client.send({
+    t: "pub",
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 2,
+  });
 
   await waitFor(() => received.length === 2);
 
   assert.deepEqual(received, [
-    { t: "pub", from: "client-node", topic: "news", data: 1 },
-    { t: "pub", from: "client-node", topic: "news", data: 2 },
+    {
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 1,
+    },
+    {
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    },
   ]);
 });
 
@@ -112,6 +136,12 @@ test("ignores a send after close", async (t) => {
   client.close();
 
   assert.doesNotThrow(() => {
-    client.send({ t: "pub", from: "client-node", topic: "news", data: 1 });
+    client.send({
+      t: "pub",
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 1,
+    });
   });
 });

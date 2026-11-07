@@ -130,8 +130,13 @@ export class NodeLink implements Observable {
         return;
 
       case "pub":
-        if (this.peer !== undefined) {
-          this.provider.publish(message.topic, message.data, message.from);
+        if (this.peer !== undefined && message.origin !== this.link.nodeId) {
+          this.provider.publish(
+            message.topic,
+            message.data,
+            message.origin,
+            message.from,
+          );
         }
         return;
     }
@@ -208,8 +213,7 @@ export class NodeLink implements Observable {
     return this.pending.call(
       (id) => this.link.call(id, to, service, method, args),
       timeout,
-      () =>
-        new SwarmError("timeout", `call timed out: ${service}.${method}`, true),
+      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
           ? new SwarmError("failed", "arguments are not cloneable")
@@ -220,8 +224,8 @@ export class NodeLink implements Observable {
     );
   }
 
-  publish(topic: string, data: unknown, from?: string) {
-    this.link.publish(topic, data, from);
+  publish(topic: string, data: unknown, origin?: string) {
+    this.link.publish(topic, data, origin);
   }
 
   close() {

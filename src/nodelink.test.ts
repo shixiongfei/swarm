@@ -401,7 +401,13 @@ describe("NodeLink", () => {
     await up;
 
     port2.postMessage({ t: "up", from: "spoof", service: "fake" });
-    port2.postMessage({ t: "pub", from: "peer", topic: "news", data: 2 });
+    port2.postMessage({
+      t: "pub",
+      from: "peer",
+      origin: "peer",
+      topic: "news",
+      data: 2,
+    });
 
     await second;
 
@@ -410,6 +416,49 @@ describe("NodeLink", () => {
       node.call("fake", "x"),
       (err: SwarmError) => err.kind === "not-found",
     );
+  });
+
+  test("drops a publish that returns to its origin", async (t) => {
+    const node = new Node({ cluster: "pub-origin" });
+    const { port1, port2 } = new MessageChannel();
+    const received: unknown[] = [];
+    const done = new Promise<void>((resolve) =>
+      node.subscribe("news", (data, from) => {
+        received.push({ data, from });
+
+        if (data === 2) {
+          resolve();
+        }
+      }),
+    );
+
+    t.after(() => {
+      node.close();
+      port1.close();
+      port2.close();
+    });
+
+    node.attach(port1);
+    port2.start();
+    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({
+      t: "pub",
+      from: "peer",
+      origin: node.nodeId,
+      topic: "news",
+      data: 1,
+    });
+    port2.postMessage({
+      t: "pub",
+      from: "peer",
+      origin: "peer",
+      topic: "news",
+      data: 2,
+    });
+
+    await done;
+
+    assert.deepEqual(received, [{ data: 2, from: "peer" }]);
   });
 
   test("ignores a call addressed to another node", async (t) => {

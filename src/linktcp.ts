@@ -16,6 +16,8 @@ import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
 const headerSize = 4;
+const minBufferSize = 16;
+const shrinkBufferSize = 64 * 1024;
 const maxBufferSize = headerSize + maxEnvelopeSize;
 
 export class LinkTcp extends Link {
@@ -102,7 +104,8 @@ export class LinkTcp extends Link {
     }
 
     if (needed > this.buffer.byteLength) {
-      let capacity = this.buffer.byteLength === 0 ? 16 : this.buffer.byteLength;
+      let capacity =
+        this.buffer.byteLength === 0 ? minBufferSize : this.buffer.byteLength;
 
       while (capacity < needed) {
         capacity *= 2;
@@ -158,6 +161,32 @@ export class LinkTcp extends Link {
       this.head = 0;
       this.tail = 0;
     }
+
+    this.shrink();
+  }
+
+  private shrink() {
+    const pending = this.tail - this.head;
+
+    if (
+      this.buffer.byteLength < shrinkBufferSize ||
+      pending > this.buffer.byteLength / 4
+    ) {
+      return;
+    }
+
+    let capacity = minBufferSize;
+
+    while (capacity < pending) {
+      capacity *= 2;
+    }
+
+    const buffer = new Uint8Array(capacity);
+
+    buffer.set(this.buffer.subarray(this.head, this.tail), 0);
+    this.buffer = buffer;
+    this.head = 0;
+    this.tail = pending;
   }
 
   private abort() {

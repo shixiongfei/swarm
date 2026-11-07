@@ -43,6 +43,7 @@ describe("LinkPort", () => {
     port2.postMessage({
       t: "pub",
       from: "node-a",
+      origin: "node-a",
       topic: "news",
       data: null,
     });
@@ -71,7 +72,13 @@ describe("LinkPort", () => {
 
     assert.doesNotThrow(() => {
       link.close();
-      link.send({ t: "pub", from: "node-a", topic: "news", data: 1 });
+      link.send({
+        t: "pub",
+        from: "node-a",
+        origin: "node-a",
+        topic: "news",
+        data: 1,
+      });
     });
   });
 
@@ -120,7 +127,13 @@ describe("LinkPort", () => {
     );
 
     port2.start();
-    port2.postMessage({ t: "pub", from: "node-a", topic: "news", data: 1 });
+    port2.postMessage({
+      t: "pub",
+      from: "node-a",
+      origin: "node-a",
+      topic: "news",
+      data: 1,
+    });
 
     assert.equal((await received).t, "pub");
   });
@@ -154,8 +167,20 @@ describe("LinkPort", () => {
 
     first.port2.start();
     second.port2.start();
-    first.port2.postMessage({ t: "pub", from: "node-a", topic: "a", data: 1 });
-    second.port2.postMessage({ t: "pub", from: "node-b", topic: "b", data: 2 });
+    first.port2.postMessage({
+      t: "pub",
+      from: "node-a",
+      origin: "node-a",
+      topic: "a",
+      data: 1,
+    });
+    second.port2.postMessage({
+      t: "pub",
+      from: "node-b",
+      origin: "node-b",
+      topic: "b",
+      data: 2,
+    });
 
     await both;
 
@@ -180,6 +205,7 @@ describe("LinkPort", () => {
         link.send({
           t: "pub",
           from: "node-a",
+          origin: "node-a",
           topic: "news",
           data: () => {},
         }),
@@ -200,7 +226,13 @@ describe("LinkPort", () => {
     port1.close();
 
     assert.doesNotThrow(() =>
-      link.send({ t: "pub", from: "node-a", topic: "news", data: 1 }),
+      link.send({
+        t: "pub",
+        from: "node-a",
+        origin: "node-a",
+        topic: "news",
+        data: 1,
+      }),
     );
   });
 });
