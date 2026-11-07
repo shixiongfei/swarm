@@ -691,35 +691,43 @@ describe("NodeLink", () => {
     assert.equal(pings.length, 1);
   });
 
-  test("hello failure closes the link when token cannot be signed", async (t) => {
-    const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  test(
+    "handshakes with a secret without webcrypto",
+    { timeout: 5000 },
+    async (t) => {
+      const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
 
-    Object.defineProperty(globalThis, "crypto", {
-      value: undefined,
-      configurable: true,
-      writable: true,
-    });
+      Object.defineProperty(globalThis, "crypto", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
 
-    const local = new NodeLocal("local-node");
-    const stub = new StubLink();
-    const link = new NodeLink(stub, { provider: local, secret: "secret" });
-    const closed = new Promise<void>((resolve) =>
-      link.events.once("close", resolve),
-    );
+      const a = new Node({ cluster: "no-webcrypto-a", secret: "s3cret" });
+      const b = new Node({ cluster: "no-webcrypto-b", secret: "s3cret" });
+      const { port1, port2 } = new MessageChannel();
 
-    t.after(() => {
-      if (original !== undefined) {
-        Object.defineProperty(globalThis, "crypto", original);
-      }
+      t.after(() => {
+        if (original !== undefined) {
+          Object.defineProperty(globalThis, "crypto", original);
+        }
 
-      link.close();
-      local.close();
-    });
+        a.close();
+        b.close();
+        port1.close();
+        port2.close();
+      });
 
-    link.hello();
+      a.register("math", { add: (x: number, y: number) => x + y });
 
-    await closed;
+      const up = new Promise<WatchEvent>((resolve) => b.watch("math", resolve));
 
-    assert.equal(stub.closed, true);
-  });
+      a.attach(port1);
+      b.attach(port2);
+
+      await up;
+
+      assert.equal(await b.call("math", "add", [1, 2]), 3);
+    },
+  );
 });

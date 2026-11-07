@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { describe, test } from "node:test";
 import { signToken, verifyToken } from "./token.ts";
 
@@ -58,5 +59,42 @@ describe("token", () => {
     } finally {
       Date.now = now;
     }
+  });
+
+  test("works without webcrypto", async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+
+    Object.defineProperty(globalThis, "crypto", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const token = await signToken("s3cret", "peer");
+
+      assert.equal(await verifyToken(token, "s3cret", "peer"), true);
+    } finally {
+      if (original !== undefined) {
+        Object.defineProperty(globalThis, "crypto", original);
+      }
+    }
+  });
+
+  test("verifies a token signed by an independent hmac", async () => {
+    const base64url = (data: string) => Buffer.from(data).toString("base64url");
+    const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+    const iat = Math.floor(Date.now() / 1000);
+    const payload = base64url(
+      JSON.stringify({ from: "peer", iat, exp: iat + 60 }),
+    );
+    const signature = createHmac("sha256", "s3cret")
+      .update(`${header}.${payload}`)
+      .digest("base64url");
+
+    assert.equal(
+      await verifyToken(`${header}.${payload}.${signature}`, "s3cret", "peer"),
+      true,
+    );
   });
 });

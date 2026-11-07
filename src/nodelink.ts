@@ -43,7 +43,6 @@ export class NodeLink implements Observable {
   private readonly provider: Provider;
   private readonly link: Link;
   private readonly disposes: Array<() => void>;
-  private handshake?: Promise<void>;
   private peer?: string;
   private closed = false;
   private lastSeen = Date.now();
@@ -54,15 +53,6 @@ export class NodeLink implements Observable {
   private readonly onEnvelope = (message: Envelope) => {
     this.lastSeen = Date.now();
 
-    if (this.handshake !== undefined) {
-      this.handshake.then(() => {
-        if (!this.closed) {
-          this.onEnvelope(message);
-        }
-      });
-      return;
-    }
-
     switch (message.t) {
       case "hello":
         if (this.secret === undefined) {
@@ -70,11 +60,7 @@ export class NodeLink implements Observable {
           return;
         }
 
-        this.handshake = this.authenticate(message.from, message.token, true)
-          .catch(() => this.dispose("link is closed"))
-          .finally(() => {
-            this.handshake = undefined;
-          });
+        this.authenticate(message.from, message.token, true);
         return;
 
       case "accept":
@@ -83,11 +69,7 @@ export class NodeLink implements Observable {
           return;
         }
 
-        this.handshake = this.authenticate(message.from, message.token, false)
-          .catch(() => this.dispose("link is closed"))
-          .finally(() => {
-            this.handshake = undefined;
-          });
+        this.authenticate(message.from, message.token, false);
         return;
 
       case "up":
@@ -223,22 +205,7 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    if (this.closed) {
-      this.dispose("link is closed");
-      return;
-    }
-
-    if (this.secret === undefined) {
-      this.link.hello();
-      return;
-    }
-
-    this.token()
-      .then((token) => this.link.hello(token))
-      .catch(() => {
-        this.dispose("link is closed");
-        this.link.close();
-      });
+    this.link.hello(this.token());
   }
 
   register(instance: Instance) {
@@ -346,30 +313,30 @@ export class NodeLink implements Observable {
     }
   }
 
-  private async authenticate(
+  private authenticate(
     from: string,
     token: string | undefined,
     reply: boolean,
   ) {
-    if (this.closed || (await this.reject(from, token))) {
+    if (this.closed || this.reject(from, token)) {
       return;
     }
 
-    this.open(from, reply, reply ? await this.token() : undefined);
+    this.open(from, reply, reply ? this.token() : undefined);
   }
 
-  private async token() {
+  private token() {
     return this.secret === undefined
       ? undefined
       : signToken(this.secret, this.link.nodeId);
   }
 
-  private async reject(from: string, token: string | undefined) {
+  private reject(from: string, token: string | undefined) {
     if (this.secret === undefined) {
       return false;
     }
 
-    if (await verifyToken(token, this.secret, from)) {
+    if (verifyToken(token, this.secret, from)) {
       return false;
     }
 
@@ -412,7 +379,6 @@ export class NodeLink implements Observable {
     }
 
     this.closed = true;
-    this.handshake = undefined;
 
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
