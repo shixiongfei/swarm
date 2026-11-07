@@ -40,9 +40,9 @@ export class NodeLink implements Observable {
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
-  private readonly queued: Envelope[] = [];
   private readonly provider: Provider;
   private readonly link: Link;
+  private readonly disposes: Array<() => void>;
   private handshake?: Promise<void>;
   private peer?: string;
   private closed = false;
@@ -55,14 +55,14 @@ export class NodeLink implements Observable {
     this.lastSeen = Date.now();
 
     if (this.handshake !== undefined) {
-      this.queued.push(message);
+      this.handshake.then(() => {
+        if (!this.closed) {
+          this.onEnvelope(message);
+        }
+      });
       return;
     }
 
-    this.dispatch(message);
-  };
-
-  private dispatch(message: Envelope) {
     switch (message.t) {
       case "hello":
         if (this.secret === undefined) {
@@ -71,8 +71,10 @@ export class NodeLink implements Observable {
         }
 
         this.handshake = this.authenticate(message.from, message.token, true)
-          .then(() => this.replay())
-          .catch(() => this.dispose("link is closed"));
+          .catch(() => this.dispose("link is closed"))
+          .finally(() => {
+            this.handshake = undefined;
+          });
         return;
 
       case "accept":
@@ -82,8 +84,10 @@ export class NodeLink implements Observable {
         }
 
         this.handshake = this.authenticate(message.from, message.token, false)
-          .then(() => this.replay())
-          .catch(() => this.dispose("link is closed"));
+          .catch(() => this.dispose("link is closed"))
+          .finally(() => {
+            this.handshake = undefined;
+          });
         return;
 
       case "up":
@@ -191,17 +195,7 @@ export class NodeLink implements Observable {
         }
         return;
     }
-  }
-
-  private replay() {
-    this.handshake = undefined;
-
-    for (const message of this.queued.splice(0)) {
-      this.dispatch(message);
-    }
-  }
-
-  private readonly disposes: Array<() => void>;
+  };
 
   constructor(link: Link, config: NodeLinkConfig) {
     this.link = link;
@@ -409,7 +403,6 @@ export class NodeLink implements Observable {
 
     this.closed = true;
     this.handshake = undefined;
-    this.queued.length = 0;
 
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
