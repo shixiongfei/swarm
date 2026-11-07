@@ -130,6 +130,8 @@ export class LinkTcp extends Link {
   }
 
   private drain() {
+    let pendingFrame = false;
+
     while (this.tail - this.head >= headerSize) {
       const view = new DataView(
         this.buffer.buffer,
@@ -144,7 +146,8 @@ export class LinkTcp extends Link {
       }
 
       if (this.tail - this.head < headerSize + length) {
-        return;
+        pendingFrame = true;
+        break;
       }
 
       const start = this.head + headerSize;
@@ -162,7 +165,9 @@ export class LinkTcp extends Link {
       this.tail = 0;
     }
 
-    this.shrink();
+    if (!pendingFrame) {
+      this.shrink();
+    }
   }
 
   private shrink() {

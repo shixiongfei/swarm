@@ -68,6 +68,7 @@ export class Node {
       nodeId: this.nodeId,
       callTimeout: this.callTimeout,
       secret: this.secret,
+      local: this.nodeLocal,
     });
 
     this.nodeHub.events.on("publish", (topic, data, origin) => {

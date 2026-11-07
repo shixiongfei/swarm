@@ -757,6 +757,46 @@ for (const protocol of ["tcp", "ws"] as const) {
       },
     );
 
+    test(
+      "calls a service registered on the listening node",
+      { timeout: 3000 },
+      async (t) => {
+        const hub = new Node({
+          cluster: `${protocol}-host-hub`,
+          callTimeout: 500,
+        });
+        const peer = new Node({
+          cluster: `${protocol}-host-peer`,
+          callTimeout: 500,
+        });
+
+        t.after(() => {
+          hub.close();
+          peer.close();
+        });
+
+        hub.register("core", { ping: () => "core" });
+
+        const core = new Promise<WatchEvent>((resolve) =>
+          peer.watch("core", resolve),
+        );
+
+        await connectPair(protocol, hub, peer);
+        await core;
+
+        assert.equal(await peer.call("core", "ping"), "core");
+
+        const late = new Promise<WatchEvent>((resolve) =>
+          peer.watch("late", resolve),
+        );
+
+        hub.register("late", { ping: () => "late" });
+        await late;
+
+        assert.equal(await peer.call("late", "ping"), "late");
+      },
+    );
+
     test("publishes from the peer to the hub", { timeout: 3000 }, async (t) => {
       const hub = new Node({ cluster: `${protocol}-publish-hub` });
       const peer = new Node({ cluster: `${protocol}-publish-peer` });

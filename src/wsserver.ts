@@ -12,6 +12,7 @@
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { SwarmError } from "./errors.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import { Server } from "./server.ts";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -21,7 +22,10 @@ export class WsServer extends Server<WebSocket> {
   private readonly binding: { host: string; port: number };
   private readonly backlog: number | undefined;
   private readonly http = createServer();
-  private readonly server = new WebSocketServer({ noServer: true });
+  private readonly server = new WebSocketServer({
+    noServer: true,
+    maxPayload: maxEnvelopeSize,
+  });
 
   constructor(host: string, port: number, backlog?: number) {
     super();

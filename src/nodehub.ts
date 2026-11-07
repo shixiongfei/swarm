@@ -15,6 +15,7 @@ import { Balancer } from "./balancer.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
+import type { NodeLocal } from "./nodelocal.ts";
 import type { Provider } from "./provider.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
@@ -26,6 +27,7 @@ export type NodeHubConfig = {
   nodeId: string;
   callTimeout: number;
   secret?: string;
+  local?: NodeLocal;
 };
 
 export class NodeHub implements Provider, Observable {
@@ -37,6 +39,7 @@ export class NodeHub implements Provider, Observable {
   private readonly nodeId: string;
   private readonly callTimeout: number;
   private readonly secret?: string;
+  private readonly local?: NodeLocal;
   private readonly nodeLinks: NodeLink[] = [];
   private readonly balancer = new Balancer();
   private readonly watcher = new Watcher();
@@ -46,6 +49,7 @@ export class NodeHub implements Provider, Observable {
     this.nodeId = config.nodeId;
     this.callTimeout = config.callTimeout;
     this.secret = config.secret;
+    this.local = config.local;
 
     this.watcher.watch((event) => {
       if (event.type === "up") {
@@ -54,6 +58,10 @@ export class NodeHub implements Provider, Observable {
         this.unregister(event.instance);
       }
     });
+
+    if (this.local !== undefined) {
+      this.watcher.addSource(this.local);
+    }
   }
 
   join(link: Link, secret?: string) {
@@ -80,6 +88,11 @@ export class NodeHub implements Provider, Observable {
     if (timeout === undefined) {
       timeout = this.callTimeout;
     }
+
+    if (this.local !== undefined && this.local.has(service)) {
+      return this.local.invoke(service, method, args, timeout);
+    }
+
     return this.balancer.invoke(service, method, args, timeout, this.nodeLinks);
   }
 
