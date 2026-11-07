@@ -13,6 +13,14 @@
     }
   },
   "sideEffects": false,
+  "browser": {
+    "./dist/tcpclient.js": false,
+    "./dist/tcpserver.js": false,
+    "./dist/wsserver.js": false
+  },
+  "engines": {
+    "node": ">=22.4"
+  },
   "scripts": {
     "build": "tsc",
     "test": "node --test ./src/*.test.ts",
