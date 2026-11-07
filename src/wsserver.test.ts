@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
@@ -122,4 +123,39 @@ test("listen rejects when the port is already in use", async () => {
 
   first.close();
   second.close();
+});
+
+test("a throwing event handler crashes the process", () => {
+  const script = `
+import { WsServer } from "./wsserver.ts";
+import { WsClient } from "./wsclient.ts";
+
+const server = new WsServer("127.0.0.1", 0);
+
+server.events.on("online", () => {
+  throw new Error("boom-server");
+});
+
+await server.listen();
+
+const client = new WsClient(\`ws://127.0.0.1:\${server.port}\`, { reconnect: false });
+
+await client.connect();
+
+setTimeout(() => console.log("survived"), 100);
+`;
+
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", script],
+    {
+      cwd: new URL(".", import.meta.url),
+      encoding: "utf8",
+      timeout: 10000,
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /boom-server/);
+  assert.doesNotMatch(result.stdout, /survived/);
 });

@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { pack } from "msgpackr";
-import { decode, encode } from "./codec.ts";
+import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -100,6 +100,19 @@ describe("codec", () => {
     );
 
     assert.deepEqual(decode(buffer), envelope);
+  });
+
+  test("drops a payload larger than the envelope limit", () => {
+    const encoded = encode({
+      t: "pub",
+      from: "node-a",
+      origin: "node-a",
+      topic: "news",
+      data: "x".repeat(maxEnvelopeSize),
+    });
+
+    assert.ok(encoded.byteLength > maxEnvelopeSize);
+    assert.equal(decode(encoded), undefined);
   });
 
   test("rejects data that is not binary", () => {

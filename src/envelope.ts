@@ -101,7 +101,7 @@ function isCall(
     typeof message.method !== "string" ||
     !Array.isArray(message.args) ||
     (message.timeout !== undefined &&
-      (typeof message.timeout !== "number" || message.timeout <= 0))
+      (!Number.isFinite(message.timeout) || message.timeout <= 0))
   ) {
     return undefined;
   }

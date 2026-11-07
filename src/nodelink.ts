@@ -233,7 +233,12 @@ export class NodeLink implements Observable {
       return;
     }
 
-    this.token().then((token) => this.link.hello(token));
+    this.token()
+      .then((token) => this.link.hello(token))
+      .catch(() => {
+        this.dispose("link is closed");
+        this.link.close();
+      });
   }
 
   register(instance: Instance) {
@@ -333,7 +338,12 @@ export class NodeLink implements Observable {
     }
 
     this.pingAt = Date.now();
-    this.link.send({ t: "ping", from: this.link.nodeId });
+
+    try {
+      this.link.send({ t: "ping", from: this.link.nodeId });
+    } catch {
+      this.pingAt = undefined;
+    }
   }
 
   private async authenticate(

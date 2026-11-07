@@ -28,7 +28,13 @@ export type ClientOptions = {
 export abstract class Client<S = any> {
   readonly events = eventlite<ClientEvents<S>>({
     allowDuplicate: true,
-    isolate: true,
+    isolate: {
+      onError: (error) => {
+        queueMicrotask(() => {
+          throw error;
+        });
+      },
+    },
   });
 
   socket: S | undefined;

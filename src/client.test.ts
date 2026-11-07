@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { Client } from "./client.ts";
 
@@ -48,3 +49,42 @@ test(
     client.close();
   },
 );
+
+test("a throwing event handler crashes the process", () => {
+  const script = `
+import { Client } from "./client.ts";
+
+class StubClient extends Client {
+  open() {
+    this.markOnline({});
+    return Promise.resolve();
+  }
+
+  destroy() {}
+}
+
+const client = new StubClient();
+
+client.events.on("online", () => {
+  throw new Error("boom-client");
+});
+
+await client.connect();
+
+setTimeout(() => console.log("survived"), 100);
+`;
+
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", script],
+    {
+      cwd: new URL(".", import.meta.url),
+      encoding: "utf8",
+      timeout: 10000,
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /boom-client/);
+  assert.doesNotMatch(result.stdout, /survived/);
+});

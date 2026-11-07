@@ -40,6 +40,10 @@ export function decode(data: unknown): Envelope | undefined {
 
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
 
+  if (bytes.byteLength > maxEnvelopeSize) {
+    return undefined;
+  }
+
   try {
     return parseEnvelope(unpackr.unpack(bytes));
   } catch (err) {

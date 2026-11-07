@@ -10,14 +10,40 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { describe, mock, test } from "node:test";
 import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
+import { Link } from "./link.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { signToken } from "./token.ts";
+import type { Envelope } from "./envelope.ts";
 import type { WatchEvent } from "./registry.ts";
+
+class StubLink extends Link {
+  readonly transport = "socket";
+  readonly sent: Envelope[] = [];
+  closed = false;
+  failNextSend = false;
+
+  constructor() {
+    super("stub-node");
+  }
+
+  send(message: Envelope) {
+    if (this.failNextSend) {
+      this.failNextSend = false;
+      throw new Error("boom");
+    }
+
+    this.sent.push(message);
+  }
+
+  close() {
+    this.closed = true;
+  }
+}
 
 describe("NodeLink", () => {
   test("notifies its owner once when the link closes", (t) => {
@@ -635,5 +661,65 @@ describe("NodeLink", () => {
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "link is closed",
     );
+  });
+
+  test("beat tolerates a failing ping send", (t) => {
+    mock.timers.enable({ apis: ["setInterval", "Date"] });
+    t.after(() => mock.timers.reset());
+
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, { provider: local });
+
+    t.after(() => {
+      link.close();
+      local.close();
+    });
+
+    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+
+    stub.failNextSend = true;
+
+    mock.timers.tick(15000);
+
+    assert.equal(stub.closed, false);
+
+    mock.timers.tick(15000);
+
+    const pings = stub.sent.filter((message) => message.t === "ping");
+
+    assert.equal(pings.length, 1);
+  });
+
+  test("hello failure closes the link when token cannot be signed", async (t) => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+
+    Object.defineProperty(globalThis, "crypto", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, { provider: local, secret: "secret" });
+    const closed = new Promise<void>((resolve) =>
+      link.events.once("close", resolve),
+    );
+
+    t.after(() => {
+      if (original !== undefined) {
+        Object.defineProperty(globalThis, "crypto", original);
+      }
+
+      link.close();
+      local.close();
+    });
+
+    link.hello();
+
+    await closed;
+
+    assert.equal(stub.closed, true);
   });
 });

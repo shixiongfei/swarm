@@ -235,8 +235,10 @@ function notify(handlers: WatchHandler[], event: WatchEvent) {
   for (const handler of handlers) {
     try {
       handler(event);
-    } catch (err) {
-      // An observer must never break the caller.
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      });
     }
   }
 }

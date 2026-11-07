@@ -20,7 +20,13 @@ export type ServerEvents<S = any> = {
 export abstract class Server<S = any> {
   readonly events = eventlite<ServerEvents<S>>({
     allowDuplicate: true,
-    isolate: true,
+    isolate: {
+      onError: (error) => {
+        queueMicrotask(() => {
+          throw error;
+        });
+      },
+    },
   });
 
   private readonly sockets = new Set<S>();

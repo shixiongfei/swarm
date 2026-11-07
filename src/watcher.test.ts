@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 import { Registry } from "./registry.ts";
 import { Watcher } from "./watcher.ts";
@@ -225,5 +226,38 @@ describe("Watcher", () => {
     source.add("math", "node-a");
 
     assert.deepEqual(events, []);
+  });
+
+  test("a throwing watch handler crashes the process", () => {
+    const script = `
+import { Watcher } from "./watcher.ts";
+import { NodeLocal } from "./nodelocal.ts";
+
+const local = new NodeLocal("local-node");
+const watcher = new Watcher();
+
+watcher.addSource(local);
+watcher.watch("math", () => {
+  throw new Error("boom-watch");
+});
+
+local.register("math", { add: (a, b) => a + b });
+
+setTimeout(() => console.log("survived"), 100);
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-watch/);
+    assert.doesNotMatch(result.stdout, /survived/);
   });
 });

@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 import { Local } from "./local.ts";
 import type { SwarmError } from "./errors.ts";
@@ -186,17 +187,32 @@ describe("Local", () => {
     assert.equal(received.length, 1);
   });
 
-  test("a throwing subscriber does not break delivery", () => {
-    const local = makeLocal();
-    const received: unknown[] = [];
+  test("a throwing subscriber crashes the process after delivery", () => {
+    const script = `
+import { Local } from "./local.ts";
 
-    local.subscribe("news", () => {
-      throw new Error("boom");
-    });
-    local.subscribe("news", (data) => received.push(data));
+const local = new Local();
 
-    local.publish("news", 1, "node-a");
+local.subscribe("news", () => {
+  throw new Error("boom-local");
+});
+local.subscribe("news", () => console.log("delivered"));
 
-    assert.deepEqual(received, [1]);
+local.publish("news", 1, "local-node");
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-local/);
+    assert.match(result.stdout, /delivered/);
   });
 });

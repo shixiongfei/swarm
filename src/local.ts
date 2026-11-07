@@ -29,7 +29,13 @@ export class Local {
   private readonly services = new Map<string, Methods>();
   private readonly topics = eventlite<string>({
     allowDuplicate: true,
-    isolate: true,
+    isolate: {
+      onError: (error) => {
+        queueMicrotask(() => {
+          throw error;
+        });
+      },
+    },
   });
   private closed = false;
 
