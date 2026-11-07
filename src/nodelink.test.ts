@@ -418,13 +418,13 @@ describe("NodeLink", () => {
     );
   });
 
-  test("drops a publish that returns to its origin", async (t) => {
+  test("drops a publish that returns to its origin or spoofs the sender", async (t) => {
     const node = new Node({ cluster: "pub-origin" });
     const { port1, port2 } = new MessageChannel();
     const received: unknown[] = [];
     const done = new Promise<void>((resolve) =>
-      node.subscribe("news", (data, from) => {
-        received.push({ data, from });
+      node.subscribe("news", (data, origin) => {
+        received.push({ data, origin });
 
         if (data === 2) {
           resolve();
@@ -450,6 +450,13 @@ describe("NodeLink", () => {
     });
     port2.postMessage({
       t: "pub",
+      from: "spoof",
+      origin: "peer",
+      topic: "news",
+      data: 3,
+    });
+    port2.postMessage({
+      t: "pub",
       from: "peer",
       origin: "peer",
       topic: "news",
@@ -458,7 +465,7 @@ describe("NodeLink", () => {
 
     await done;
 
-    assert.deepEqual(received, [{ data: 2, from: "peer" }]);
+    assert.deepEqual(received, [{ data: 2, origin: "peer" }]);
   });
 
   test("ignores a call addressed to another node", async (t) => {

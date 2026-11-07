@@ -18,7 +18,7 @@ export type Methods<M = Record<string, any>> = Record<
   (...args: any[]) => any
 >;
 
-export type TopicHandler = (data: unknown, from: string) => void;
+export type TopicHandler = (data: unknown, origin: string) => void;
 
 const hasOwn =
   Object.hasOwn ||
@@ -95,9 +95,9 @@ export class Local {
     return this.topics.on(topic, handler);
   }
 
-  publish(topic: string, data: unknown, nodeId: string) {
+  publish(topic: string, data: unknown, origin: string) {
     this.checkOpen();
-    this.topics.emit(topic, data, nodeId);
+    this.topics.emit(topic, data, origin);
   }
 
   close() {

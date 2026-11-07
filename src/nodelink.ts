@@ -130,7 +130,11 @@ export class NodeLink implements Observable {
         return;
 
       case "pub":
-        if (this.peer !== undefined && message.origin !== this.link.nodeId) {
+        if (
+          this.peer !== undefined &&
+          message.from === this.peer &&
+          message.origin !== this.link.nodeId
+        ) {
           this.provider.publish(
             message.topic,
             message.data,
