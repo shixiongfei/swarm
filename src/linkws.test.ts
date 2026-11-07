@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket as WsWebSocket, WebSocketServer } from "ws";
 import { LinkWs } from "./linkws.ts";
 import type { AddressInfo } from "node:net";
 import type { Envelope } from "./envelope.ts";
@@ -33,17 +33,17 @@ async function waitFor(check: () => boolean, timeout = 2000) {
 function createPair() {
   return new Promise<{
     server: WebSocketServer;
-    socket: WebSocket;
-    peer: WebSocket;
+    socket: WsWebSocket;
+    peer: WsWebSocket;
   }>((resolve) => {
     const server = new WebSocketServer({ host, port: 0 });
-    const accepted = new Promise<WebSocket>((resolve) =>
+    const accepted = new Promise<WsWebSocket>((resolve) =>
       server.once("connection", resolve),
     );
 
     server.once("listening", () => {
       const port = (server.address() as AddressInfo).port;
-      const socket = new WebSocket(`ws://${host}:${port}`);
+      const socket = new WsWebSocket(`ws://${host}:${port}`);
 
       socket.once("open", async () => {
         resolve({ server, socket, peer: await accepted });
@@ -54,8 +54,8 @@ function createPair() {
 
 test("sends envelopes over a socket", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket, "client-node");
-  const remote = new LinkWs(peer, "peer-node");
+  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
+  const remote = new LinkWs(peer as unknown as WebSocket, "peer-node");
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -103,7 +103,7 @@ test("sends envelopes over a socket", async (t) => {
 
 test("emits close once when the peer closes", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket, "client-node");
+  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
   let closes = 0;
 
   client.events.on("close", () => {
@@ -126,7 +126,7 @@ test("emits close once when the peer closes", async (t) => {
 
 test("ignores a send after close", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket, "client-node");
+  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
 
   t.after(() => {
     peer.terminate();

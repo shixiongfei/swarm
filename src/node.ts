@@ -322,7 +322,10 @@ export class Node {
     const server = new WsServer(host, port, backlog);
 
     server.events.on("online", (socket) => {
-      this.nodeHub.join(new LinkWs(socket, this.nodeId), secret);
+      this.nodeHub.join(
+        new LinkWs(socket as unknown as WebSocket, this.nodeId),
+        secret,
+      );
     });
 
     return server;

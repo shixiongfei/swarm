@@ -14,7 +14,7 @@ import { test } from "node:test";
 import { SwarmError } from "./errors.ts";
 import { WsClient } from "./wsclient.ts";
 import { WsServer } from "./wsserver.ts";
-import type { WebSocket } from "ws";
+import type { WebSocket as ServerSocket } from "ws";
 
 const host = "127.0.0.1";
 
@@ -63,7 +63,7 @@ test("connect emits online and close emits offline", async () => {
 
 test("reconnects after an unexpected disconnect", async () => {
   const server = new WsServer(host, 0);
-  const accepted: WebSocket[] = [];
+  const accepted: ServerSocket[] = [];
 
   server.events.on("online", (socket) => accepted.push(socket));
 
@@ -106,7 +106,7 @@ test("reconnects after an unexpected disconnect", async () => {
 
 test("close stops reconnect", async () => {
   const server = new WsServer(host, 0);
-  const accepted: WebSocket[] = [];
+  const accepted: ServerSocket[] = [];
 
   server.events.on("online", (socket) => accepted.push(socket));
 

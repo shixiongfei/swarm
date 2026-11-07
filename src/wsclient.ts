@@ -9,9 +9,7 @@
  * https://github.com/shixiongfei/swarm
  */
 
-import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
-import { maxEnvelopeSize } from "./codec.ts";
 import { Client } from "./client.ts";
 import type { ClientOptions } from "./client.ts";
 
@@ -21,32 +19,45 @@ export class WsClient extends Client<WebSocket> {
   constructor(url: string | URL, options: ClientOptions = {}) {
     super(options);
 
+    if (typeof WebSocket === "undefined") {
+      throw new SwarmError("failed", "websocket is unavailable");
+    }
+
     this.url = url;
   }
 
   get connected() {
-    return this.socket?.readyState === WebSocket.OPEN;
+    return (
+      this.socket !== undefined && this.socket.readyState === WebSocket.OPEN
+    );
   }
 
-  protected open() {
+  protected async open() {
+    const socket = new WebSocket(this.url);
+
+    this.socket = socket;
+    this.lastError = undefined;
+
     return new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(this.url, { maxPayload: maxEnvelopeSize });
+      const cleanup = () => {
+        socket.removeEventListener("error", onError);
+        socket.removeEventListener("close", onClose);
+        socket.removeEventListener("open", onOpen);
+      };
 
-      this.socket = socket;
-      this.lastError = undefined;
-
-      const onError = (error: Error) => {
+      const onError = (event: unknown) => {
+        cleanup();
         this.clearSocket(socket);
-        socket.terminate();
 
         reject(
           this.isClosed
             ? new SwarmError("rejected", "client is closed")
-            : new SwarmError("failed", error.message),
+            : new SwarmError("failed", errorMessage(event)),
         );
       };
 
       const onClose = () => {
+        cleanup();
         this.clearSocket(socket);
 
         reject(
@@ -56,27 +67,28 @@ export class WsClient extends Client<WebSocket> {
         );
       };
 
-      socket.once("error", onError);
-      socket.once("close", onClose);
-      socket.once("open", () => {
-        socket.off("error", onError);
-        socket.off("close", onClose);
+      const onOpen = () => {
+        cleanup();
 
-        socket.on("error", (error) => {
-          this.lastError = error;
-          socket.terminate();
+        socket.addEventListener("error", (event) => {
+          this.lastError = new Error(errorMessage(event));
+          socket.close();
         });
 
-        socket.once("close", () => this.markOffline(socket));
+        socket.addEventListener("close", () => this.markOffline(socket));
 
         this.markOnline(socket);
         resolve();
-      });
+      };
+
+      socket.addEventListener("error", onError);
+      socket.addEventListener("close", onClose);
+      socket.addEventListener("open", onOpen);
     });
   }
 
   protected destroy(socket: WebSocket) {
-    socket.terminate();
+    socket.close();
   }
 
   private clearSocket(socket: WebSocket) {
@@ -84,4 +96,9 @@ export class WsClient extends Client<WebSocket> {
       this.socket = undefined;
     }
   }
+}
+
+function errorMessage(event: unknown) {
+  const message = (event as { message?: unknown }).message;
+  return typeof message === "string" ? message : "socket error";
 }
