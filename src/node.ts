@@ -463,7 +463,7 @@ function parseUrl(url: string | URL): {
       parsed.protocol !== "ws:" &&
       parsed.protocol !== "wss:") ||
     parsed.hostname === "" ||
-    parsed.port === ""
+    (parsed.protocol === "tcp:" && parsed.port === "")
   ) {
     throw new SwarmError(
       "rejected",
@@ -471,7 +471,12 @@ function parseUrl(url: string | URL): {
     );
   }
 
-  const port = Number(parsed.port);
+  const port =
+    parsed.port === ""
+      ? parsed.protocol === "wss:"
+        ? 443
+        : 80
+      : Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
     throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);

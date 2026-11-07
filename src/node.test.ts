@@ -997,12 +997,6 @@ for (const protocol of ["tcp", "ws"] as const) {
           err.kind === "rejected" &&
           err.message === "invalid url: http://127.0.0.1:1234",
       );
-      await assert.rejects(
-        node.listen(`${protocol}://127.0.0.1`),
-        (err: SwarmError) =>
-          err.kind === "rejected" &&
-          err.message === `invalid url: ${protocol}://127.0.0.1`,
-      );
     });
 
     test(
@@ -1107,6 +1101,26 @@ test("listen rejects a wss url", async (t) => {
     () => node.listen("wss://127.0.0.1:0"),
     (err: SwarmError) =>
       err.kind === "rejected" && err.message === "wss listen is not supported",
+  );
+});
+
+test("ws and wss default to ports 80 and 443", async (t) => {
+  const node = new Node({ cluster: "default-ports" });
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    () => node.connect("ws://127.0.0.1", { reconnect: false }),
+    (err: SwarmError) => err.kind === "failed",
+  );
+  await assert.rejects(
+    () => node.connect("wss://127.0.0.1", { reconnect: false }),
+    (err: SwarmError) => err.kind === "failed",
+  );
+  await assert.rejects(
+    () => node.connect("tcp://127.0.0.1"),
+    (err: SwarmError) =>
+      err.kind === "rejected" && err.message === "invalid url: tcp://127.0.0.1",
   );
 });
 
