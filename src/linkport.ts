@@ -70,6 +70,12 @@ export class LinkPort extends Link {
       if (err instanceof Error && err.name === "DataCloneError") {
         throw err;
       }
+
+      throw new SwarmError(
+        "failed",
+        err instanceof Error ? err.message : String(err),
+        true,
+      );
     }
   }
 

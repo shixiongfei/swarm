@@ -11,6 +11,7 @@
 
 import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import { Client } from "./client.ts";
 import type { ClientOptions } from "./client.ts";
 
@@ -29,7 +30,7 @@ export class WsClient extends Client<WebSocket> {
 
   protected open() {
     return new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(this.url);
+      const socket = new WebSocket(this.url, { maxPayload: maxEnvelopeSize });
 
       this.socket = socket;
       this.lastError = undefined;

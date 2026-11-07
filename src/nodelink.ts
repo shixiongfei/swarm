@@ -221,10 +221,13 @@ export class NodeLink implements Observable {
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
           ? new SwarmError("failed", "arguments are not cloneable")
-          : new SwarmError(
-              "failed",
-              cause instanceof Error ? cause.message : String(cause),
-            ),
+          : cause instanceof SwarmError
+            ? cause
+            : new SwarmError(
+                "failed",
+                cause instanceof Error ? cause.message : String(cause),
+                true,
+              ),
     );
   }
 
