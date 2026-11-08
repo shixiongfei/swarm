@@ -17,10 +17,13 @@ import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
 import type { NodeLocal } from "./nodelocal.ts";
 import type { Provider } from "./provider.ts";
+import type { PeerEntry } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 export type NodeHubEvents = {
   publish: (topic: string, data: unknown, origin: string) => void;
+  open: (nodeLink: NodeLink) => void;
+  peers: (members: PeerEntry[]) => void;
 };
 
 export type NodeHubConfig = {
@@ -73,6 +76,10 @@ export class NodeHub implements Provider, Observable {
     this.nodeLinks.push(nodeLink);
     this.watcher.addSource(nodeLink);
 
+    nodeLink.events.on("open", () => this.events.emit("open", nodeLink));
+    nodeLink.events.on("peers", (members) =>
+      this.events.emit("peers", members),
+    );
     nodeLink.events.on("close", () => this.detach(nodeLink));
   }
 

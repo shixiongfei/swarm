@@ -55,6 +55,11 @@ describe("parseEnvelope", () => {
         topic: "news",
         data: { ok: true },
       },
+      {
+        t: "peers",
+        from: "node-a",
+        members: [{ id: "node-b", addr: "tcp://127.0.0.1:9000" }],
+      },
     ];
 
     for (const envelope of envelopes) {
@@ -138,6 +143,14 @@ describe("parseEnvelope", () => {
       },
       { t: "pub", from: "node-a", origin: "node-a" },
       { t: "pub", from: "node-a", topic: "news" },
+      { t: "peers", from: "node-a" },
+      { t: "peers", from: "node-a", members: "no" },
+      { t: "peers", from: "node-a", members: [null] },
+      {
+        t: "peers",
+        from: "node-a",
+        members: [{ id: 1, addr: "tcp://127.0.0.1:9000" }],
+      },
     ];
 
     for (const value of values) {

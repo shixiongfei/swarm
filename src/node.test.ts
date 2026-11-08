@@ -1232,3 +1232,188 @@ test("collect rejects after close", async () => {
     (error: SwarmError) => error.kind === "rejected",
   );
 });
+
+test("seeds dial peers without an explicit connect", async (t) => {
+  const port = await freePort();
+  const seed = new Node({ cluster: "seed-server" });
+  const node = new Node({
+    cluster: "seed-client",
+    seeds: [`tcp://127.0.0.1:${port}`],
+  });
+
+  t.after(() => {
+    node.close();
+    seed.close();
+  });
+
+  seed.register("math", { add: async (a: number, b: number) => a + b });
+
+  const up = new Promise<void>((resolve) =>
+    node.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === seed.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await seed.listen(`tcp://127.0.0.1:${port}`);
+  await node.listen("tcp://127.0.0.1:0");
+  await up;
+
+  assert.equal(await node.call("math", "add", [1, 2]), 3);
+});
+
+test("peers converge through a shared seed", async (t) => {
+  const seedPort = await freePort();
+  const leftPort = await freePort();
+  const rightPort = await freePort();
+  const seed = new Node({ cluster: "mesh-seed" });
+  const left = new Node({
+    cluster: "mesh-left",
+    seeds: [`tcp://127.0.0.1:${seedPort}`],
+  });
+  const right = new Node({
+    cluster: "mesh-right",
+    seeds: [`tcp://127.0.0.1:${seedPort}`],
+  });
+
+  t.after(() => {
+    left.close();
+    right.close();
+    seed.close();
+  });
+
+  right.register("math", { add: async (a: number, b: number) => a + b });
+
+  const up = new Promise<void>((resolve) =>
+    left.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === right.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await seed.listen(`tcp://0.0.0.0:${seedPort}`);
+  await left.listen(`tcp://0.0.0.0:${leftPort}`, {
+    advertise: `tcp://127.0.0.1:${leftPort}`,
+  });
+  await right.listen(`tcp://0.0.0.0:${rightPort}`, {
+    advertise: `tcp://127.0.0.1:${rightPort}`,
+  });
+  await up;
+
+  assert.equal(await left.call("math", "add", [1, 2]), 3);
+});
+
+test("listen advertises the configured address", async (t) => {
+  const port = await freePort();
+  const node = new Node({ cluster: "advertise-on" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  await node.listen(`tcp://0.0.0.0:${port}`, {
+    backlog: 10,
+    advertise: `tcp://127.0.0.1:${port}`,
+  });
+
+  const learned = new Promise<Array<{ id: string; addr: string }>>(
+    (resolve) => {
+      port2.addEventListener("message", (event) => {
+        const message = event.data as { t?: string; members?: unknown };
+
+        if (
+          message.t === "peers" &&
+          Array.isArray(message.members) &&
+          message.members.length > 0
+        ) {
+          resolve(message.members as Array<{ id: string; addr: string }>);
+        }
+      });
+    },
+  );
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "ghost" });
+
+  assert.deepEqual(await learned, [
+    { id: node.nodeId, addr: `tcp://127.0.0.1:${port}` },
+  ]);
+});
+
+test("listen does not advertise without options", async (t) => {
+  const node = new Node({ cluster: "advertise-off" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  await node.listen("tcp://0.0.0.0:0");
+
+  const learned = new Promise<unknown[]>((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; members?: unknown };
+
+      if (message.t === "peers" && Array.isArray(message.members)) {
+        resolve(message.members);
+      }
+    });
+  });
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "ghost" });
+
+  assert.deepEqual(await learned, []);
+});
+
+test("peers ignores invalid entries", async (t) => {
+  const node = new Node({ cluster: "peers-invalid" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  node.join(port1);
+  port2.start();
+
+  const learned = new Promise<Array<{ id: string; addr: string }>>(
+    (resolve) => {
+      port2.addEventListener("message", (event) => {
+        const message = event.data as { t?: string; members?: unknown };
+
+        if (
+          message.t === "peers" &&
+          Array.isArray(message.members) &&
+          message.members.length > 0
+        ) {
+          resolve(message.members as Array<{ id: string; addr: string }>);
+        }
+      });
+    },
+  );
+
+  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({
+    t: "peers",
+    from: "ghost",
+    members: [
+      { id: node.nodeId, addr: "tcp://127.0.0.1:1" },
+      { id: "bad", addr: "not a url" },
+      { id: "0", addr: "tcp://127.0.0.1:1" },
+    ],
+  });
+
+  assert.deepEqual(await learned, [{ id: "0", addr: "tcp://127.0.0.1:1" }]);
+});

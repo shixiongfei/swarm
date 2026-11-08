@@ -13,6 +13,8 @@ import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
+export type PeerEntry = { id: string; addr: string };
+
 export type Envelope =
   | { t: "hello"; from: string; token?: string }
   | { t: "accept"; from: string; token?: string }
@@ -38,6 +40,7 @@ export type Envelope =
       message: string;
     }
   | { t: "pub"; from: string; origin: string; topic: string; data: unknown }
+  | { t: "peers"; from: string; members: PeerEntry[] }
   | { t: "ping"; from: string }
   | { t: "pong"; from: string };
 
@@ -151,6 +154,30 @@ function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
   return message;
 }
 
+function isPeerEntry(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) {
+    return false;
+  }
+
+  const peer = entry as PeerEntry;
+
+  return typeof peer.id === "string" && typeof peer.addr === "string";
+}
+
+function isPeers(
+  message: Extract<Envelope, { t: "peers" }>,
+): Envelope | undefined {
+  if (
+    typeof message.from !== "string" ||
+    !Array.isArray(message.members) ||
+    !message.members.every(isPeerEntry)
+  ) {
+    return undefined;
+  }
+
+  return message;
+}
+
 function isPeer(
   message: Extract<Envelope, { t: "ping" | "pong" }>,
 ): Envelope | undefined {
@@ -180,6 +207,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isError(message);
     case "pub":
       return isPub(message);
+    case "peers":
+      return isPeers(message);
     case "ping":
     case "pong":
       return isPeer(message);

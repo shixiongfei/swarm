@@ -16,10 +16,12 @@ import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
 import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
-import type { Envelope } from "./envelope.ts";
+import type { Envelope, PeerEntry } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 type NodeLinkEvents = {
+  open: (peerId: string) => void;
+  peers: (members: PeerEntry[]) => void;
   close: () => void;
 };
 
@@ -176,6 +178,12 @@ export class NodeLink implements Observable {
           this.pingAt = undefined;
         }
         return;
+
+      case "peers":
+        if (this.peer !== undefined && message.from === this.peer) {
+          this.events.emit("peers", message.members);
+        }
+        return;
     }
   };
 
@@ -270,6 +278,10 @@ export class NodeLink implements Observable {
     this.link.publish(topic, data, origin);
   }
 
+  peers(members: PeerEntry[]) {
+    this.link.send({ t: "peers", from: this.link.nodeId, members });
+  }
+
   close() {
     this.dispose("node is closed");
     this.link.close();
@@ -291,6 +303,7 @@ export class NodeLink implements Observable {
     }
 
     this.announce();
+    this.events.emit("open", from);
   }
 
   private beat() {

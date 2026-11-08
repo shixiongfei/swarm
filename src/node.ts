@@ -24,6 +24,7 @@ import type { Client, ClientOptions } from "./client.ts";
 import type { Server } from "./server.ts";
 import type { Link } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
+import type { PeerEntry } from "./envelope.ts";
 import type { MetaData, WatchHandler } from "./registry.ts";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
@@ -40,6 +41,12 @@ export type NodeConfig = {
   cluster: string;
   secret?: string;
   callTimeout?: number;
+  seeds?: Array<string | URL>;
+};
+
+export type ListenOptions = {
+  backlog?: number;
+  advertise?: string | URL;
 };
 
 const nodes = new Map<string, Node>();
@@ -56,6 +63,9 @@ export class Node {
   private readonly watcher = new Watcher();
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
+  private readonly members: PeerEntry[] = [];
+  private readonly dials = new Set<string>();
+  private readonly seeds: Array<string | URL>;
   private readonly callTimeout: number;
   private closed = false;
 
@@ -68,6 +78,8 @@ export class Node {
     this.callTimeout =
       config.callTimeout !== undefined ? config.callTimeout : 5000;
 
+    this.seeds = config.seeds !== undefined ? config.seeds : [];
+
     this.nodeHub = new NodeHub({
       nodeId: this.nodeId,
       callTimeout: this.callTimeout,
@@ -78,6 +90,9 @@ export class Node {
     this.nodeHub.events.on("publish", (topic, data, origin) => {
       this.nodeLocal.publish(topic, data, origin);
     });
+
+    this.nodeHub.events.on("open", (nodeLink) => nodeLink.peers(this.members));
+    this.nodeHub.events.on("peers", (members) => this.learn(members));
 
     this.watcher.addSource(this.nodeHub);
   }
@@ -136,10 +151,10 @@ export class Node {
     return this;
   }
 
-  async listen(url: string | URL, backlog?: number) {
+  async listen(url: string | URL, options?: ListenOptions) {
     this.checkOpen();
 
-    const server = await this.createServer(url, backlog);
+    const server = await this.createServer(url, options);
 
     this.servers.push(server);
 
@@ -154,6 +169,20 @@ export class Node {
 
       throw err;
     }
+
+    if (options !== undefined && options.advertise !== undefined) {
+      const parsed = parseUrl(options.advertise);
+      const scheme = parsed.secure ? "wss:" : parsed.protocol;
+      const name = parsed.host.includes(":") ? `[${parsed.host}]` : parsed.host;
+
+      this.members.push({
+        id: this.nodeId,
+        addr: `${scheme}//${name}:${parsed.port}`,
+      });
+      this.broadcastPeers();
+    }
+
+    this.discover();
 
     return { host: server.host, port: server.port };
   }
@@ -356,9 +385,10 @@ export class Node {
 
   private async createServer(
     url: string | URL,
-    backlog: number | undefined,
+    options: ListenOptions | undefined,
   ): Promise<Server> {
     const { protocol, secure, host, port, secret } = parseUrl(url);
+    const backlog = options !== undefined ? options.backlog : undefined;
 
     if (secure) {
       throw new SwarmError("rejected", "wss listen is not supported");
@@ -428,7 +458,10 @@ export class Node {
     this.nodeLinks.push(nodeLink);
     this.watcher.addSource(nodeLink);
 
+    nodeLink.events.on("open", () => nodeLink.peers(this.members));
+    nodeLink.events.on("peers", (members) => this.learn(members));
     nodeLink.events.on("close", () => this.detach(nodeLink));
+
     nodeLink.hello();
   }
 
@@ -440,6 +473,74 @@ export class Node {
     }
 
     this.watcher.removeSource(nodeLink);
+  }
+
+  private learn(entries: PeerEntry[]) {
+    let changed = false;
+
+    for (const entry of entries) {
+      if (
+        entry.id === this.nodeId ||
+        this.members.some((member) => member.id === entry.id)
+      ) {
+        continue;
+      }
+
+      try {
+        parseUrl(entry.addr);
+      } catch {
+        continue;
+      }
+
+      this.members.push(entry);
+      changed = true;
+
+      const linked =
+        this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
+        this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
+
+      if (this.nodeId < entry.id && !linked) {
+        void this.dial(entry.addr);
+      }
+    }
+
+    if (changed) {
+      this.broadcastPeers();
+    }
+  }
+
+  private broadcastPeers() {
+    for (const nodeLink of this.nodeLinks) {
+      if (nodeLink.peerId !== undefined) {
+        nodeLink.peers(this.members);
+      }
+    }
+
+    for (const nodeLink of this.nodeHub.links) {
+      if (nodeLink.peerId !== undefined) {
+        nodeLink.peers(this.members);
+      }
+    }
+  }
+
+  private discover() {
+    for (const seed of this.seeds) {
+      void this.dial(String(seed));
+    }
+  }
+
+  private async dial(addr: string) {
+    if (this.dials.has(addr)) {
+      return;
+    }
+
+    this.dials.add(addr);
+
+    try {
+      await this.connect(addr);
+    } catch {
+      // the client retries on its own
+    }
   }
 }
 
@@ -511,12 +612,9 @@ export function createNode(options: NodeOptions = {}) {
     return existing;
   }
 
-  const node = new Node({
-    cluster,
-    secret: options.secret,
-    callTimeout: options.callTimeout,
-  });
+  const node = new Node({ ...options, cluster });
   nodes.set(cluster, node);
+
   return node;
 }
 
