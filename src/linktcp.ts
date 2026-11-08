@@ -33,6 +33,7 @@ export class LinkTcp extends Link {
   private writable = true;
   private queued = 0;
   private readonly queue: Uint8Array[] = [];
+  private readonly flushes: Array<() => void> = [];
 
   private readonly onData = (chunk: Uint8Array) => {
     if (this.closed) {
@@ -72,6 +73,8 @@ export class LinkTcp extends Link {
       this.queued -= frame.byteLength;
       this.writable = this.socket.write(frame) !== false;
     }
+
+    this.settle();
   };
 
   constructor(socket: Socket, nodeId: string) {
@@ -116,6 +119,18 @@ export class LinkTcp extends Link {
     this.writable = this.socket.write(frame) !== false;
   }
 
+  flush() {
+    if (this.closed) {
+      return Promise.resolve();
+    }
+
+    if (this.writable && this.queue.length === 0) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => this.flushes.push(resolve));
+  }
+
   close() {
     if (this.closed) {
       return;
@@ -127,6 +142,12 @@ export class LinkTcp extends Link {
     this.tail = 0;
     this.queue.length = 0;
     this.queued = 0;
+
+    const flushes = this.flushes.splice(0);
+
+    for (const resolve of flushes) {
+      resolve();
+    }
 
     this.socket.off("data", this.onData);
     this.socket.off("error", this.onError);
@@ -237,5 +258,17 @@ export class LinkTcp extends Link {
   private abort() {
     this.close();
     this.events.emit("close");
+  }
+
+  private settle() {
+    if (this.queue.length > 0 || !this.writable) {
+      return;
+    }
+
+    const flushes = this.flushes.splice(0);
+
+    for (const resolve of flushes) {
+      resolve();
+    }
   }
 }

@@ -59,6 +59,7 @@ export class Multicast {
   private local: () => PeerEntry[] = () => [];
   private socket: Socket | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private retry: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
 
   constructor(config: MulticastConfig) {
@@ -81,6 +82,10 @@ export class Multicast {
   async open(local: () => PeerEntry[]) {
     this.local = local;
 
+    if (this.closed) {
+      return;
+    }
+
     const socket = createSocket({
       type: this.family === 6 ? "udp6" : "udp4",
       reuseAddr: true,
@@ -90,7 +95,7 @@ export class Multicast {
 
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error) => {
-        this.close();
+        this.dropSocket();
         reject(err);
       };
 
@@ -107,22 +112,18 @@ export class Multicast {
 
           socket.addMembership(this.group, this.iface);
         } catch (err) {
-          this.close();
+          this.dropSocket();
           reject(err);
           return;
         }
 
         if (this.closed) {
-          try {
-            socket.close();
-          } catch {
-            // already closed
-          }
+          this.dropSocket();
           resolve();
           return;
         }
 
-        socket.on("error", () => this.close());
+        socket.on("error", () => this.recover(socket));
         socket.on("message", (data, rinfo) => this.receive(data, rinfo));
 
         this.announce();
@@ -172,16 +173,63 @@ export class Multicast {
 
     this.closed = true;
 
-    if (this.timer !== undefined) {
-      clearInterval(this.timer);
+    if (this.retry !== undefined) {
+      clearTimeout(this.retry);
+      this.retry = undefined;
     }
 
-    if (this.socket !== undefined) {
-      try {
-        this.socket.close();
-      } catch {
-        // the socket may not have been bound
+    this.dropSocket();
+  }
+
+  private recover(socket: Socket) {
+    if (this.closed || this.socket !== socket) {
+      return;
+    }
+
+    this.dropSocket();
+    this.retryLater();
+  }
+
+  private retryLater() {
+    if (this.closed || this.retry !== undefined) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.retry = undefined;
+
+      if (this.closed) {
+        return;
       }
+
+      void this.open(this.local).catch(() => this.retryLater());
+    }, this.interval);
+
+    timer.unref();
+    this.retry = timer;
+  }
+
+  private dropSocket() {
+    if (this.timer !== undefined) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+
+    const socket = this.socket;
+
+    if (socket === undefined) {
+      return;
+    }
+
+    this.socket = undefined;
+
+    socket.removeAllListeners("message");
+    socket.removeAllListeners("error");
+
+    try {
+      socket.close();
+    } catch {
+      // the socket may not have been bound
     }
   }
 

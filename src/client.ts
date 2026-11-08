@@ -21,8 +21,11 @@ export type ClientOptions = {
   reconnect?: boolean;
   retryDelay?: number;
   maxRetryDelay?: number;
+  connectTimeout?: number;
   secret?: string;
 };
+
+const defaultConnectTimeout = 15000;
 
 export abstract class Client<S = any> {
   readonly events = eventlite<ClientEvents<S>>({
@@ -41,6 +44,7 @@ export abstract class Client<S = any> {
   private readonly reconnectEnabled: boolean;
   private readonly retryDelay: number;
   private readonly maxRetryDelay: number;
+  private readonly connectTimeout: number;
 
   private timer: ReturnType<typeof setTimeout> | undefined;
   private attempt = 0;
@@ -54,6 +58,10 @@ export abstract class Client<S = any> {
       options.retryDelay !== undefined ? options.retryDelay : 1000;
     this.maxRetryDelay =
       options.maxRetryDelay !== undefined ? options.maxRetryDelay : 30000;
+    this.connectTimeout =
+      options.connectTimeout !== undefined
+        ? options.connectTimeout
+        : defaultConnectTimeout;
   }
 
   protected get isClosed() {
@@ -76,12 +84,35 @@ export abstract class Client<S = any> {
     this.clearTimer();
     this.connecting = true;
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
     try {
-      await this.open();
+      const opening = this.open();
+
+      // a late rejection after the timeout must not become unhandled
+      void opening.catch(() => {});
+
+      await Promise.race([
+        opening,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            if (this.socket !== undefined) {
+              this.destroy(this.socket);
+              this.socket = undefined;
+            }
+
+            reject(new SwarmError("timeout", "connect timed out"));
+          }, this.connectTimeout);
+        }),
+      ]);
     } catch (err) {
       this.scheduleReconnect();
       throw err;
     } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+
       this.connecting = false;
     }
 

@@ -396,4 +396,63 @@ describe("Multicast", () => {
 
     assert.doesNotThrow(() => multicast.close());
   });
+
+  test("recovers after a socket error", async (t) => {
+    const port = await freePort();
+    const multicast = new Multicast({
+      cluster: "multicast-recover",
+      nodeId: "a",
+      started: 1,
+      port,
+      interval: 50,
+      interface: "127.0.0.1",
+    });
+
+    t.after(() => multicast.close());
+
+    try {
+      await multicast.open(() => []);
+    } catch {
+      t.skip("multicast is not available");
+      return;
+    }
+
+    const internals = multicast as unknown as {
+      socket?: {
+        emit: (event: string, err: Error) => void;
+        address: () => { port: number };
+      };
+    };
+    const first = internals.socket;
+
+    assert.notEqual(first, undefined);
+
+    first?.emit("error", new Error("socket failure"));
+
+    const recovered = await within(
+      new Promise<boolean>((resolve) => {
+        const check = () => {
+          const socket = internals.socket;
+
+          if (socket !== undefined && socket !== first) {
+            try {
+              if (socket.address().port === port) {
+                resolve(true);
+                return;
+              }
+            } catch {
+              // the replacement socket is still binding
+            }
+          }
+
+          setTimeout(check, 10);
+        };
+
+        check();
+      }),
+      1000,
+    );
+
+    assert.equal(recovered, true);
+  });
 });

@@ -144,7 +144,7 @@ async function attachGhost(node: Node, service: string) {
 
   node.attach(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
   port2.postMessage({ t: "up", from: "ghost", service });
 
   await ready;
@@ -310,6 +310,81 @@ describe("Node", () => {
     a.register("math", { add: () => 2 }, { build: 2 });
 
     assert.deepEqual(await within(second, 2000), { build: 2 });
+  });
+
+  test("unregister propagates through a triangle where peers know the owner", async (t) => {
+    const a = new Node({ cluster: "echo-tri-a" });
+    const b = new Node({ cluster: "echo-tri-b" });
+    const c = new Node({ cluster: "echo-tri-c" });
+    const ac = new MessageChannel();
+    const cb = new MessageChannel();
+    const ba = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+    });
+
+    a.register("math", { add: () => 1 }, { build: 1 });
+
+    a.attach(ac.port1);
+    c.attach(ac.port2);
+    assert.equal(await waitFor(() => c.snapshot().services.length === 1), true);
+
+    c.attach(cb.port1);
+    b.attach(cb.port2);
+    assert.equal(await waitFor(() => b.snapshot().services.length === 1), true);
+
+    // b already knows a's service; opening b-a announces it back to a.
+    b.attach(ba.port1);
+    a.attach(ba.port2);
+    assert.equal(await waitFor(() => a.snapshot().links.length === 2), true);
+
+    a.register("math", { add: () => 2 }, { build: 2 });
+
+    assert.equal(
+      await waitFor(() => {
+        const meta = b.snapshot().services[0]?.meta as
+          { build?: number } | undefined;
+
+        return meta?.build === 2;
+      }),
+      true,
+    );
+
+    a.unregister("math");
+
+    assert.equal(await waitFor(() => a.snapshot().services.length === 0), true);
+    assert.equal(await waitFor(() => b.snapshot().services.length === 0), true);
+    assert.equal(await waitFor(() => c.snapshot().services.length === 0), true);
+  });
+
+  test("unregister propagates across duplicate links to the same peer", async (t) => {
+    const a = new Node({ cluster: "echo-dup-a" });
+    const b = new Node({ cluster: "echo-dup-b" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+    });
+
+    a.register("math", { add: () => 1 }, { build: 1 });
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    assert.equal(await waitFor(() => b.snapshot().services.length === 1), true);
+
+    a.attach(second.port1);
+    b.attach(second.port2);
+    assert.equal(await waitFor(() => b.snapshot().links.length === 2), true);
+
+    a.unregister("math");
+
+    assert.equal(await waitFor(() => a.snapshot().services.length === 0), true);
+    assert.equal(await waitFor(() => b.snapshot().services.length === 0), true);
   });
 
   test("call rejects a service no link serves", async () => {
@@ -1387,7 +1462,7 @@ test("listens on wss with tls options", async (t) => {
 
   const { port } = await node.listen("wss://127.0.0.1:0", {
     advertise: "wss://127.0.0.1:0",
-    tls: { key: tlsKey, cert: tlsCert },
+    ws: { tls: { key: tlsKey, cert: tlsCert } },
   });
 
   const socket = new WebSocket(`wss://127.0.0.1:${port}`, {
@@ -1403,6 +1478,33 @@ test("listens on wss with tls options", async (t) => {
 
   assert.equal(await waitFor(() => node.snapshot().links.length === 1), true);
   assert.equal(node.snapshot().members[0].addr.startsWith("wss://"), true);
+});
+
+test("connects to wss with a custom ca", async (t) => {
+  const hub = new Node({ cluster: "wss-ca-hub" });
+  const peer = new Node({ cluster: "wss-ca-peer" });
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  hub.register("math", { add: (a: number, b: number) => a + b });
+
+  const ready = new Promise<void>((resolve) =>
+    peer.watch("math", () => resolve()),
+  );
+
+  const { port } = await hub.listen("wss://127.0.0.1:0", {
+    advertise: "wss://127.0.0.1:0",
+    ws: { tls: { key: tlsKey, cert: tlsCert } },
+  });
+
+  await peer.connect(`wss://127.0.0.1:${port}`, { tls: { ca: tlsCert } });
+  await ready;
+
+  assert.equal(await peer.call("math", "add", [1, 2]), 3);
+  assert.equal(hub.snapshot().links[0].transport, "websocket");
 });
 
 test("delivers a publish once across a mesh", async (t) => {
@@ -1947,7 +2049,7 @@ test("listen advertises the configured address", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
 
   assert.deepEqual(await learned, [
     { id: node.nodeId, addr: `tcp://127.0.0.1:${port}` },
@@ -2004,7 +2106,7 @@ test("listen fills the bound port when advertise uses port 0", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
 
   assert.deepEqual(await learned, [
     { id: node.nodeId, addr: `tcp://127.0.0.1:${bound.port}` },
@@ -2035,7 +2137,7 @@ test("listen does not advertise without options", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
 
   assert.deepEqual(await learned, []);
 });
@@ -2069,7 +2171,7 @@ test("peers ignores invalid or wildcard entries", async (t) => {
     },
   );
 
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
   port2.postMessage({
     t: "peers",
     from: "ghost",
@@ -2154,7 +2256,7 @@ test("rejects a forwarded call whose hop budget is exhausted", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "peer" });
+  port2.postMessage({ t: "hello", from: "peer", version: 1 });
   port2.postMessage({ t: "up", from: "peer", service: "math" });
   await up;
 
@@ -2195,7 +2297,7 @@ test("dial rejects a peer that does not match the advertised id", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
   port2.postMessage({
     t: "peers",
     from: "ghost",
@@ -2460,7 +2562,7 @@ test("refreshes member freshness when the link closes", async (t) => {
 
   node.attach(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "peer" });
+  port2.postMessage({ t: "hello", from: "peer", version: 1 });
 
   const opened = await within(
     new Promise<boolean>((resolve) => {
@@ -2495,6 +2597,34 @@ test("refreshes member freshness when the link closes", async (t) => {
   internals.learn([], { local: true });
 
   assert.equal(internals.members.length, 1);
+});
+
+test("closes a listening server when it errors", async (t) => {
+  const node = new Node({ cluster: "server-error" });
+
+  t.after(() => node.close());
+
+  await node.listen("tcp://127.0.0.1:0");
+
+  const internals = node as unknown as {
+    servers: Array<{
+      close(): void;
+      listen(): Promise<unknown>;
+      events: { emit(event: string, error: Error): void };
+    }>;
+  };
+  const server = internals.servers[0];
+
+  assert.notEqual(server, undefined);
+
+  if (server === undefined) {
+    return;
+  }
+
+  server.events.emit("error", new Error("boom"));
+
+  assert.equal(internals.servers.length, 0);
+  await assert.rejects(server.listen());
 });
 
 type NodeInternals = {

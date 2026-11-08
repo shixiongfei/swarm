@@ -134,7 +134,7 @@ export class Balancer {
         if (
           index + 1 < links.length &&
           err instanceof SwarmError &&
-          err.retriable
+          (err.retriable || err.kind === "not-found")
         ) {
           return attempt(index + 1);
         }

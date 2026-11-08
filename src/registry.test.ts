@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { Registry } from "./registry.ts";
+import { Registry, sameMeta } from "./registry.ts";
 import type { SwarmError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
@@ -437,5 +437,88 @@ describe("Registry", () => {
 
     assert.equal(error !== undefined && error.kind === "rejected", true);
     assert.deepEqual(registry.lookup("math"), []);
+  });
+});
+
+describe("sameMeta", () => {
+  test("compares nested plain objects and arrays", () => {
+    assert.equal(
+      sameMeta({ build: 1, tags: ["a", "b"] }, { build: 1, tags: ["a", "b"] }),
+      true,
+    );
+    assert.equal(
+      sameMeta({ build: 1, tags: ["a"] }, { build: 1, tags: ["a", "b"] }),
+      false,
+    );
+    assert.equal(sameMeta({ build: 1 }, { build: "1" }), false);
+  });
+
+  test("compares dates by their time", () => {
+    assert.equal(sameMeta({ at: new Date(1) }, { at: new Date(1) }), true);
+    assert.equal(sameMeta({ at: new Date(1) }, { at: new Date(2) }), false);
+    assert.equal(sameMeta({ at: new Date(NaN) }, { at: new Date(NaN) }), true);
+  });
+
+  test("compares maps by size, keys and values", () => {
+    assert.equal(
+      sameMeta(
+        {
+          m: new Map([
+            ["a", 1],
+            ["b", 2],
+          ]),
+        },
+        {
+          m: new Map([
+            ["b", 2],
+            ["a", 1],
+          ]),
+        },
+      ),
+      true,
+    );
+    assert.equal(
+      sameMeta({ m: new Map([["a", 1]]) }, { m: new Map([["a", 2]]) }),
+      false,
+    );
+    assert.equal(
+      sameMeta(
+        { m: new Map([["a", { build: 1 }]]) },
+        { m: new Map([["a", { build: 1 }]]) },
+      ),
+      true,
+    );
+  });
+
+  test("compares sets by size and membership", () => {
+    assert.equal(
+      sameMeta({ s: new Set([1, 2]) }, { s: new Set([2, 1]) }),
+      true,
+    );
+    assert.equal(sameMeta({ s: new Set([1]) }, { s: new Set([2]) }), false);
+    assert.equal(sameMeta({ s: new Set([1, 2]) }, { s: new Set([1]) }), false);
+  });
+
+  test("compares cyclic objects without recursing forever", () => {
+    const a: Record<string, unknown> = { build: 1 };
+    const b: Record<string, unknown> = { build: 1 };
+    a.self = a;
+    b.self = b;
+
+    assert.equal(sameMeta(a, b), true);
+
+    b.build = 2;
+
+    assert.equal(sameMeta(a, b), false);
+  });
+
+  test("compares cyclic maps without recursing forever", () => {
+    const a = new Map<string, unknown>();
+    const b = new Map<string, unknown>();
+    a.set("self", a);
+    b.set("self", b);
+
+    assert.equal(sameMeta({ m: a }, { m: b }), true);
+    assert.equal(sameMeta({ m: a }, { m: new Map() }), false);
   });
 });

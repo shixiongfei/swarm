@@ -22,6 +22,7 @@ import { NodeHub } from "./nodehub.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
 import type { Client, ClientOptions } from "./client.ts";
+import type { WsClientOptions, WsTlsOptions } from "./wsclient.ts";
 import type { Server } from "./server.ts";
 import type { Link, Transport } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
@@ -64,13 +65,13 @@ export type NodeConfig = {
 export type WsListenOptions = {
   path?: string;
   server?: HttpServer;
+  tls?: HttpsServerOptions;
 };
 
 export type ListenOptions = {
   backlog?: number;
   advertise?: string | URL;
   ws?: WsListenOptions;
-  tls?: HttpsServerOptions;
 };
 
 export type NodeMember = {
@@ -97,6 +98,7 @@ export type NodeSnapshot = {
 const nodes = new Map<string, Node>();
 const defaultMaxHops = 8;
 const maxSeenPubs = 1024;
+const closeFlushTimeout = 1000;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
@@ -304,7 +306,7 @@ export class Node implements Provider {
     return { host: server.host, port: server.port };
   }
 
-  async connect(url: string | URL, options?: ClientOptions) {
+  async connect(url: string | URL, options?: WsClientOptions) {
     this.checkOpen();
 
     const client = await this.createClient(url, options);
@@ -532,38 +534,70 @@ export class Node implements Provider {
       this.multicast.close();
     }
 
-    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+    const links = [...this.nodeLinks, ...this.nodeHub.links];
+
+    for (const nodeLink of links) {
       nodeLink.bye();
     }
 
-    for (const client of this.clients) {
-      client.close();
-    }
-
-    this.clients.length = 0;
     this.dials.clear();
     this.expiries.clear();
     this.seenPubs.clear();
 
-    for (const server of this.servers) {
-      server.close();
-    }
-
-    this.servers.length = 0;
-
-    for (const nodeLink of this.nodeLinks.slice()) {
-      nodeLink.close();
-    }
-
-    this.nodeLinks.length = 0;
-
-    this.nodeHub.close();
-    this.nodeLocal.close();
-    this.watcher.close();
-
     if (nodes.get(this.cluster) === this) {
       nodes.delete(this.cluster);
     }
+
+    this.nodeLocal.close();
+    this.watcher.close();
+
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+
+      disposed = true;
+
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+
+      for (const nodeLink of this.nodeLinks.slice()) {
+        nodeLink.close();
+      }
+
+      this.nodeLinks.length = 0;
+
+      for (const client of this.clients) {
+        client.close();
+      }
+
+      this.clients.length = 0;
+
+      for (const server of this.servers) {
+        server.close();
+      }
+
+      this.servers.length = 0;
+
+      this.nodeHub.close();
+    };
+
+    if (links.length === 0) {
+      dispose();
+      return;
+    }
+
+    timer = setTimeout(dispose, closeFlushTimeout);
+
+    Promise.all(links.map((nodeLink) => nodeLink.flush())).then(
+      dispose,
+      dispose,
+    );
   }
 
   async collect(
@@ -643,6 +677,16 @@ export class Node implements Provider {
     }
   }
 
+  private closeServer(server: Server) {
+    const index = this.servers.indexOf(server);
+
+    if (index >= 0) {
+      this.servers.splice(index, 1);
+    }
+
+    server.close();
+  }
+
   private async createServer(
     url: string | URL,
     options: ListenOptions | undefined,
@@ -650,7 +694,7 @@ export class Node implements Provider {
     const { protocol, secure, host, port, secret, path } = parseUrl(url);
     const ws = options !== undefined ? options.ws : undefined;
     const backlog = options !== undefined ? options.backlog : undefined;
-    const tls = options !== undefined ? options.tls : undefined;
+    const tls = ws !== undefined ? ws.tls : undefined;
     const server = ws !== undefined ? ws.server : undefined;
     const listenPath =
       ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
@@ -670,6 +714,7 @@ export class Node implements Provider {
       tcpServer.events.on("online", (socket) => {
         this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
       });
+      tcpServer.events.on("error", () => this.closeServer(tcpServer));
 
       return tcpServer;
     }
@@ -688,13 +733,14 @@ export class Node implements Provider {
         secret,
       );
     });
+    wsServer.events.on("error", () => this.closeServer(wsServer));
 
     return wsServer;
   }
 
   private async createClient(
     url: string | URL,
-    options: ClientOptions | undefined,
+    options: WsClientOptions | undefined,
     expected?: string,
   ): Promise<Client> {
     const { protocol, host, port, secret: urlSecret } = parseUrl(url);
@@ -1214,6 +1260,11 @@ export function createNode(options: NodeOptions = {}) {
   return node;
 }
 
-export type { ClientOptions, MulticastOptions };
+export type {
+  ClientOptions,
+  MulticastOptions,
+  WsClientOptions,
+  WsTlsOptions as WsTlsOptions,
+};
 export type { Methods, TopicHandler };
 export type { Instance, MetaData, WatchHandler, WatchEvent };

@@ -88,3 +88,28 @@ setTimeout(() => console.log("survived"), 100);
   assert.match(result.stderr, /boom-client/);
   assert.doesNotMatch(result.stdout, /survived/);
 });
+
+class HangingClient extends Client<number> {
+  destroyed = false;
+
+  protected open() {
+    this.socket = 1;
+
+    return new Promise<void>(() => {});
+  }
+
+  protected destroy() {
+    this.destroyed = true;
+  }
+}
+
+test("times out when the connection is not established", async () => {
+  const client = new HangingClient({ connectTimeout: 50, reconnect: false });
+
+  await assert.rejects(client.connect(), /connect timed out/);
+
+  assert.equal(client.destroyed, true);
+  assert.equal(client.socket, undefined);
+
+  client.close();
+});

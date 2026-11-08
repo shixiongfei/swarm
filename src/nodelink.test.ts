@@ -17,6 +17,7 @@ import { NodeLocal } from "./nodelocal.ts";
 import { Link } from "./link.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
+import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
 import type { Envelope } from "./envelope.ts";
 import type { WatchEvent } from "./registry.ts";
@@ -65,7 +66,7 @@ describe("NodeLink", () => {
 
     link.hello();
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer-node" });
+    port2.postMessage({ t: "hello", from: "peer-node", version: 1 });
 
     while (link.peerId === undefined) {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -294,7 +295,7 @@ describe("NodeLink", () => {
     node.attach(port1);
     port2.start();
 
-    port2.postMessage({ t: "hello", from: "first" });
+    port2.postMessage({ t: "hello", from: "first", version: 1 });
     port2.postMessage({ t: "up", from: "first", service: "math" });
 
     await up("math");
@@ -303,7 +304,7 @@ describe("NodeLink", () => {
       port2.addEventListener("close", () => resolve()),
     );
 
-    port2.postMessage({ t: "hello", from: "second" });
+    port2.postMessage({ t: "hello", from: "second", version: 1 });
 
     await closed;
 
@@ -364,6 +365,7 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "hello",
       from: "peer-node",
+      version: 1,
       token: await signToken("wrong-secret", "peer-node"),
     });
 
@@ -394,6 +396,7 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "accept",
       from: "peer-node",
+      version: 1,
     });
 
     await closed;
@@ -445,7 +448,7 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({ t: "hello", from: "peer", version: 1 });
     port2.postMessage({ t: "up", from: "origin", service: "fake" });
 
     const event = await up;
@@ -487,7 +490,7 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({ t: "hello", from: "peer", version: 1 });
     port2.postMessage({
       t: "pub",
       id: "pub-1",
@@ -545,7 +548,7 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer" });
+    port2.postMessage({ t: "hello", from: "peer", version: 1 });
     port2.postMessage({ t: "up", from: "peer", service: "remote" });
 
     await up;
@@ -610,7 +613,7 @@ describe("NodeLink", () => {
     });
 
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer-node" });
+    port2.postMessage({ t: "hello", from: "peer-node", version: 1 });
     port2.postMessage({ t: "up", from: "peer-node", service: "math" });
 
     assert.deepEqual((await up).instance, {
@@ -722,7 +725,7 @@ describe("NodeLink", () => {
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
 
     stub.failNextSend = true;
 
@@ -750,7 +753,7 @@ describe("NodeLink", () => {
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
 
     mock.timers.tick(15000);
     mock.timers.tick(15000);
@@ -777,10 +780,30 @@ describe("NodeLink", () => {
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
 
     mock.timers.tick(3000);
 
+    assert.equal(stub.closed, true);
+  });
+
+  test("closes a link whose protocol version differs", (t) => {
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, { provider: local });
+
+    t.after(() => {
+      link.close();
+      local.close();
+    });
+
+    stub.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion + 1,
+    });
+
+    assert.equal(link.peerId, undefined);
     assert.equal(stub.closed, true);
   });
 });

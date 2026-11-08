@@ -320,3 +320,45 @@ test("decodes a small frame after a large payload", async (t) => {
 
   assert.deepEqual(received, [large, small]);
 });
+
+test("flush waits for a congested socket to drain", async (t) => {
+  let writable = false;
+  const handlers = new Map<string, () => void>();
+
+  const socket = {
+    remoteAddress: "127.0.0.1",
+    setNoDelay() {},
+    on(event: string, handler: () => void) {
+      handlers.set(event, handler);
+    },
+    off() {},
+    write() {
+      return writable;
+    },
+    destroy() {},
+  } as unknown as Socket;
+
+  const link = new LinkTcp(socket, "client-node");
+
+  t.after(() => link.close());
+
+  link.send({ t: "bye", from: "client-node" });
+
+  const flushed = link.flush();
+  let settled = false;
+
+  void flushed.then(() => {
+    settled = true;
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(settled, false);
+
+  writable = true;
+  handlers.get("drain")?.();
+
+  await flushed;
+
+  assert.equal(settled, true);
+});

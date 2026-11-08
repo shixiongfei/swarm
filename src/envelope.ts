@@ -13,11 +13,13 @@ import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
+export const protocolVersion = 1;
+
 export type PeerEntry = { id: string; addr: string };
 
 export type Envelope =
-  | { t: "hello"; from: string; token?: string }
-  | { t: "accept"; from: string; token?: string }
+  | { t: "hello"; from: string; version: number; token?: string }
+  | { t: "accept"; from: string; version: number; token?: string }
   | { t: "up"; from: string; service: string; meta?: MetaData }
   | { t: "down"; from: string; service: string }
   | {
@@ -74,7 +76,10 @@ function isHandshake(
 ): Envelope | undefined {
   if (
     typeof message.from !== "string" ||
-    (message.token !== undefined && typeof message.token !== "string")
+    (message.token !== undefined && typeof message.token !== "string") ||
+    typeof message.version !== "number" ||
+    !Number.isInteger(message.version) ||
+    message.version < 1
   ) {
     return undefined;
   }

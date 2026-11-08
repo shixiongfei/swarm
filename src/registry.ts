@@ -256,6 +256,18 @@ export function sameMeta(a: unknown, b: unknown): boolean {
     return true;
   }
 
+  return equalMeta(a, b, new WeakMap());
+}
+
+function equalMeta(
+  a: unknown,
+  b: unknown,
+  seen: WeakMap<object, WeakSet<object>>,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
   if (
     typeof a !== "object" ||
     typeof b !== "object" ||
@@ -265,13 +277,60 @@ export function sameMeta(a: unknown, b: unknown): boolean {
     return false;
   }
 
-  if (Array.isArray(a) || Array.isArray(b)) {
+  if (a instanceof Date || b instanceof Date) {
     return (
-      Array.isArray(a) &&
-      Array.isArray(b) &&
-      a.length === b.length &&
-      a.every((item, index) => sameMeta(item, b[index]))
+      a instanceof Date &&
+      b instanceof Date &&
+      Object.is(a.getTime(), b.getTime())
     );
+  }
+
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map) || !(b instanceof Map) || a.size !== b.size) {
+      return false;
+    }
+
+    if (visited(a, b, seen)) {
+      return true;
+    }
+
+    for (const [key, value] of a) {
+      if (!b.has(key) || !equalMeta(value, b.get(key), seen)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) {
+      return false;
+    }
+
+    for (const value of a) {
+      if (!b.has(value)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+
+    if (visited(a, b, seen)) {
+      return true;
+    }
+
+    return a.every((item, index) => equalMeta(item, b[index], seen));
+  }
+
+  if (visited(a, b, seen)) {
+    return true;
   }
 
   const left = a as Record<string, unknown>;
@@ -280,6 +339,23 @@ export function sameMeta(a: unknown, b: unknown): boolean {
 
   return (
     keys.length === Object.keys(right).length &&
-    keys.every((key) => sameMeta(left[key], right[key]))
+    keys.every((key) => equalMeta(left[key], right[key], seen))
   );
+}
+
+function visited(a: object, b: object, seen: WeakMap<object, WeakSet<object>>) {
+  let pairs = seen.get(a);
+
+  if (pairs === undefined) {
+    pairs = new WeakSet();
+    seen.set(a, pairs);
+  }
+
+  if (pairs.has(b)) {
+    return true;
+  }
+
+  pairs.add(b);
+
+  return false;
 }

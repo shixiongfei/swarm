@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { protocolVersion } from "./envelope.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
@@ -66,6 +67,10 @@ export class NodeLink implements Observable {
 
     switch (message.t) {
       case "hello":
+        if (!this.negotiate(message.version)) {
+          return;
+        }
+
         if (this.secret === undefined) {
           this.open(message.from, true);
           return;
@@ -75,6 +80,10 @@ export class NodeLink implements Observable {
         return;
 
       case "accept":
+        if (!this.negotiate(message.version)) {
+          return;
+        }
+
         if (this.secret === undefined) {
           this.open(message.from, false);
           return;
@@ -84,13 +93,13 @@ export class NodeLink implements Observable {
         return;
 
       case "up":
-        if (this.peer !== undefined) {
+        if (this.peer !== undefined && message.from !== this.link.nodeId) {
           this.registry.add(message.service, message.from, message.meta);
         }
         return;
 
       case "down":
-        if (this.peer !== undefined) {
+        if (this.peer !== undefined && message.from !== this.link.nodeId) {
           this.registry.remove(message.service, message.from);
         }
         return;
@@ -346,7 +355,15 @@ export class NodeLink implements Observable {
       return;
     }
 
-    this.link.send({ t: "bye", from: this.link.nodeId });
+    try {
+      this.link.send({ t: "bye", from: this.link.nodeId });
+    } catch {
+      // The link is closed or congested; goodbye is best-effort.
+    }
+  }
+
+  flush() {
+    return this.link.flush();
   }
 
   close() {
@@ -420,6 +437,19 @@ export class NodeLink implements Observable {
       : signToken(this.secret, this.link.nodeId);
   }
 
+  private negotiate(version: number) {
+    if (version === protocolVersion) {
+      return true;
+    }
+
+    this.dispose(
+      `protocol version ${version} is incompatible with ${protocolVersion}`,
+    );
+    this.link.close();
+
+    return false;
+  }
+
   private reject(from: string, token: string | undefined) {
     if (this.secret === undefined) {
       return false;
@@ -437,6 +467,10 @@ export class NodeLink implements Observable {
 
   private announce() {
     for (const instance of this.provider.registrations()) {
+      if (instance.nodeId === this.peer) {
+        continue;
+      }
+
       this.link.register(instance);
     }
   }

@@ -12,8 +12,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Balancer } from "./balancer.ts";
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import type { Transport } from "./link.ts";
+import type { NodeLink } from "./nodelink.ts";
 
 function stub(transport: Transport, ...services: string[]) {
   return {
@@ -21,6 +22,16 @@ function stub(transport: Transport, ...services: string[]) {
     latency: undefined as number | undefined,
     has: (service: string) => services.includes(service),
   };
+}
+
+function link(peerId: string, call: () => Promise<unknown>) {
+  return {
+    transport: "port" as Transport,
+    latency: undefined as number | undefined,
+    peerId,
+    has: (service: string) => service === "math",
+    call,
+  } as unknown as NodeLink;
 }
 
 describe("Balancer", () => {
@@ -135,5 +146,40 @@ describe("Balancer", () => {
       () => balancer.invoke("nope", "add", [], 10, 8, undefined),
       (err: SwarmError) => err.kind === "not-found",
     );
+  });
+
+  test("invoke retries the next link when a peer misses the service", async () => {
+    const balancer = new Balancer();
+    const stale = link("stale", async () => {
+      throw new SwarmError("not-found", "service not found: math");
+    });
+    const healthy = link("healthy", async () => 7);
+
+    assert.equal(
+      await balancer.invoke("math", "add", [1, 2], 10, 8, undefined, [
+        stale,
+        healthy,
+      ]),
+      7,
+    );
+  });
+
+  test("invoke does not retry the next link when a call is rejected", async () => {
+    const balancer = new Balancer();
+    let calls = 0;
+    const rejecting = link("rejecting", async () => {
+      calls += 1;
+      throw new SwarmError("rejected", "bad arguments");
+    });
+    const healthy = link("healthy", async () => 7);
+
+    await assert.rejects(
+      balancer.invoke("math", "add", [], 10, 8, undefined, [
+        rejecting,
+        healthy,
+      ]),
+      (err: SwarmError) => err.kind === "rejected",
+    );
+    assert.equal(calls, 1);
   });
 });

@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { protocolVersion } from "./envelope.ts";
 import type { Instance } from "./registry.ts";
 import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
 
@@ -33,6 +34,10 @@ export abstract class Link implements Enveloper {
   abstract send(message: Envelope): void;
   abstract close(): void;
 
+  flush() {
+    return Promise.resolve();
+  }
+
   constructor(nodeId: string) {
     this.nodeId = nodeId;
   }
@@ -40,16 +45,16 @@ export abstract class Link implements Enveloper {
   hello(token?: string) {
     this.send(
       token === undefined
-        ? { t: "hello", from: this.nodeId }
-        : { t: "hello", from: this.nodeId, token },
+        ? { t: "hello", from: this.nodeId, version: protocolVersion }
+        : { t: "hello", from: this.nodeId, version: protocolVersion, token },
     );
   }
 
   accept(token?: string) {
     this.send(
       token === undefined
-        ? { t: "accept", from: this.nodeId }
-        : { t: "accept", from: this.nodeId, token },
+        ? { t: "accept", from: this.nodeId, version: protocolVersion }
+        : { t: "accept", from: this.nodeId, version: protocolVersion, token },
     );
   }
 

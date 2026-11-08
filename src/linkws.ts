@@ -16,6 +16,8 @@ import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Envelope } from "./envelope.ts";
 
 const maxQueueSize = maxEnvelopeSize * 2;
+const maxFlushWait = 1000;
+const maxFlushPoll = 10;
 
 function toBytes(data: unknown): Uint8Array | undefined {
   if (data instanceof ArrayBuffer) {
@@ -109,6 +111,33 @@ export class LinkWs extends Link {
     }
 
     this.socket.send(payload as Uint8Array<ArrayBuffer>);
+  }
+
+  flush() {
+    if (this.closed || this.socket.bufferedAmount <= 0) {
+      return Promise.resolve();
+    }
+
+    const socket = this.socket;
+
+    return new Promise<void>((resolve) => {
+      const deadline = Date.now() + maxFlushWait;
+
+      const check = () => {
+        if (
+          this.closed ||
+          socket.bufferedAmount <= 0 ||
+          Date.now() >= deadline
+        ) {
+          resolve();
+          return;
+        }
+
+        setTimeout(check, maxFlushPoll);
+      };
+
+      setTimeout(check, maxFlushPoll);
+    });
   }
 
   close() {
