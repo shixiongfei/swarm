@@ -29,6 +29,7 @@ export type Envelope =
       method: string;
       args: unknown[];
       timeout?: number;
+      ttl?: number;
     }
   | { t: "reply"; id: string; from: string; to: string; value: unknown }
   | {
@@ -104,7 +105,9 @@ function isCall(
     typeof message.method !== "string" ||
     !Array.isArray(message.args) ||
     (message.timeout !== undefined &&
-      (!Number.isFinite(message.timeout) || message.timeout <= 0))
+      (!Number.isFinite(message.timeout) || message.timeout <= 0)) ||
+    (message.ttl !== undefined &&
+      (!Number.isInteger(message.ttl) || message.ttl < 0))
   ) {
     return undefined;
   }

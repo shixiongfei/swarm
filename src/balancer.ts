@@ -102,6 +102,7 @@ export class Balancer {
     method: string,
     args: unknown[],
     timeout: number,
+    ttl: number,
     ...sets: Array<readonly NodeLink[]>
   ) {
     const links = this.order(service, ...sets);
@@ -119,7 +120,7 @@ export class Balancer {
       }
 
       try {
-        return await link.call(peer, service, method, args, timeout);
+        return await link.call(peer, service, method, args, timeout, ttl);
       } catch (err) {
         if (
           index + 1 < links.length &&

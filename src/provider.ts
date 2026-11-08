@@ -10,6 +10,7 @@
  */
 
 import type { Instance } from "./registry.ts";
+import type { NodeLink } from "./nodelink.ts";
 
 export interface Provider {
   registrations(): Instance[];
@@ -19,7 +20,9 @@ export interface Provider {
     method: string,
     args: unknown[],
     timeout?: number,
+    ttl?: number,
+    source?: NodeLink,
   ): any;
 
-  publish(topic: string, data: unknown, origin: string, from: string): void;
+  publish(topic: string, data: unknown, origin: string, from?: string): void;
 }

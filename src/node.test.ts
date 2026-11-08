@@ -1417,3 +1417,88 @@ test("peers ignores invalid entries", async (t) => {
 
   assert.deepEqual(await learned, [{ id: "0", addr: "tcp://127.0.0.1:1" }]);
 });
+
+test("routes a call through a client-only relay", async (t) => {
+  const consumerPort = await freePort();
+  const providerPort = await freePort();
+  const consumer = new Node({ cluster: "relay-consumer" });
+  const relay = new Node({ cluster: "relay-middle" });
+  const provider = new Node({ cluster: "relay-provider" });
+
+  t.after(() => {
+    consumer.close();
+    relay.close();
+    provider.close();
+  });
+
+  provider.register("math", { add: async (a: number, b: number) => a + b });
+
+  const up = new Promise<void>((resolve) =>
+    consumer.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === provider.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await consumer.listen(`tcp://127.0.0.1:${consumerPort}`);
+  await provider.listen(`tcp://127.0.0.1:${providerPort}`);
+  await relay.connect(`tcp://127.0.0.1:${consumerPort}`);
+  await relay.connect(`tcp://127.0.0.1:${providerPort}`);
+  await up;
+
+  assert.equal(await consumer.call("math", "add", [1, 2]), 3);
+
+  const down = new Promise<void>((resolve) =>
+    consumer.watch("math", (event) => {
+      if (event.type === "down" && event.instance.nodeId === provider.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  provider.unregister("math");
+  await down;
+});
+
+test("rejects a forwarded call whose hop budget is exhausted", async (t) => {
+  const node = new Node({ cluster: "hop-budget" });
+  const { port1, port2 } = new MessageChannel();
+  const up = new Promise<void>((resolve) =>
+    node.watch("math", () => resolve()),
+  );
+  const failed = new Promise<{ t?: string; kind?: string }>((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; kind?: string };
+
+      if (message.t === "error") {
+        resolve(message);
+      }
+    });
+  });
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "peer" });
+  port2.postMessage({ t: "up", from: "peer", service: "math" });
+  await up;
+
+  port2.postMessage({
+    t: "call",
+    id: "hop",
+    from: "peer",
+    to: node.nodeId,
+    service: "math",
+    method: "add",
+    args: [],
+    ttl: 0,
+  });
+
+  assert.equal((await failed).kind, "not-found");
+});

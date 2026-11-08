@@ -396,21 +396,11 @@ describe("NodeLink", () => {
     assert.equal(await b.call("math", "add"), 1);
   });
 
-  test("ignores service announcements that spoof another sender", async (t) => {
-    const node = new Node({ cluster: "spoof-sender" });
+  test("accepts registrations relayed for another origin", async (t) => {
+    const node = new Node({ cluster: "relayed-sender" });
     const { port1, port2 } = new MessageChannel();
-    const received: unknown[] = [];
     const up = new Promise<WatchEvent>((resolve) =>
-      node.watch("math", resolve),
-    );
-    const second = new Promise<void>((resolve) =>
-      node.subscribe("news", (data) => {
-        received.push(data);
-
-        if (data === 2) {
-          resolve();
-        }
-      }),
+      node.watch("fake", resolve),
     );
 
     t.after(() => {
@@ -422,26 +412,23 @@ describe("NodeLink", () => {
     node.attach(port1);
     port2.start();
     port2.postMessage({ t: "hello", from: "peer" });
-    port2.postMessage({ t: "up", from: "peer", service: "math" });
+    port2.postMessage({ t: "up", from: "origin", service: "fake" });
 
-    await up;
+    const event = await up;
 
-    port2.postMessage({ t: "up", from: "spoof", service: "fake" });
-    port2.postMessage({
-      t: "pub",
-      from: "peer",
-      origin: "peer",
-      topic: "news",
-      data: 2,
-    });
+    assert.equal(event.instance.nodeId, "origin");
 
-    await second;
-
-    assert.deepEqual(received, [2]);
-    await assert.rejects(
-      node.call("fake", "x"),
-      (err: SwarmError) => err.kind === "not-found",
+    const down = new Promise<WatchEvent>((resolve) =>
+      node.watch("fake", (message) => {
+        if (message.type === "down") {
+          resolve(message);
+        }
+      }),
     );
+
+    port2.postMessage({ t: "down", from: "origin", service: "fake" });
+
+    assert.equal((await down).instance.nodeId, "origin");
   });
 
   test("drops a publish that returns to its origin or spoofs the sender", async (t) => {

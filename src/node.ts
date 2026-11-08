@@ -24,8 +24,9 @@ import type { Client, ClientOptions } from "./client.ts";
 import type { Server } from "./server.ts";
 import type { Link } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
+import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
-import type { MetaData, WatchHandler } from "./registry.ts";
+import type { MetaData, WatchEvent, WatchHandler } from "./registry.ts";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -50,8 +51,9 @@ export type ListenOptions = {
 };
 
 const nodes = new Map<string, Node>();
+const maxHops = 8;
 
-export class Node {
+export class Node implements Provider {
   readonly nodeId = randomId();
   readonly cluster: string;
   readonly secret?: string;
@@ -81,20 +83,19 @@ export class Node {
     this.seeds = config.seeds !== undefined ? config.seeds : [];
 
     this.nodeHub = new NodeHub({
-      nodeId: this.nodeId,
-      callTimeout: this.callTimeout,
       secret: this.secret,
-      local: this.nodeLocal,
-    });
-
-    this.nodeHub.events.on("publish", (topic, data, origin) => {
-      this.nodeLocal.publish(topic, data, origin);
+      provider: this,
     });
 
     this.nodeHub.events.on("open", (nodeLink) => nodeLink.peers(this.members));
     this.nodeHub.events.on("peers", (members) => this.learn(members));
 
     this.watcher.addSource(this.nodeHub);
+    this.watcher.watch((event) => this.relay(event));
+  }
+
+  registrations() {
+    return this.watcher.instances();
   }
 
   register(service: string, methods: Methods, meta?: MetaData) {
@@ -114,25 +115,14 @@ export class Node {
       }
     }
 
-    const instance = this.nodeLocal.register(service, methods, ownedMeta);
-
-    for (const nodeLink of this.nodeLinks) {
-      nodeLink.register(instance);
-    }
+    this.nodeLocal.register(service, methods, ownedMeta);
 
     return this;
   }
 
   unregister(service: string) {
     this.checkOpen();
-
-    const instance = this.nodeLocal.unregister(service);
-
-    if (instance !== undefined) {
-      for (const nodeLink of this.nodeLinks) {
-        nodeLink.unregister(instance);
-      }
-    }
+    this.nodeLocal.unregister(service);
 
     return this;
   }
@@ -224,28 +214,56 @@ export class Node {
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
+    try {
+      return this.invoke(service, method, args, timeout, maxHops);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  invoke(
+    service: string,
+    method: string,
+    args: unknown[],
+    timeout?: number,
+    ttl?: number,
+    source?: NodeLink,
+  ) {
     if (this.nodeLocal.has(service)) {
       try {
         return this.nodeLocal.invoke(service, method, args, timeout);
       } catch (err) {
         if (!(err instanceof SwarmError) || err.kind !== "not-found") {
-          return Promise.reject(err);
+          throw err;
         }
       }
     }
 
-    try {
-      return this.balancer.invoke(
-        service,
-        method,
-        args,
-        timeout,
-        this.nodeLinks,
-        this.nodeHub.links,
-      );
-    } catch (err) {
-      return Promise.reject(err);
+    const remaining = ttl === undefined ? maxHops : ttl;
+
+    if (remaining <= 0) {
+      throw new SwarmError("not-found", `service not found: ${service}`);
     }
+
+    const links =
+      source === undefined
+        ? this.nodeLinks
+        : this.nodeLinks.filter((link) => link !== source);
+
+    const hubLinks =
+      source === undefined
+        ? this.nodeHub.links
+        : this.nodeHub.links.filter((link) => link !== source);
+
+    return this.balancer.invoke(
+      service,
+      method,
+      args,
+      timeout !== undefined ? timeout : this.callTimeout,
+      remaining - 1,
+      links,
+      hubLinks,
+    );
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -274,15 +292,27 @@ export class Node {
     return this.nodeLocal.subscribe(topic, handler);
   }
 
-  publish(topic: string, data: unknown) {
+  publish(topic: string, data: unknown, origin?: string, from?: string) {
     this.checkOpen();
+
+    const source = origin !== undefined ? origin : this.nodeId;
 
     try {
       for (const nodeLink of this.nodeLinks) {
-        nodeLink.publish(topic, data, this.nodeId);
+        if (from !== undefined && nodeLink.peerId === from) {
+          continue;
+        }
+
+        nodeLink.publish(topic, data, source);
       }
 
-      this.nodeHub.publish(topic, data, this.nodeId);
+      for (const nodeLink of this.nodeHub.links) {
+        if (from !== undefined && nodeLink.peerId === from) {
+          continue;
+        }
+
+        nodeLink.publish(topic, data, source);
+      }
     } catch (err) {
       if (err instanceof Error && err.name === "DataCloneError") {
         throw new SwarmError("failed", "data is not cloneable");
@@ -291,7 +321,7 @@ export class Node {
       throw err;
     }
 
-    this.nodeLocal.publish(topic, data, this.nodeId);
+    this.nodeLocal.publish(topic, data, source);
   }
 
   close() {
@@ -363,7 +393,7 @@ export class Node {
 
     for (const [peer, nodeLink] of targets) {
       calls.push(
-        nodeLink.call(peer, service, method, args, timeout).then(
+        nodeLink.call(peer, service, method, args, timeout, maxHops).then(
           (value) => ({ nodeId: peer, ok: true as const, value }),
           (error) => ({ nodeId: peer, ok: false as const, error }),
         ),
@@ -375,6 +405,32 @@ export class Node {
     }
 
     return Promise.all(calls);
+  }
+
+  private relay(event: WatchEvent) {
+    for (const nodeLink of this.nodeLinks) {
+      if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
+        continue;
+      }
+
+      if (event.type === "up") {
+        nodeLink.register(event.instance);
+      } else {
+        nodeLink.unregister(event.instance);
+      }
+    }
+
+    for (const nodeLink of this.nodeHub.links) {
+      if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
+        continue;
+      }
+
+      if (event.type === "up") {
+        nodeLink.register(event.instance);
+      } else {
+        nodeLink.unregister(event.instance);
+      }
+    }
   }
 
   private checkOpen() {
@@ -451,7 +507,7 @@ export class Node {
 
   private attachLink(link: Link, secret?: string) {
     const nodeLink = new NodeLink(link, {
-      provider: this.nodeLocal,
+      provider: this,
       secret: secret !== undefined ? secret : this.secret,
     });
 

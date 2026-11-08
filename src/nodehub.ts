@@ -11,65 +11,43 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
-import { Balancer } from "./balancer.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
-import type { NodeLocal } from "./nodelocal.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
-import type { Instance, Observable, WatchHandler } from "./registry.ts";
+import type { Observable, WatchHandler } from "./registry.ts";
 
 export type NodeHubEvents = {
-  publish: (topic: string, data: unknown, origin: string) => void;
   open: (nodeLink: NodeLink) => void;
   peers: (members: PeerEntry[]) => void;
 };
 
 export type NodeHubConfig = {
-  nodeId: string;
-  callTimeout: number;
+  provider: Provider;
   secret?: string;
-  local?: NodeLocal;
 };
 
-export class NodeHub implements Provider, Observable {
+export class NodeHub implements Observable {
   readonly events = eventlite<NodeHubEvents>({
     allowDuplicate: true,
     isolate: true,
   });
 
-  private readonly nodeId: string;
-  private readonly callTimeout: number;
   private readonly secret?: string;
-  private readonly local?: NodeLocal;
+  private readonly provider: Provider;
   private readonly nodeLinks: NodeLink[] = [];
-  private readonly balancer = new Balancer();
   private readonly watcher = new Watcher();
   private closed = false;
 
   constructor(config: NodeHubConfig) {
-    this.nodeId = config.nodeId;
-    this.callTimeout = config.callTimeout;
+    this.provider = config.provider;
     this.secret = config.secret;
-    this.local = config.local;
-
-    this.watcher.watch((event) => {
-      if (event.type === "up") {
-        this.register(event.instance);
-      } else {
-        this.unregister(event.instance);
-      }
-    });
-
-    if (this.local !== undefined) {
-      this.watcher.addSource(this.local);
-    }
   }
 
   join(link: Link, secret?: string) {
     const nodeLink = new NodeLink(link, {
-      provider: this,
+      provider: this.provider,
       secret: secret !== undefined ? secret : this.secret,
     });
 
@@ -85,36 +63,6 @@ export class NodeHub implements Provider, Observable {
 
   get links(): readonly NodeLink[] {
     return this.nodeLinks;
-  }
-
-  registrations() {
-    return this.watcher.instances();
-  }
-
-  invoke(service: string, method: string, args: unknown[], timeout?: number) {
-    if (timeout === undefined) {
-      timeout = this.callTimeout;
-    }
-
-    if (this.local !== undefined && this.local.has(service)) {
-      return this.local.invoke(service, method, args, timeout);
-    }
-
-    return this.balancer.invoke(service, method, args, timeout, this.nodeLinks);
-  }
-
-  publish(topic: string, data: unknown, origin: string, from?: string) {
-    for (const nodeLink of this.nodeLinks) {
-      if (from !== undefined && nodeLink.peerId === from) {
-        continue;
-      }
-
-      nodeLink.publish(topic, data, origin);
-    }
-
-    if (from !== undefined) {
-      this.events.emit("publish", topic, data, origin);
-    }
   }
 
   watch(handler: WatchHandler): () => void;
@@ -144,37 +92,6 @@ export class NodeHub implements Provider, Observable {
 
     this.nodeLinks.length = 0;
     this.watcher.close();
-  }
-
-  private register(instance: Instance) {
-    if (this.closed) {
-      return;
-    }
-
-    for (const nodeLink of this.nodeLinks) {
-      if (nodeLink.has(instance.service, instance.nodeId)) {
-        continue;
-      }
-
-      nodeLink.register({
-        service: instance.service,
-        nodeId: this.nodeId,
-        meta: instance.meta,
-      });
-    }
-  }
-
-  private unregister(instance: Instance) {
-    if (
-      this.closed ||
-      this.nodeLinks.some((link) => link.has(instance.service))
-    ) {
-      return;
-    }
-
-    for (const nodeLink of this.nodeLinks) {
-      nodeLink.unregister({ service: instance.service, nodeId: this.nodeId });
-    }
   }
 
   private detach(link: NodeLink) {

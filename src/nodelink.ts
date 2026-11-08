@@ -75,13 +75,13 @@ export class NodeLink implements Observable {
         return;
 
       case "up":
-        if (this.peer !== undefined && message.from === this.peer) {
+        if (this.peer !== undefined) {
           this.registry.add(message.service, message.from, message.meta);
         }
         return;
 
       case "down":
-        if (this.peer !== undefined && message.from === this.peer) {
+        if (this.peer !== undefined) {
           this.registry.remove(message.service, message.from);
         }
         return;
@@ -102,6 +102,8 @@ export class NodeLink implements Observable {
               message.method,
               message.args,
               message.timeout,
+              message.ttl,
+              this,
             ),
           )
           .then(
@@ -252,13 +254,14 @@ export class NodeLink implements Observable {
     method: string,
     args: unknown[],
     timeout: number,
+    ttl?: number,
   ) {
     if (this.closed) {
       return Promise.reject(new SwarmError("failed", "link is closed", true));
     }
 
     return this.pending.call(
-      (id) => this.link.call(id, to, service, method, args, timeout),
+      (id) => this.link.call(id, to, service, method, args, timeout, ttl),
       timeout,
       () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
@@ -361,11 +364,7 @@ export class NodeLink implements Observable {
 
   private announce() {
     for (const instance of this.provider.registrations()) {
-      this.link.register({
-        service: instance.service,
-        nodeId: this.link.nodeId,
-        meta: instance.meta,
-      });
+      this.link.register(instance);
     }
   }
 
