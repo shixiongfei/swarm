@@ -26,13 +26,16 @@ type NodeLinkEvents = {
   close: () => void;
 };
 
-const heartbeatInterval = 15000;
-const heartbeatTimeout = 45000;
-const handshakeTimeout = 15000;
+const defaultHeartbeatInterval = 15000;
+const defaultHeartbeatTimeout = 45000;
+const defaultHandshakeTimeout = 15000;
 
 type NodeLinkConfig = {
   provider: Provider;
   secret?: string;
+  heartbeatInterval?: number;
+  heartbeatTimeout?: number;
+  handshakeTimeout?: number;
 };
 
 export class NodeLink implements Observable {
@@ -46,6 +49,9 @@ export class NodeLink implements Observable {
   private readonly pending = new PendingCalls();
   private readonly provider: Provider;
   private readonly link: Link;
+  private readonly heartbeatInterval: number;
+  private readonly heartbeatTimeout: number;
+  private readonly handshakeTimeout: number;
   private readonly disposes: Array<() => void>;
   private peer?: string;
   private closed = false;
@@ -206,6 +212,18 @@ export class NodeLink implements Observable {
     this.link = link;
     this.provider = config.provider;
     this.secret = config.secret;
+    this.heartbeatInterval =
+      config.heartbeatInterval !== undefined
+        ? config.heartbeatInterval
+        : defaultHeartbeatInterval;
+    this.heartbeatTimeout =
+      config.heartbeatTimeout !== undefined
+        ? config.heartbeatTimeout
+        : defaultHeartbeatTimeout;
+    this.handshakeTimeout =
+      config.handshakeTimeout !== undefined
+        ? config.handshakeTimeout
+        : defaultHandshakeTimeout;
 
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
@@ -221,7 +239,7 @@ export class NodeLink implements Observable {
         this.dispose("link handshake is timed out");
         this.link.close();
       }
-    }, handshakeTimeout);
+    }, this.handshakeTimeout);
   }
 
   get peerId() {
@@ -349,7 +367,7 @@ export class NodeLink implements Observable {
     this.lastSeen = Date.now();
 
     if (this.heartbeat === undefined) {
-      this.heartbeat = setInterval(() => this.beat(), heartbeatInterval);
+      this.heartbeat = setInterval(() => this.beat(), this.heartbeatInterval);
     }
 
     this.announce();
@@ -357,14 +375,14 @@ export class NodeLink implements Observable {
   }
 
   private beat() {
-    if (this.lastSeen + heartbeatTimeout < Date.now()) {
+    if (this.lastSeen + this.heartbeatTimeout < Date.now()) {
       this.dispose("link is timed out");
       this.link.close();
       return;
     }
 
     if (this.pingAt !== undefined) {
-      if (Date.now() - this.pingAt < heartbeatInterval) {
+      if (Date.now() - this.pingAt < this.heartbeatInterval) {
         return;
       }
 

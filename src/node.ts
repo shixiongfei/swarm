@@ -48,6 +48,10 @@ export type NodeConfig = {
   callTimeout?: number;
   memberTtl?: number;
   dialTtl?: number;
+  maxHops?: number;
+  heartbeatInterval?: number;
+  heartbeatTimeout?: number;
+  handshakeTimeout?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
 };
@@ -84,7 +88,7 @@ export type NodeSnapshot = {
 };
 
 const nodes = new Map<string, Node>();
-const maxHops = 8;
+const defaultMaxHops = 8;
 const maxSeenPubs = 1024;
 
 export class Node implements Provider {
@@ -109,6 +113,7 @@ export class Node implements Provider {
   private readonly callTimeout: number;
   private readonly memberTtl: number;
   private readonly dialTtl: number;
+  private readonly maxHops: number;
   private readonly multicastConfig: MulticastOptions | undefined;
   private multicast: Multicast | undefined;
   private closed = false;
@@ -126,6 +131,8 @@ export class Node implements Provider {
     this.memberTtl = config.memberTtl !== undefined ? config.memberTtl : 60000;
     this.dialTtl =
       config.dialTtl !== undefined ? config.dialTtl : 24 * 60 * 60 * 1000;
+    this.maxHops =
+      config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
 
     this.seeds = config.seeds !== undefined ? config.seeds : [];
     this.multicastConfig = config.multicast;
@@ -133,6 +140,9 @@ export class Node implements Provider {
     this.nodeHub = new NodeHub({
       secret: this.secret,
       provider: this,
+      heartbeatInterval: config.heartbeatInterval,
+      heartbeatTimeout: config.heartbeatTimeout,
+      handshakeTimeout: config.handshakeTimeout,
     });
 
     this.nodeHub.events.on("open", (nodeLink) =>
@@ -323,7 +333,7 @@ export class Node implements Provider {
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
     try {
-      return this.invoke(service, method, args, timeout, maxHops);
+      return this.invoke(service, method, args, timeout, this.maxHops);
     } catch (err) {
       return Promise.reject(err);
     }
@@ -347,7 +357,7 @@ export class Node implements Provider {
         method,
         args,
         timeout,
-        maxHops,
+        this.maxHops,
         undefined,
         nodeId,
       );
@@ -379,7 +389,7 @@ export class Node implements Provider {
       }
     }
 
-    const remaining = ttl === undefined ? maxHops : ttl;
+    const remaining = ttl === undefined ? this.maxHops : ttl;
 
     if (remaining <= 0) {
       throw new SwarmError("not-found", `service not found: ${service}`);
@@ -452,7 +462,7 @@ export class Node implements Provider {
 
     const source = origin !== undefined ? origin : this.nodeId;
     const pubId = id !== undefined ? id : randomId();
-    const remaining = ttl !== undefined ? ttl : maxHops;
+    const remaining = ttl !== undefined ? ttl : this.maxHops;
 
     if (this.seenPubs.has(pubId)) {
       return;
@@ -578,7 +588,7 @@ export class Node implements Provider {
                   method,
                   args,
                   timeout,
-                  maxHops,
+                  this.maxHops,
                   undefined,
                   instance.nodeId,
                 ),

@@ -759,4 +759,28 @@ describe("NodeLink", () => {
 
     assert.equal(pings.length, 2);
   });
+
+  test("honors a custom heartbeat timeout", (t) => {
+    mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"] });
+    t.after(() => mock.timers.reset());
+
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, {
+      provider: local,
+      heartbeatInterval: 1000,
+      heartbeatTimeout: 2000,
+    });
+
+    t.after(() => {
+      link.close();
+      local.close();
+    });
+
+    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+
+    mock.timers.tick(3000);
+
+    assert.equal(stub.closed, true);
+  });
 });

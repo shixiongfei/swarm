@@ -1503,6 +1503,42 @@ test("ws and wss default to ports 80 and 443", async (t) => {
   );
 });
 
+test("honors a configured hop limit", async (t) => {
+  const a = new Node({ cluster: "hops", maxHops: 1 });
+  const b = new Node({ cluster: "hops" });
+  const c = new Node({ cluster: "hops" });
+  const ab = new MessageChannel();
+  const bc = new MessageChannel();
+
+  t.after(() => {
+    a.close();
+    b.close();
+    c.close();
+    ab.port1.close();
+    ab.port2.close();
+    bc.port1.close();
+    bc.port2.close();
+  });
+
+  c.register("math", { add: () => 1 });
+
+  const known = new Promise<void>((resolve) =>
+    a.watch("math", () => resolve()),
+  );
+
+  a.attach(ab.port1);
+  b.attach(ab.port2);
+  b.attach(bc.port1);
+  c.attach(bc.port2);
+
+  await known;
+
+  await assert.rejects(
+    a.call("math", "add"),
+    (err: SwarmError) => err.kind === "not-found",
+  );
+});
+
 test("calls and collects a node behind an intermediate node", async (t) => {
   const a = new Node({ cluster: "chain" });
   const b = new Node({ cluster: "chain" });
