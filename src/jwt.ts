@@ -77,7 +77,7 @@ export function verify(secret: string, token: string) {
 }
 
 const alphabet =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 function encodeBase64Url(bytes: Uint8Array) {
   let value = "";
@@ -89,24 +89,28 @@ function encodeBase64Url(bytes: Uint8Array) {
 
     value += alphabet[a >> 2];
     value += alphabet[((a & 3) << 4) | (b >> 4)];
-    value += i + 1 < bytes.length ? alphabet[((b & 15) << 2) | (c >> 6)] : "=";
-    value += i + 2 < bytes.length ? alphabet[c & 63] : "=";
+
+    if (i + 1 < bytes.length) {
+      value += alphabet[((b & 15) << 2) | (c >> 6)];
+    }
+
+    if (i + 2 < bytes.length) {
+      value += alphabet[c & 63];
+    }
   }
 
-  return value.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return value;
 }
 
 function decodeBase64Url(value: string) {
-  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-
-  if (base64.length === 0 || base64.length % 4 === 1) {
+  if (value.length === 0 || value.length % 4 === 1) {
     return undefined;
   }
 
   const bytes: number[] = [];
 
-  for (let i = 0; i < base64.length; i += 4) {
-    const chunk = base64.slice(i, i + 4).padEnd(4, "=");
+  for (let i = 0; i < value.length; i += 4) {
+    const chunk = value.slice(i, i + 4).padEnd(4, "=");
     const indexes = [...chunk].map((char) =>
       char === "=" ? 0 : alphabet.indexOf(char),
     );
