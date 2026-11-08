@@ -22,11 +22,13 @@ import type { Instance, Observable, WatchHandler } from "./registry.ts";
 type NodeLinkEvents = {
   open: (peerId: string) => void;
   peers: (members: PeerEntry[]) => void;
+  bye: () => void;
   close: () => void;
 };
 
 const heartbeatInterval = 15000;
 const heartbeatTimeout = 45000;
+const handshakeTimeout = 15000;
 
 type NodeLinkConfig = {
   provider: Provider;
@@ -49,6 +51,7 @@ export class NodeLink implements Observable {
   private closed = false;
   private lastSeen = Date.now();
   private heartbeat?: ReturnType<typeof setInterval>;
+  private handshake?: ReturnType<typeof setTimeout>;
   private pingAt?: number;
   private rtt?: number;
 
@@ -186,6 +189,13 @@ export class NodeLink implements Observable {
           this.events.emit("peers", message.members);
         }
         return;
+
+      case "bye":
+        if (this.peer !== undefined && message.from === this.peer) {
+          this.events.emit("bye");
+          this.close();
+        }
+        return;
     }
   };
 
@@ -200,6 +210,15 @@ export class NodeLink implements Observable {
         this.dispose("link is closed");
       }),
     ];
+
+    this.handshake = setTimeout(() => {
+      this.handshake = undefined;
+
+      if (this.peer === undefined) {
+        this.dispose("link handshake is timed out");
+        this.link.close();
+      }
+    }, handshakeTimeout);
   }
 
   get peerId() {
@@ -289,6 +308,14 @@ export class NodeLink implements Observable {
     this.link.send({ t: "peers", from: this.link.nodeId, members });
   }
 
+  bye() {
+    if (this.closed) {
+      return;
+    }
+
+    this.link.send({ t: "bye", from: this.link.nodeId });
+  }
+
   close() {
     this.dispose("node is closed");
     this.link.close();
@@ -301,6 +328,11 @@ export class NodeLink implements Observable {
 
     if (reply) {
       this.link.accept(token);
+    }
+
+    if (this.handshake !== undefined) {
+      clearTimeout(this.handshake);
+      this.handshake = undefined;
     }
 
     this.lastSeen = Date.now();
@@ -321,7 +353,11 @@ export class NodeLink implements Observable {
     }
 
     if (this.pingAt !== undefined) {
-      return;
+      if (Date.now() - this.pingAt < heartbeatInterval) {
+        return;
+      }
+
+      this.pingAt = undefined;
     }
 
     this.pingAt = Date.now();
@@ -396,12 +432,17 @@ export class NodeLink implements Observable {
 
     this.closed = true;
 
+    if (this.handshake !== undefined) {
+      clearTimeout(this.handshake);
+      this.handshake = undefined;
+    }
+
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;
     }
 
-    this.pending.clear(() => new SwarmError("failed", message, true));
+    this.pending.clear(() => new SwarmError("failed", message));
 
     for (const dispose of this.disposes) {
       dispose();

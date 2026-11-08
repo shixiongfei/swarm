@@ -15,6 +15,7 @@ import { WebSocket as WsWebSocket, WebSocketServer } from "ws";
 import { LinkWs } from "./linkws.ts";
 import type { AddressInfo } from "node:net";
 import type { Envelope } from "./envelope.ts";
+import type { SwarmError } from "./errors.ts";
 
 const host = "127.0.0.1";
 
@@ -122,6 +123,37 @@ test("emits close once when the peer closes", async (t) => {
   await new Promise<void>((resolve) => setTimeout(resolve, 20));
 
   assert.equal(closes, 1);
+});
+
+test("rejects a send when the socket is congested", () => {
+  const sent: Uint8Array[] = [];
+  const socket = {
+    bufferedAmount: 17 * 1024 * 1024,
+    binaryType: "arraybuffer",
+    send(payload: Uint8Array) {
+      sent.push(payload);
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    close() {},
+  } as unknown as WebSocket;
+
+  const link = new LinkWs(socket, "client-node");
+
+  assert.throws(
+    () =>
+      link.send({
+        t: "pub",
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 1,
+      }),
+    (err: SwarmError) =>
+      err.kind === "failed" && err.message === "link is congested",
+  );
+
+  assert.equal(sent.length, 0);
 });
 
 test("ignores a send after close", async (t) => {

@@ -43,16 +43,20 @@ describe("Registry", () => {
     );
   });
 
-  test("add ignores a duplicate service and nodeId", () => {
+  test("add updates the meta of a duplicate service", () => {
     const registry = new Registry();
     const events: WatchEvent[] = [];
     registry.watch("math", (event) => events.push(event));
 
     const instance = registry.add("math", "node-a");
+    const updated = registry.add("math", "node-a", { build: 2 });
 
-    assert.equal(registry.add("math", "node-a", { build: 2 }), instance);
-    assert.deepEqual(registry.lookup("math"), [instance]);
-    assert.deepEqual(events, [{ type: "up", instance }]);
+    assert.deepEqual(registry.lookup("math"), [updated]);
+    assert.deepEqual(events, [
+      { type: "up", instance },
+      { type: "up", instance: updated },
+    ]);
+    assert.equal(registry.add("math", "node-a", { build: 2 }), updated);
   });
 
   test("watch delivers the snapshot before increments", () => {

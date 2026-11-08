@@ -47,6 +47,39 @@ class StubLink extends Link {
 }
 
 describe("NodeLink", () => {
+  test("emits bye and closes when the peer leaves", async (t) => {
+    const local = new NodeLocal("local-node");
+    const { port1, port2 } = new MessageChannel();
+    const events: string[] = [];
+    const link = new NodeLink(new LinkPort(port1, "local-node"), {
+      provider: local,
+    });
+
+    link.events.on("bye", () => events.push("bye"));
+    link.events.on("close", () => events.push("close"));
+
+    t.after(() => {
+      local.close();
+      port2.close();
+    });
+
+    link.hello();
+    port2.start();
+    port2.postMessage({ t: "hello", from: "peer-node" });
+
+    while (link.peerId === undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    port2.postMessage({ t: "bye", from: "peer-node" });
+
+    while (events.length < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    assert.deepEqual(events, ["bye", "close"]);
+  });
+
   test("notifies its owner once when the link closes", (t) => {
     const local = new NodeLocal("local-node");
     const { port1, port2 } = new MessageChannel();
@@ -651,6 +684,25 @@ describe("NodeLink", () => {
     );
   });
 
+  test("closes a link that never completes the handshake", (t) => {
+    mock.timers.enable({ apis: ["setInterval", "setTimeout", "Date"] });
+
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, { provider: local });
+
+    t.after(() => {
+      link.close();
+      local.close();
+      mock.timers.reset();
+    });
+
+    mock.timers.tick(15000);
+
+    assert.equal(link.peerId, undefined);
+    assert.equal(stub.closed, true);
+  });
+
   test("beat tolerates a failing ping send", (t) => {
     mock.timers.enable({ apis: ["setInterval", "Date"] });
     t.after(() => mock.timers.reset());
@@ -677,5 +729,28 @@ describe("NodeLink", () => {
     const pings = stub.sent.filter((message) => message.t === "ping");
 
     assert.equal(pings.length, 1);
+  });
+
+  test("beat resends a ping when the previous pong is lost", (t) => {
+    mock.timers.enable({ apis: ["setInterval", "Date"] });
+    t.after(() => mock.timers.reset());
+
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, { provider: local });
+
+    t.after(() => {
+      link.close();
+      local.close();
+    });
+
+    stub.events.emit("envelope", { t: "hello", from: "peer-node" });
+
+    mock.timers.tick(15000);
+    mock.timers.tick(15000);
+
+    const pings = stub.sent.filter((message) => message.t === "ping");
+
+    assert.equal(pings.length, 2);
   });
 });

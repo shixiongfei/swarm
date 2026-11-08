@@ -73,10 +73,8 @@ test("reconnects after an unexpected disconnect", async () => {
   });
 
   const online: Socket[] = [];
-  const retry: Array<{ attempt: number; delay: number }> = [];
 
   client.events.on("online", (socket) => online.push(socket));
-  client.events.on("retry", (attempt, delay) => retry.push({ attempt, delay }));
 
   await client.connect();
   await waitFor(() => accepted.length === 1);
@@ -96,7 +94,6 @@ test("reconnects after an unexpected disconnect", async () => {
 
   assert.equal(online.length, 2);
   assert.equal(client.socket, socket);
-  assert.deepEqual(retry[0], { attempt: 1, delay: 10 });
 
   client.close();
   server.close();
@@ -111,11 +108,6 @@ test("close stops reconnect", async () => {
   await server.listen();
 
   const client = new TcpClient(host, server.port, { retryDelay: 10 });
-  let retries = 0;
-
-  client.events.on("retry", () => {
-    retries += 1;
-  });
 
   await client.connect();
   await waitFor(() => accepted.length === 1);
@@ -132,7 +124,6 @@ test("close stops reconnect", async () => {
 
   await new Promise<void>((resolve) => setTimeout(resolve, 30));
 
-  assert.equal(retries, 1);
   assert.equal(accepted.length, 1);
 
   server.close();

@@ -55,10 +55,23 @@ export class Registry implements Observable {
     const instances = this.table.get(service);
 
     if (instances !== undefined) {
-      const existing = instances.find((item) => item.nodeId === nodeId);
+      const index = instances.findIndex((item) => item.nodeId === nodeId);
 
-      if (existing !== undefined) {
-        return existing;
+      if (index >= 0) {
+        const existing = instances[index];
+
+        if (sameMeta(existing.meta, meta)) {
+          return existing;
+        }
+
+        const instance: Instance =
+          meta === undefined ? { service, nodeId } : { service, nodeId, meta };
+
+        instances[index] = instance;
+
+        this.events.emit(up, instance);
+        this.events.emit(service, { type: "up", instance });
+        return instance;
       }
     }
 
@@ -236,4 +249,37 @@ export function isMetaData(value: unknown): value is MetaData | undefined {
   const proto = Object.getPrototypeOf(value);
 
   return proto === Object.prototype || proto === null;
+}
+
+export function sameMeta(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null
+  ) {
+    return false;
+  }
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => sameMeta(item, b[index]))
+    );
+  }
+
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => sameMeta(left[key], right[key]))
+  );
 }

@@ -10,11 +10,13 @@
  */
 
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { WebSocketServer } from "ws";
 import { SwarmError } from "./errors.ts";
 import { maxEnvelopeSize } from "./codec.ts";
 import { Server } from "./server.ts";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
+import type { ServerOptions as HttpsServerOptions } from "node:https";
 import type { Duplex } from "node:stream";
 import type { WebSocket } from "ws";
 
@@ -22,6 +24,7 @@ export type WsServerOptions = {
   backlog?: number;
   path?: string;
   server?: HttpServer;
+  tls?: HttpsServerOptions;
 };
 
 export class WsServer extends Server<WebSocket> {
@@ -58,13 +61,19 @@ export class WsServer extends Server<WebSocket> {
     super();
 
     const attach = options !== undefined ? options.server : undefined;
+    const tls = options !== undefined ? options.tls : undefined;
 
     this.binding = { host, port };
     this.backlog = options !== undefined ? options.backlog : undefined;
     this.path =
       options !== undefined && options.path !== undefined ? options.path : "/";
     this.owned = attach === undefined;
-    this.http = attach !== undefined ? attach : createServer();
+    this.http =
+      attach !== undefined
+        ? attach
+        : tls !== undefined
+          ? createHttpsServer(tls)
+          : createServer();
 
     this.http.on("upgrade", this.onUpgrade);
   }

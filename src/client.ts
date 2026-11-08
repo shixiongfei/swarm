@@ -15,7 +15,6 @@ import { SwarmError } from "./errors.ts";
 export type ClientEvents<S = any> = {
   online: (socket: S) => void;
   offline: (socket: S) => void;
-  retry: (attempt: number, delay: number, error: Error | undefined) => void;
 };
 
 export type ClientOptions = {
@@ -39,8 +38,6 @@ export abstract class Client<S = any> {
 
   socket: S | undefined;
 
-  protected lastError: Error | undefined;
-
   private readonly reconnectEnabled: boolean;
   private readonly retryDelay: number;
   private readonly maxRetryDelay: number;
@@ -51,9 +48,12 @@ export abstract class Client<S = any> {
   private closed = false;
 
   constructor(options: ClientOptions = {}) {
-    this.reconnectEnabled = options.reconnect ?? true;
-    this.retryDelay = options.retryDelay ?? 1000;
-    this.maxRetryDelay = options.maxRetryDelay ?? 30000;
+    this.reconnectEnabled =
+      options.reconnect !== undefined ? options.reconnect : true;
+    this.retryDelay =
+      options.retryDelay !== undefined ? options.retryDelay : 1000;
+    this.maxRetryDelay =
+      options.maxRetryDelay !== undefined ? options.maxRetryDelay : 30000;
   }
 
   protected get isClosed() {
@@ -79,7 +79,6 @@ export abstract class Client<S = any> {
     try {
       await this.open();
     } catch (err) {
-      this.lastError = err instanceof Error ? err : undefined;
       this.scheduleReconnect();
       throw err;
     } finally {
@@ -104,7 +103,6 @@ export abstract class Client<S = any> {
 
   protected markOnline(socket: S) {
     this.socket = socket;
-    this.lastError = undefined;
     this.attempt = 0;
     this.events.emit("online", socket);
   }
@@ -133,9 +131,6 @@ export abstract class Client<S = any> {
       this.retryDelay * 2 ** (this.attempt - 1),
       this.maxRetryDelay,
     );
-
-    this.events.emit("retry", this.attempt, delay, this.lastError);
-    this.lastError = undefined;
 
     this.timer = setTimeout(() => {
       this.timer = undefined;

@@ -28,14 +28,13 @@ describe("Local", () => {
     assert.equal(local.has("math"), true);
   });
 
-  test("register rejects a duplicate service", () => {
+  test("register replaces a duplicate service", () => {
     const local = makeLocal();
-    local.register("math", { add: () => 0 });
 
-    assert.throws(
-      () => local.register("math", {}),
-      (err: SwarmError) => err.kind === "rejected",
-    );
+    local.register("math", { add: () => 0 });
+    local.register("math", { add: () => 1 });
+
+    assert.equal(local.invoke("math", "add", []), 1);
   });
 
   test("unregister removes only the named service", () => {

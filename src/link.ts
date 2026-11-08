@@ -19,7 +19,7 @@ export type LinkEvents = {
   close: () => void;
 };
 
-export type Transport = "port" | "socket";
+export type Transport = "port" | "socket" | "websocket";
 
 export abstract class Link implements Enveloper {
   readonly nodeId: string;

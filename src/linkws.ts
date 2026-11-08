@@ -15,6 +15,8 @@ import { isLoopback } from "./address.ts";
 import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Envelope } from "./envelope.ts";
 
+const maxQueueSize = maxEnvelopeSize * 2;
+
 function toBytes(data: unknown): Uint8Array | undefined {
   if (data instanceof ArrayBuffer) {
     return new Uint8Array(data);
@@ -45,7 +47,7 @@ function toBytes(data: unknown): Uint8Array | undefined {
 }
 
 export class LinkWs extends Link {
-  readonly transport = "socket";
+  readonly transport = "websocket";
   readonly local: boolean;
   private readonly socket: WebSocket;
   private closed = false;
@@ -100,6 +102,10 @@ export class LinkWs extends Link {
 
     if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError("failed", "envelope is too large");
+    }
+
+    if (this.socket.bufferedAmount > maxQueueSize) {
+      throw new SwarmError("failed", "link is congested", true);
     }
 
     this.socket.send(payload as Uint8Array<ArrayBuffer>);

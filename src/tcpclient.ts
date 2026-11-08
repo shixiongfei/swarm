@@ -33,7 +33,6 @@ export class TcpClient extends Client<Socket> {
       const socket = netConnect(this.binding);
 
       this.socket = socket;
-      this.lastError = undefined;
 
       const onError = (error: Error) => {
         this.clearSocket(socket);
@@ -62,10 +61,7 @@ export class TcpClient extends Client<Socket> {
         socket.off("error", onError);
         socket.off("close", onClose);
 
-        socket.on("error", (error) => {
-          this.lastError = error;
-          socket.destroy();
-        });
+        socket.on("error", () => socket.destroy());
 
         socket.once("close", () => this.markOffline(socket));
 

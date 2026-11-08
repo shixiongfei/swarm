@@ -21,6 +21,7 @@ import type { Observable, WatchHandler } from "./registry.ts";
 export type NodeHubEvents = {
   open: (nodeLink: NodeLink) => void;
   peers: (nodeLink: NodeLink, members: PeerEntry[]) => void;
+  bye: (nodeLink: NodeLink) => void;
 };
 
 export type NodeHubConfig = {
@@ -58,6 +59,7 @@ export class NodeHub implements Observable {
     nodeLink.events.on("peers", (members) =>
       this.events.emit("peers", nodeLink, members),
     );
+    nodeLink.events.on("bye", () => this.events.emit("bye", nodeLink));
     nodeLink.events.on("close", () => this.detach(nodeLink));
   }
 

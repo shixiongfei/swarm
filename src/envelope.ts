@@ -43,7 +43,8 @@ export type Envelope =
   | { t: "pub"; from: string; origin: string; topic: string; data: unknown }
   | { t: "peers"; from: string; members: PeerEntry[] }
   | { t: "ping"; from: string }
-  | { t: "pong"; from: string };
+  | { t: "pong"; from: string }
+  | { t: "bye"; from: string };
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
@@ -182,7 +183,7 @@ function isPeers(
 }
 
 function isPeer(
-  message: Extract<Envelope, { t: "ping" | "pong" }>,
+  message: Extract<Envelope, { t: "ping" | "pong" | "bye" }>,
 ): Envelope | undefined {
   return typeof message.from === "string" ? message : undefined;
 }
@@ -214,6 +215,7 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isPeers(message);
     case "ping":
     case "pong":
+    case "bye":
       return isPeer(message);
     default:
       return undefined;

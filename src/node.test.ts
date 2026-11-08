@@ -14,10 +14,61 @@ import { describe, test } from "node:test";
 import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
+import { WebSocket } from "ws";
 import { Node } from "./node.ts";
 import type { AddressInfo } from "node:net";
 import type { SwarmError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
+
+const tlsKey = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCbnk+vu+HrTf2i
+0sRCnjDXiRCarl558kOM7xS0phgWwdpaJ6VRZnwAtI9Z90zrhs26G//mRDDv9ogi
+ZZdSeRNEnMeM/3JY6ztvETIHLkGYBo8lnd/X7tknaZjNemyp4HAdixXX8s/3d8v9
+WovE2LhXcDY4kdzEchJpflllMRGbF5F9MNyT8OWpi9c+1+QUTuK/wCjgukhJPQwN
+ynbJn7GZLX+gOGw3eTgnZ421PZSjffPRTphGiGfpfq4l94/zEnhNwM7trfSU55tj
+nyo9A6xp+rcebWb9MoThALOAvV0zVSATBx50INkHsLu4rGqDinEjvLD3uJdRY4BY
+y/iIYq5hAgMBAAECggEAD8zm/gqqDshYQIrSNt9f9H/BX1XlWCVjJXFK8r1LLy2s
+nBXFa8/njEdzp1NRjI0fNfkiJkD15Q9s1W084Y393la6zilLn2qhmg6EEVrpebma
+GYbU6P732SVtcy4tz/Zupm6Y9QL9iadbX2nXoiYiWsJqcZuhxOe+Jdbt1bVB5TNl
+S5aXWhJoXBgQ0EapQ+Ex7O+OzKOan7cEk8xZ+Bsuhx1KSeOgZnDfKaNeVuElsyg1
+NVdQuC83b+NMUPYt9LBUTPDfe3zjWZh92X3aPgiGzrk0PRH1Ymjf5wl31buu3Nbz
+1wTXHq+UMTHDqAJ+wuBHJS6S+aKUnDe10lo4X3w4TwKBgQDUhFk+U8OQLizWI/39
+pvhG1jBuDG1L+/hhAMEDASMV5G1jm0MN5eWfwSMA812mosHOUfuTen/31h1tC6vM
+KOG5nFD5wDfonFKv+6FliSfFNidnb1ev9vtyNDl4kRztgX3eA4nUlEsEHuLIJGQI
+76oHhPaD0ox4nDuQ2NAUKjtyVwKBgQC7dZycUiCOsJ6R+/WCOZAReMSojcqbL5aD
+Rx6ozKRw41P0hvjOlYvdZhzY8sEL3WHyg3Plst5EhW8vqjN998to4ilazzqGFq+T
+kY16ezylvsyWJd3KgK5jgHnksWkALQkmRZs6NXKG5y1x79Pov38AFHIOsWAf9ZdF
+u5nwkyUiBwKBgQC+BBBfoDnN4tuIJOpnMDHx9HWdEFNxizwMT8ZET3H1kycT1rFf
+7d0guGn54aAs7H3pYnhU50UgbjwlUjgr9anOciwdA3d57rwoSg+HX9lFhiQ5Yd6/
+oVA2TufMG8QHwK6wIe3NO0LPzmXrmk4vh0s6KfLY7xtWhCrmWlXCkfhRRQKBgCvF
+p78csjt/ZFeENOymkkxyHcGZ8lBQSV34EmGp/0/Y1TbI+XoLk3AsMto5vPgPRprB
+NSPSo3HukmrX3FQys02XWb65mtnKnE7h8t5BvoSZS95XkzWA3LehPVU4U+NVoMhO
+ApQR/N8hRgxPyvSTGo2jOIrTwjVUPHFs/+IcCdSrAoGAMHq83pTop2kJfo7oyyTR
+79YmZcNmIp417EDpHZKY34imr32Npx3WkQsopv+wnfv17BmfuQobISD7CSamIKu+
+EZG9dtehFadtGWzeFHGAMs5sbBynPmCvJeuYelK/hOwXVBywgZc2wcdVishkPlbL
+efxovqRrI7cysMEuqDP5l2g=
+-----END PRIVATE KEY-----
+`;
+
+const tlsCert = `-----BEGIN CERTIFICATE-----
+MIIC+TCCAeGgAwIBAgIUOxlZh+y8DiAL9Oe1TxkGM9J2adMwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJMTI3LjAuMC4xMB4XDTI2MTEwODEzNTg1NloXDTM2MTEw
+NTEzNTg1NlowFDESMBAGA1UEAwwJMTI3LjAuMC4xMIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEAm55Pr7vh6039otLEQp4w14kQmq5eefJDjO8UtKYYFsHa
+WielUWZ8ALSPWfdM64bNuhv/5kQw7/aIImWXUnkTRJzHjP9yWOs7bxEyBy5BmAaP
+JZ3f1+7ZJ2mYzXpsqeBwHYsV1/LP93fL/VqLxNi4V3A2OJHcxHISaX5ZZTERmxeR
+fTDck/DlqYvXPtfkFE7iv8Ao4LpIST0MDcp2yZ+xmS1/oDhsN3k4J2eNtT2Uo33z
+0U6YRohn6X6uJfeP8xJ4TcDO7a30lOebY58qPQOsafq3Hm1m/TKE4QCzgL1dM1Ug
+EwcedCDZB7C7uKxqg4pxI7yw97iXUWOAWMv4iGKuYQIDAQABo0MwQTAdBgNVHQ4E
+FgQU/upo5ULGXNigxu7UqnwNZUqLPXowDwYDVR0TAQH/BAUwAwEB/zAPBgNVHREE
+CDAGhwR/AAABMA0GCSqGSIb3DQEBCwUAA4IBAQB/CqD0dHE2hPsrEsAVc4TZgyPH
+nA1EpRIh9I9lXKn4H/2LDh9x/ZOiPEXli5XcnMY4UcK9wrE5F7mW+KQJdCiSzBoN
+TQUCjhU2Lx2EYbupBchBLkmVn8DzxFZvjB5iDb2ejP0xb+MjGU2ealZKB+goZftU
+GxHNG5GzXjOMVmM43v8ekyDruwyr4hKlqhMzC2/RqQYtkVWfYzpysvQN9mc5zZjK
+kReN6WwvUPN4NJ2QndOu8RP/XXzGLEEoyBcbS5QvNHMTcY0VySLBvXSwvn4mGsdK
+mJTnKt8LKtGnmhK7vIGP5kth9i5duTSYnhdEA/AG9D0D3+NnsVH58Pj09mTg
+-----END CERTIFICATE-----
+`;
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
@@ -59,6 +110,20 @@ async function within<T>(promise: Promise<T>, ms: number) {
   }
 
   return value;
+}
+
+async function waitFor(check: () => boolean, timeout = 2000) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    if (check()) {
+      return true;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+
+  return false;
 }
 
 async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
@@ -203,6 +268,48 @@ describe("Node", () => {
     });
 
     assert.deepEqual(stored, { build: 1 });
+  });
+
+  test("re-registering updates the service metadata", async (t) => {
+    const a = new Node({ cluster: "meta-a" });
+    const b = new Node({ cluster: "meta-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const first = new Promise<unknown>((resolve) =>
+      b.watch("math", (event) => {
+        if (event.instance.nodeId === a.nodeId) {
+          resolve(event.instance.meta);
+        }
+      }),
+    );
+
+    a.attach(port1);
+    b.attach(port2);
+
+    a.register("math", { add: () => 1 }, { build: 1 });
+
+    assert.deepEqual(await within(first, 2000), { build: 1 });
+
+    const second = new Promise<unknown>((resolve) =>
+      b.watch("math", (event) => {
+        const meta = event.instance.meta as { build?: number } | undefined;
+
+        if (event.instance.nodeId === a.nodeId && meta?.build === 2) {
+          resolve(meta);
+        }
+      }),
+    );
+
+    a.register("math", { add: () => 2 }, { build: 2 });
+
+    assert.deepEqual(await within(second, 2000), { build: 2 });
   });
 
   test("call rejects a service no link serves", async () => {
@@ -507,12 +614,13 @@ describe("Node", () => {
     assert.equal(cCalls, 2);
   });
 
-  test("retries the next link when a call fails in transport", async (t) => {
+  test("does not retry a sent call when the serving link closes", async (t) => {
     const a = new Node({ cluster: "retry-a" });
     const b = new Node({ cluster: "retry-b" });
     const c = new Node({ cluster: "retry-c" });
     const first = new MessageChannel();
     const second = new MessageChannel();
+    let cCalls = 0;
 
     t.after(() => {
       a.close();
@@ -525,7 +633,12 @@ describe("Node", () => {
     });
 
     b.register("math", { add: () => new Promise(() => {}) });
-    c.register("math", { add: () => 2 });
+    c.register("math", {
+      add: () => {
+        cCalls += 1;
+        return 2;
+      },
+    });
 
     const ready = new Promise<void>((resolve) => {
       let count = 0;
@@ -550,7 +663,12 @@ describe("Node", () => {
 
     b.close();
 
-    assert.equal(await result, 2);
+    await assert.rejects(
+      result,
+      (err: SwarmError) => err.kind === "failed" && err.retriable === false,
+    );
+
+    assert.equal(cCalls, 0);
   });
 
   test("does not retry on a service error", async (t) => {
@@ -1120,18 +1238,6 @@ test(
   },
 );
 
-test("listen rejects a wss url", async (t) => {
-  const node = new Node({ cluster: "wss-listen" });
-
-  t.after(() => node.close());
-
-  await assert.rejects(
-    () => node.listen("wss://127.0.0.1:0"),
-    (err: SwarmError) =>
-      err.kind === "rejected" && err.message === "wss listen is not supported",
-  );
-});
-
 test("tcp listen rejects paths and attached http servers", async (t) => {
   const node = new Node({ cluster: "tcp-reject" });
   const http = createHttpServer();
@@ -1151,6 +1257,171 @@ test("tcp listen rejects paths and attached http servers", async (t) => {
       err.kind === "rejected" &&
       err.message === "tcp listen does not support http",
   );
+});
+
+test("listen failure detaches from an attached http server", async (t) => {
+  const node = new Node({ cluster: "attach-failure" });
+  const http = createHttpServer();
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    () => node.listen("ws://127.0.0.1:0", { ws: { server: http } }),
+    (err: SwarmError) =>
+      err.kind === "rejected" && err.message === "http server is not listening",
+  );
+
+  assert.equal(http.listenerCount("upgrade"), 0);
+});
+
+test("repeated advertise keeps a single self member", async (t) => {
+  const node = new Node({ cluster: "advertise-dedupe" });
+
+  t.after(() => node.close());
+
+  const first = await node.listen("tcp://127.0.0.1:0", {
+    advertise: "tcp://127.0.0.1:0",
+  });
+  const second = await node.listen("tcp://127.0.0.1:0", {
+    advertise: "tcp://127.0.0.1:0",
+  });
+
+  const self = node
+    .snapshot()
+    .members.filter((member) => member.id === node.nodeId);
+
+  assert.equal(self.length, 1);
+  assert.equal(self[0].addr, `tcp://127.0.0.1:${second.port}`);
+  assert.notEqual(first.port, second.port);
+});
+
+test("snapshot reports connected links", async (t) => {
+  const hub = new Node({ cluster: "snapshot-hub" });
+  const peer = new Node({ cluster: "snapshot-peer" });
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  const ready = new Promise<void>((resolve) =>
+    hub.watch("math", () => resolve()),
+  );
+
+  peer.register("math", { add: () => 1 });
+
+  const address = await hub.listen("tcp://127.0.0.1:0");
+
+  await peer.connect(`tcp://127.0.0.1:${address.port}`);
+  await ready;
+
+  const links = hub.snapshot().links;
+
+  assert.equal(links.length, 1);
+  assert.equal(links[0].peerId, peer.nodeId);
+  assert.equal(links[0].transport, "socket");
+  assert.equal(links[0].local, true);
+});
+
+test("snapshot distinguishes websocket links", async (t) => {
+  const hub = new Node({ cluster: "snapshot-ws-hub" });
+  const peer = new Node({ cluster: "snapshot-ws-peer" });
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  const ready = new Promise<void>((resolve) =>
+    hub.watch("math", () => resolve()),
+  );
+
+  peer.register("math", { add: () => 1 });
+
+  const address = await hub.listen("ws://127.0.0.1:0");
+
+  await peer.connect(`ws://127.0.0.1:${address.port}`);
+  await ready;
+
+  const links = hub.snapshot().links;
+
+  assert.equal(links.length, 1);
+  assert.equal(links[0].peerId, peer.nodeId);
+  assert.equal(links[0].transport, "websocket");
+  assert.equal(links[0].local, true);
+});
+
+test("rejects wss listen without tls options", async () => {
+  const node = new Node({ cluster: "wss-no-tls" });
+
+  await assert.rejects(
+    node.listen("wss://127.0.0.1:0"),
+    (err: SwarmError) =>
+      err.kind === "rejected" &&
+      err.message === "wss listen requires tls options",
+  );
+
+  node.close();
+});
+
+test("listens on wss with tls options", async (t) => {
+  const node = new Node({ cluster: "wss-tls" });
+
+  t.after(() => node.close());
+
+  const { port } = await node.listen("wss://127.0.0.1:0", {
+    advertise: "wss://127.0.0.1:0",
+    tls: { key: tlsKey, cert: tlsCert },
+  });
+
+  const socket = new WebSocket(`wss://127.0.0.1:${port}`, {
+    rejectUnauthorized: false,
+  });
+
+  t.after(() => socket.close());
+
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  });
+
+  assert.equal(await waitFor(() => node.snapshot().links.length === 1), true);
+  assert.equal(node.snapshot().members[0].addr.startsWith("wss://"), true);
+});
+
+test("drops a member when the peer leaves", async (t) => {
+  const host = new Node({ cluster: "bye-host" });
+  const peer = new Node({ cluster: "bye-peer" });
+
+  t.after(() => {
+    host.close();
+    peer.close();
+  });
+
+  const address = await host.listen("ws://127.0.0.1:0", {
+    advertise: "ws://127.0.0.1:0",
+  });
+
+  await peer.connect(`ws://127.0.0.1:${address.port}`);
+
+  assert.equal(
+    await waitFor(() =>
+      peer.snapshot().members.some((member) => member.id === host.nodeId),
+    ),
+    true,
+  );
+
+  host.close();
+
+  assert.equal(
+    await waitFor(
+      () =>
+        !peer.snapshot().members.some((member) => member.id === host.nodeId),
+    ),
+    true,
+  );
+
+  assert.deepEqual(peer.snapshot().members, []);
 });
 
 test("ws and wss default to ports 80 and 443", async (t) => {
@@ -1801,6 +2072,8 @@ test("expires members whose advertisements stopped", async (t) => {
   internals.seen.set(remote.id, Date.now() - 2000);
   internals.learn([], { local: true });
 
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
   assert.equal(internals.members.length, 0);
   assert.equal(internals.seen.has(remote.id), false);
   assert.equal(internals.dials.has(remote.addr), true);
@@ -1830,15 +2103,88 @@ test("drops a dial after the eviction window", async (t) => {
   internals.seen.set(remote.id, Date.now() - 2000);
   internals.learn([], { local: true });
 
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
   assert.equal(internals.dials.has(remote.addr), true);
   assert.equal(internals.expiries.has(remote.addr), true);
 
   internals.expiries.set(remote.addr, Date.now() - 1);
   internals.learn([], { local: true });
 
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
   assert.equal(internals.dials.has(remote.addr), false);
   assert.equal(internals.clients.length, 0);
   assert.equal(internals.expiries.has(remote.addr), false);
+});
+
+test("updates a member address and its dial", async (t) => {
+  const firstPort = await freePort();
+  let secondPort = await freePort();
+
+  while (secondPort === firstPort) {
+    secondPort = await freePort();
+  }
+
+  const node = new Node({ cluster: "members-relocate", memberTtl: 1000 });
+  const internals = node as unknown as NodeInternals;
+  const remoteId = "ffffffffffffffffffffffffffffffff";
+
+  t.after(() => node.close());
+
+  internals.members.push({ id: node.nodeId, addr: "tcp://127.0.0.1:9" });
+
+  const first = {
+    id: remoteId,
+    addr: `tcp://127.0.0.1:${firstPort}`,
+  };
+  const second = {
+    id: remoteId,
+    addr: `tcp://127.0.0.1:${secondPort}`,
+  };
+  const firstAddr = first.addr;
+
+  internals.learn([first], { local: true });
+
+  assert.equal(internals.dials.has(firstAddr), true);
+
+  internals.learn([second], { local: true });
+
+  const members = node
+    .snapshot()
+    .members.filter((member) => member.id === remoteId);
+
+  assert.equal(members.length, 1);
+  assert.equal(members[0].addr, second.addr);
+  assert.equal(internals.dials.has(firstAddr), false);
+  assert.equal(internals.dials.has(second.addr), true);
+});
+
+test("expires members without further traffic", async (t) => {
+  const port = await freePort();
+  const node = new Node({ cluster: "members-timer", memberTtl: 50 });
+  const internals = node as unknown as NodeInternals;
+  const remote = {
+    id: "00000000000000000000000000000000",
+    addr: `tcp://127.0.0.1:${port}`,
+  };
+
+  t.after(() => node.close());
+
+  internals.members.push({ id: node.nodeId, addr: "tcp://127.0.0.1:9" });
+  internals.learn([remote], { local: true });
+
+  assert.equal(internals.dials.size, 0);
+  assert.equal(internals.members.length, 2);
+
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  assert.equal(internals.members.length, 1);
+  assert.equal(
+    internals.members.some((member) => member.id === remote.id),
+    false,
+  );
+  assert.equal(internals.seen.has(remote.id), false);
 });
 
 test("restores a member when the dial link reconnects", async (t) => {

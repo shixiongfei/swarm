@@ -60,6 +60,7 @@ describe("parseEnvelope", () => {
         from: "node-a",
         members: [{ id: "node-b", addr: "tcp://127.0.0.1:9000" }],
       },
+      { t: "bye", from: "node-a" },
     ];
 
     for (const envelope of envelopes) {
@@ -151,6 +152,8 @@ describe("parseEnvelope", () => {
         from: "node-a",
         members: [{ id: 1, addr: "tcp://127.0.0.1:9000" }],
       },
+      { t: "bye" },
+      { t: "bye", from: 1 },
     ];
 
     for (const value of values) {

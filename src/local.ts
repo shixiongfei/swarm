@@ -41,14 +41,6 @@ export class Local {
 
   register(service: string, methods: Methods) {
     this.checkOpen();
-
-    if (this.services.has(service)) {
-      throw new SwarmError(
-        "rejected",
-        `service already registered: ${service}`,
-      );
-    }
-
     this.services.set(service, methods);
   }
 

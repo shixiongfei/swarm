@@ -23,13 +23,14 @@ import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
 import type { Client, ClientOptions } from "./client.ts";
 import type { Server } from "./server.ts";
-import type { Link } from "./link.ts";
+import type { Link, Transport } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Multicast, MulticastOptions } from "./multicast.ts";
 import type { MetaData, WatchEvent, WatchHandler } from "./registry.ts";
 import type { Server as HttpServer } from "node:http";
+import type { ServerOptions as HttpsServerOptions } from "node:https";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -60,6 +61,26 @@ export type ListenOptions = {
   backlog?: number;
   advertise?: string | URL;
   ws?: WsListenOptions;
+  tls?: HttpsServerOptions;
+};
+
+export type NodeMember = {
+  id: string;
+  addr: string;
+};
+
+export type NodeLinkInfo = {
+  peerId: string | undefined;
+  transport: Transport;
+  latency: number | undefined;
+  local: boolean;
+};
+
+export type NodeSnapshot = {
+  nodeId: string;
+  cluster: string;
+  members: NodeMember[];
+  links: NodeLinkInfo[];
 };
 
 const nodes = new Map<string, Node>();
@@ -89,6 +110,7 @@ export class Node implements Provider {
   private readonly multicastConfig: MulticastOptions | undefined;
   private multicast: Multicast | undefined;
   private closed = false;
+  private pruneTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
@@ -117,6 +139,7 @@ export class Node implements Provider {
     this.nodeHub.events.on("peers", (nodeLink, members) =>
       this.learn(members, nodeLink),
     );
+    this.nodeHub.events.on("bye", (nodeLink) => this.leave(nodeLink));
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
@@ -124,6 +147,23 @@ export class Node implements Provider {
 
   registrations() {
     return this.watcher.instances();
+  }
+
+  snapshot(): NodeSnapshot {
+    return {
+      nodeId: this.nodeId,
+      cluster: this.cluster,
+      members: this.members.map((member) => ({
+        id: member.id,
+        addr: member.addr,
+      })),
+      links: [...this.nodeLinks, ...this.nodeHub.links].map((nodeLink) => ({
+        peerId: nodeLink.peerId,
+        transport: nodeLink.transport,
+        latency: nodeLink.latency,
+        local: nodeLink.local,
+      })),
+    };
   }
 
   register(service: string, methods: Methods, meta?: MetaData) {
@@ -202,6 +242,8 @@ export class Node implements Provider {
         this.servers.splice(index, 1);
       }
 
+      server.close();
+
       throw err;
     }
 
@@ -217,11 +259,20 @@ export class Node implements Provider {
       const advertisedPath =
         advertised.path !== "/" ? advertised.path : listenPath;
       const suffix = advertisedPath === "/" ? "" : advertisedPath;
-
-      this.members.push({
+      const self = {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
-      });
+      };
+      const index = this.members.findIndex(
+        (member) => member.id === this.nodeId,
+      );
+
+      if (index >= 0) {
+        this.members[index] = self;
+      } else {
+        this.members.push(self);
+      }
+
       this.broadcastPeers();
     }
 
@@ -386,8 +437,17 @@ export class Node implements Provider {
 
     this.closed = true;
 
+    if (this.pruneTimer !== undefined) {
+      clearTimeout(this.pruneTimer);
+      this.pruneTimer = undefined;
+    }
+
     if (this.multicast !== undefined) {
       this.multicast.close();
+    }
+
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      nodeLink.bye();
     }
 
     for (const client of this.clients) {
@@ -395,6 +455,8 @@ export class Node implements Provider {
     }
 
     this.clients.length = 0;
+    this.dials.clear();
+    this.expiries.clear();
 
     for (const server of this.servers) {
       server.close();
@@ -505,12 +567,13 @@ export class Node implements Provider {
     const { protocol, secure, host, port, secret, path } = parseUrl(url);
     const ws = options !== undefined ? options.ws : undefined;
     const backlog = options !== undefined ? options.backlog : undefined;
+    const tls = options !== undefined ? options.tls : undefined;
     const server = ws !== undefined ? ws.server : undefined;
     const listenPath =
       ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
 
-    if (secure) {
-      throw new SwarmError("rejected", "wss listen is not supported");
+    if (secure && server === undefined && tls === undefined) {
+      throw new SwarmError("rejected", "wss listen requires tls options");
     }
 
     if (protocol === "tcp:") {
@@ -533,6 +596,7 @@ export class Node implements Provider {
       backlog,
       path: listenPath,
       server,
+      tls,
     });
 
     wsServer.events.on("online", (socket) => {
@@ -629,9 +693,24 @@ export class Node implements Provider {
       nodeLink.peers(this.shared(nodeLink));
     });
     nodeLink.events.on("peers", (members) => this.learn(members, nodeLink));
+    nodeLink.events.on("bye", () => this.leave(nodeLink));
     nodeLink.events.on("close", () => this.detach(nodeLink));
 
     nodeLink.hello();
+  }
+
+  private leave(nodeLink: NodeLink) {
+    const peer = nodeLink.peerId;
+
+    if (peer === undefined) {
+      return;
+    }
+
+    const member = this.members.find((member) => member.id === peer);
+
+    if (member !== undefined) {
+      this.forget(member.id, member.addr);
+    }
   }
 
   private detach(nodeLink: NodeLink) {
@@ -651,6 +730,8 @@ export class Node implements Provider {
     ) {
       this.seen.set(peer, Date.now());
     }
+
+    this.schedulePrune(Date.now(), this.linkedPeers());
   }
 
   private learn(entries: PeerEntry[], nodeLink?: NodeLink) {
@@ -677,13 +758,27 @@ export class Node implements Provider {
       }
 
       this.seen.set(entry.id, now);
+      this.expiries.delete(entry.addr);
 
-      if (this.members.some((member) => member.id === entry.id)) {
+      const existing = this.members.find((member) => member.id === entry.id);
+
+      if (existing !== undefined) {
+        if (existing.addr !== entry.addr) {
+          const oldAddr = existing.addr;
+
+          existing.addr = entry.addr;
+          changed = true;
+
+          if (this.dials.has(oldAddr)) {
+            this.dropDial(oldAddr);
+            void this.dial(entry.addr, entry.id);
+          }
+        }
+
         continue;
       }
 
       this.members.push(entry);
-      this.expiries.delete(entry.addr);
       changed = true;
 
       const linked =
@@ -695,9 +790,7 @@ export class Node implements Provider {
       }
     }
 
-    if (this.prune(now)) {
-      changed = true;
-    }
+    this.schedulePrune(now, this.linkedPeers());
 
     if (changed) {
       this.broadcastPeers();
@@ -705,19 +798,7 @@ export class Node implements Provider {
   }
 
   private prune(now: number) {
-    const linked = new Set<string>();
-
-    for (const nodeLink of this.nodeLinks) {
-      if (nodeLink.peerId !== undefined) {
-        linked.add(nodeLink.peerId);
-      }
-    }
-
-    for (const nodeLink of this.nodeHub.links) {
-      if (nodeLink.peerId !== undefined) {
-        linked.add(nodeLink.peerId);
-      }
-    }
+    const linked = this.linkedPeers();
 
     let changed = false;
 
@@ -750,7 +831,79 @@ export class Node implements Provider {
       }
     }
 
+    this.schedulePrune(now, linked);
+
     return changed;
+  }
+
+  private linkedPeers() {
+    const linked = new Set<string>();
+
+    for (const nodeLink of this.nodeLinks) {
+      if (nodeLink.peerId !== undefined) {
+        linked.add(nodeLink.peerId);
+      }
+    }
+
+    for (const nodeLink of this.nodeHub.links) {
+      if (nodeLink.peerId !== undefined) {
+        linked.add(nodeLink.peerId);
+      }
+    }
+
+    return linked;
+  }
+
+  private schedulePrune(now: number, linked: Set<string>) {
+    if (this.closed) {
+      return;
+    }
+
+    if (this.pruneTimer !== undefined) {
+      clearTimeout(this.pruneTimer);
+      this.pruneTimer = undefined;
+    }
+
+    let next: number | undefined;
+
+    for (const member of this.members) {
+      if (member.id === this.nodeId || linked.has(member.id)) {
+        continue;
+      }
+
+      const seen = this.seen.get(member.id);
+
+      if (seen === undefined) {
+        continue;
+      }
+
+      const deadline = seen + this.memberTtl;
+
+      if (next === undefined || deadline < next) {
+        next = deadline;
+      }
+    }
+
+    for (const deadline of this.expiries.values()) {
+      if (next === undefined || deadline < next) {
+        next = deadline;
+      }
+    }
+
+    if (next === undefined) {
+      return;
+    }
+
+    this.pruneTimer = setTimeout(
+      () => {
+        this.pruneTimer = undefined;
+
+        if (this.prune(Date.now())) {
+          this.broadcastPeers();
+        }
+      },
+      Math.max(0, next - now),
+    );
   }
 
   private forget(id: string, addr: string) {
@@ -870,16 +1023,13 @@ export class Node implements Provider {
       return;
     }
 
+    if (this.closed || !this.dials.has(addr)) {
+      client.close();
+      return;
+    }
+
     this.dials.set(addr, client);
     this.clients.push(client);
-
-    client.events.on("retry", () => {
-      queueMicrotask(() => {
-        if (this.prune(Date.now())) {
-          this.broadcastPeers();
-        }
-      });
-    });
 
     try {
       await client.connect();

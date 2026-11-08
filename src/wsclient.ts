@@ -36,7 +36,6 @@ export class WsClient extends Client<WebSocket> {
     const socket = new WebSocket(this.url);
 
     this.socket = socket;
-    this.lastError = undefined;
 
     return new Promise<void>((resolve, reject) => {
       const cleanup = () => {
@@ -70,10 +69,7 @@ export class WsClient extends Client<WebSocket> {
       const onOpen = () => {
         cleanup();
 
-        socket.addEventListener("error", (event) => {
-          this.lastError = new Error(errorMessage(event));
-          socket.close();
-        });
+        socket.addEventListener("error", () => socket.close());
 
         socket.addEventListener("close", () => this.markOffline(socket));
 

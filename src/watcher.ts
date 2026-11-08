@@ -10,6 +10,7 @@
  */
 
 import { SwarmError } from "./errors.ts";
+import { sameMeta } from "./registry.ts";
 import type {
   Instance,
   Observable,
@@ -167,6 +168,12 @@ export class Watcher implements Observable {
 
       if (observed !== undefined) {
         observed.sources.add(source);
+
+        if (!sameMeta(observed.instance.meta, instance.meta)) {
+          observed.instance = instance;
+          this.emit(event);
+        }
+
         return;
       }
 
