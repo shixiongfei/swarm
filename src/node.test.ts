@@ -1346,6 +1346,63 @@ test("listen advertises the configured address", async (t) => {
   ]);
 });
 
+test("listen rejects an undialable advertise address", async (t) => {
+  const node = new Node({ cluster: "advertise-invalid" });
+
+  t.after(() => node.close());
+
+  for (const advertise of [
+    "tcp://0.0.0.0:1",
+    "tcp://[::]:1",
+    "tcp://[::ffff:0.0.0.0]:1",
+  ]) {
+    await assert.rejects(
+      node.listen("tcp://127.0.0.1:0", { advertise }),
+      (err: SwarmError) =>
+        err.kind === "rejected" && err.message.startsWith("invalid advertise"),
+    );
+  }
+});
+
+test("listen fills the bound port when advertise uses port 0", async (t) => {
+  const node = new Node({ cluster: "advertise-port-zero" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  const bound = await node.listen("tcp://0.0.0.0:0", {
+    advertise: "tcp://127.0.0.1:0",
+  });
+
+  const learned = new Promise<Array<{ id: string; addr: string }>>(
+    (resolve) => {
+      port2.addEventListener("message", (event) => {
+        const message = event.data as { t?: string; members?: unknown };
+
+        if (
+          message.t === "peers" &&
+          Array.isArray(message.members) &&
+          message.members.length > 0
+        ) {
+          resolve(message.members as Array<{ id: string; addr: string }>);
+        }
+      });
+    },
+  );
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "ghost" });
+
+  assert.deepEqual(await learned, [
+    { id: node.nodeId, addr: `tcp://127.0.0.1:${bound.port}` },
+  ]);
+});
+
 test("listen does not advertise without options", async (t) => {
   const node = new Node({ cluster: "advertise-off" });
   const { port1, port2 } = new MessageChannel();
@@ -1375,7 +1432,7 @@ test("listen does not advertise without options", async (t) => {
   assert.deepEqual(await learned, []);
 });
 
-test("peers ignores invalid entries", async (t) => {
+test("peers ignores invalid or wildcard entries", async (t) => {
   const node = new Node({ cluster: "peers-invalid" });
   const { port1, port2 } = new MessageChannel();
 
@@ -1409,13 +1466,17 @@ test("peers ignores invalid entries", async (t) => {
     t: "peers",
     from: "ghost",
     members: [
-      { id: node.nodeId, addr: "tcp://127.0.0.1:1" },
+      { id: "wild", addr: "tcp://0.0.0.0:1" },
       { id: "bad", addr: "not a url" },
       { id: "0", addr: "tcp://127.0.0.1:1" },
+      { id: "00", addr: "tcp://192.0.2.1:1" },
     ],
   });
 
-  assert.deepEqual(await learned, [{ id: "0", addr: "tcp://127.0.0.1:1" }]);
+  assert.deepEqual(await learned, [
+    { id: "0", addr: "tcp://127.0.0.1:1" },
+    { id: "00", addr: "tcp://192.0.2.1:1" },
+  ]);
 });
 
 test("routes a call through a client-only relay", async (t) => {

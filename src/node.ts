@@ -144,6 +144,18 @@ export class Node implements Provider {
   async listen(url: string | URL, options?: ListenOptions) {
     this.checkOpen();
 
+    const advertised =
+      options !== undefined && options.advertise !== undefined
+        ? parseUrl(options.advertise)
+        : undefined;
+
+    if (advertised !== undefined && !isAdvertisable(advertised.host)) {
+      throw new SwarmError(
+        "rejected",
+        `invalid advertise host: ${advertised.host}`,
+      );
+    }
+
     const server = await this.createServer(url, options);
 
     this.servers.push(server);
@@ -160,14 +172,19 @@ export class Node implements Provider {
       throw err;
     }
 
-    if (options !== undefined && options.advertise !== undefined) {
-      const parsed = parseUrl(options.advertise);
-      const scheme = parsed.secure ? "wss:" : parsed.protocol;
-      const name = parsed.host.includes(":") ? `[${parsed.host}]` : parsed.host;
+    if (advertised !== undefined) {
+      if (advertised.port === 0) {
+        advertised.port = server.port;
+      }
+
+      const scheme = advertised.secure ? "wss:" : advertised.protocol;
+      const name = advertised.host.includes(":")
+        ? `[${advertised.host}]`
+        : advertised.host;
 
       this.members.push({
         id: this.nodeId,
-        addr: `${scheme}//${name}:${parsed.port}`,
+        addr: `${scheme}//${name}:${advertised.port}`,
       });
       this.broadcastPeers();
     }
@@ -543,7 +560,9 @@ export class Node implements Provider {
       }
 
       try {
-        parseUrl(entry.addr);
+        if (!isAdvertisable(parseUrl(entry.addr).host)) {
+          continue;
+        }
       } catch {
         continue;
       }
@@ -598,6 +617,10 @@ export class Node implements Provider {
       // the client retries on its own
     }
   }
+}
+
+function isAdvertisable(host: string) {
+  return host !== "0.0.0.0" && host !== "::" && host !== "::ffff:0:0";
 }
 
 function parseUrl(url: string | URL): {
