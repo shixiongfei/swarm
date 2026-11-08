@@ -80,6 +80,8 @@ test("sends envelopes over a socket", async (t) => {
 
   client.send({
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",
@@ -87,6 +89,8 @@ test("sends envelopes over a socket", async (t) => {
   });
   client.send({
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",
@@ -98,6 +102,8 @@ test("sends envelopes over a socket", async (t) => {
   assert.deepEqual(received, [
     {
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "client-node",
       origin: "client-node",
       topic: "news",
@@ -105,6 +111,8 @@ test("sends envelopes over a socket", async (t) => {
     },
     {
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "client-node",
       origin: "client-node",
       topic: "news",
@@ -167,6 +175,8 @@ test("decodes a whole frame followed by a partial frame", async (t) => {
 
   const first: Envelope = {
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",
@@ -174,6 +184,8 @@ test("decodes a whole frame followed by a partial frame", async (t) => {
   };
   const second: Envelope = {
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",
@@ -259,6 +271,8 @@ test("ignores a send after close", async (t) => {
   assert.doesNotThrow(() => {
     client.send({
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "client-node",
       origin: "client-node",
       topic: "news",
@@ -282,6 +296,8 @@ test("decodes a small frame after a large payload", async (t) => {
 
   const large: Envelope = {
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",
@@ -289,6 +305,8 @@ test("decodes a small frame after a large payload", async (t) => {
   };
   const small: Envelope = {
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "client-node",
     origin: "client-node",
     topic: "news",

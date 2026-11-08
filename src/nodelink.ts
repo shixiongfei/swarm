@@ -159,6 +159,8 @@ export class NodeLink implements Observable {
             message.data,
             message.origin,
             message.from,
+            message.id,
+            message.ttl,
           );
         }
         return;
@@ -300,8 +302,14 @@ export class NodeLink implements Observable {
     );
   }
 
-  publish(topic: string, data: unknown, origin?: string) {
-    this.link.publish(topic, data, origin);
+  publish(
+    topic: string,
+    data: unknown,
+    origin: string,
+    id: string,
+    ttl: number,
+  ) {
+    this.link.publish(topic, data, origin, id, ttl);
   }
 
   peers(members: PeerEntry[]) {

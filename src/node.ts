@@ -85,6 +85,7 @@ export type NodeSnapshot = {
 
 const nodes = new Map<string, Node>();
 const maxHops = 8;
+const maxSeenPubs = 1024;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
@@ -103,6 +104,7 @@ export class Node implements Provider {
   private readonly seen = new Map<string, number>();
   private readonly dials = new Map<string, Client | undefined>();
   private readonly expiries = new Map<string, number>();
+  private readonly seenPubs = new Set<string>();
   private readonly seeds: Array<string | URL>;
   private readonly callTimeout: number;
   private readonly memberTtl: number;
@@ -398,33 +400,58 @@ export class Node implements Provider {
     return this.nodeLocal.subscribe(topic, handler);
   }
 
-  publish(topic: string, data: unknown, origin?: string, from?: string) {
+  publish(
+    topic: string,
+    data: unknown,
+    origin?: string,
+    from?: string,
+    id?: string,
+    ttl?: number,
+  ) {
     this.checkOpen();
 
     const source = origin !== undefined ? origin : this.nodeId;
+    const pubId = id !== undefined ? id : randomId();
+    const remaining = ttl !== undefined ? ttl : maxHops;
 
-    try {
-      for (const nodeLink of this.nodeLinks) {
-        if (from !== undefined && nodeLink.peerId === from) {
-          continue;
+    if (this.seenPubs.has(pubId)) {
+      return;
+    }
+
+    this.seenPubs.add(pubId);
+
+    if (this.seenPubs.size > maxSeenPubs) {
+      const oldest = this.seenPubs.values().next().value;
+
+      if (oldest !== undefined) {
+        this.seenPubs.delete(oldest);
+      }
+    }
+
+    if (remaining > 0) {
+      try {
+        for (const nodeLink of this.nodeLinks) {
+          if (from !== undefined && nodeLink.peerId === from) {
+            continue;
+          }
+
+          nodeLink.publish(topic, data, source, pubId, remaining - 1);
         }
 
-        nodeLink.publish(topic, data, source);
-      }
+        for (const nodeLink of this.nodeHub.links) {
+          if (from !== undefined && nodeLink.peerId === from) {
+            continue;
+          }
 
-      for (const nodeLink of this.nodeHub.links) {
-        if (from !== undefined && nodeLink.peerId === from) {
-          continue;
+          nodeLink.publish(topic, data, source, pubId, remaining - 1);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "DataCloneError") {
+          throw new SwarmError("failed", "data is not cloneable");
         }
 
-        nodeLink.publish(topic, data, source);
+        throw err;
       }
-    } catch (err) {
-      if (err instanceof Error && err.name === "DataCloneError") {
-        throw new SwarmError("failed", "data is not cloneable");
-      }
-
-      throw err;
     }
 
     this.nodeLocal.publish(topic, data, source);
@@ -457,6 +484,7 @@ export class Node implements Provider {
     this.clients.length = 0;
     this.dials.clear();
     this.expiries.clear();
+    this.seenPubs.clear();
 
     for (const server of this.servers) {
       server.close();

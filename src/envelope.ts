@@ -40,7 +40,15 @@ export type Envelope =
       kind: ErrorKind;
       message: string;
     }
-  | { t: "pub"; from: string; origin: string; topic: string; data: unknown }
+  | {
+      t: "pub";
+      from: string;
+      origin: string;
+      topic: string;
+      id: string;
+      ttl: number;
+      data: unknown;
+    }
   | { t: "peers"; from: string; members: PeerEntry[] }
   | { t: "ping"; from: string }
   | { t: "pong"; from: string }
@@ -150,7 +158,10 @@ function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
   if (
     typeof message.from !== "string" ||
     typeof message.origin !== "string" ||
-    typeof message.topic !== "string"
+    typeof message.topic !== "string" ||
+    typeof message.id !== "string" ||
+    !Number.isInteger(message.ttl) ||
+    message.ttl < 0
   ) {
     return undefined;
   }

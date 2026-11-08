@@ -490,6 +490,8 @@ describe("NodeLink", () => {
     port2.postMessage({ t: "hello", from: "peer" });
     port2.postMessage({
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "peer",
       origin: node.nodeId,
       topic: "news",
@@ -497,6 +499,8 @@ describe("NodeLink", () => {
     });
     port2.postMessage({
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "spoof",
       origin: "peer",
       topic: "news",
@@ -504,6 +508,8 @@ describe("NodeLink", () => {
     });
     port2.postMessage({
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "peer",
       origin: "peer",
       topic: "news",

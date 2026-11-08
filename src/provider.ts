@@ -24,5 +24,12 @@ export interface Provider {
     source?: NodeLink,
   ): any;
 
-  publish(topic: string, data: unknown, origin: string, from?: string): void;
+  publish(
+    topic: string,
+    data: unknown,
+    origin: string,
+    from: string,
+    id: string,
+    ttl: number,
+  ): void;
 }

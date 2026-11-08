@@ -1389,6 +1389,65 @@ test("listens on wss with tls options", async (t) => {
   assert.equal(node.snapshot().members[0].addr.startsWith("wss://"), true);
 });
 
+test("delivers a publish once across a mesh", async (t) => {
+  const a = new Node({ cluster: "mesh" });
+  const b = new Node({ cluster: "mesh" });
+  const c = new Node({ cluster: "mesh" });
+  const ab = new MessageChannel();
+  const bc = new MessageChannel();
+  const ca = new MessageChannel();
+  const counts = { a: 0, b: 0, c: 0 };
+
+  t.after(() => {
+    a.close();
+    b.close();
+    c.close();
+    ab.port1.close();
+    ab.port2.close();
+    bc.port1.close();
+    bc.port2.close();
+    ca.port1.close();
+    ca.port2.close();
+  });
+
+  a.subscribe("news", () => {
+    counts.a += 1;
+  });
+  b.subscribe("news", () => {
+    counts.b += 1;
+  });
+  c.subscribe("news", () => {
+    counts.c += 1;
+  });
+
+  a.attach(ab.port1);
+  b.attach(ab.port2);
+  b.attach(bc.port1);
+  c.attach(bc.port2);
+  c.attach(ca.port1);
+  a.attach(ca.port2);
+
+  const linked = () =>
+    [a, b, c].every(
+      (node) =>
+        node.snapshot().links.length === 2 &&
+        node.snapshot().links.every((link) => link.peerId !== undefined),
+    );
+
+  assert.equal(await waitFor(linked), true);
+
+  a.publish("news", { n: 1 });
+
+  assert.equal(
+    await waitFor(() => counts.a === 1 && counts.b === 1 && counts.c === 1),
+    true,
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+  assert.deepEqual(counts, { a: 1, b: 1, c: 1 });
+});
+
 test("drops a member when the peer leaves", async (t) => {
   const host = new Node({ cluster: "bye-host" });
   const peer = new Node({ cluster: "bye-peer" });

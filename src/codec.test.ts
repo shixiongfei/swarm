@@ -45,6 +45,8 @@ const envelopes: Envelope[] = [
   },
   {
     t: "pub",
+    id: "pub-1",
+    ttl: 8,
     from: "node-a",
     origin: "node-a",
     topic: "news",
@@ -105,6 +107,8 @@ describe("codec", () => {
   test("drops a payload larger than the envelope limit", () => {
     const encoded = encode({
       t: "pub",
+      id: "pub-1",
+      ttl: 8,
       from: "node-a",
       origin: "node-a",
       topic: "news",
