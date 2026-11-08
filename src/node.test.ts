@@ -1503,6 +1503,89 @@ test("ws and wss default to ports 80 and 443", async (t) => {
   );
 });
 
+test("calls and collects a node behind an intermediate node", async (t) => {
+  const a = new Node({ cluster: "chain" });
+  const b = new Node({ cluster: "chain" });
+  const c = new Node({ cluster: "chain" });
+  const ab = new MessageChannel();
+  const bc = new MessageChannel();
+  let calls = 0;
+
+  t.after(() => {
+    a.close();
+    b.close();
+    c.close();
+    ab.port1.close();
+    ab.port2.close();
+    bc.port1.close();
+    bc.port2.close();
+  });
+
+  a.register("math", { add: (x: number, y: number) => x * y });
+  c.register("math", {
+    add: (x: number, y: number) => {
+      calls += 1;
+      return x + y;
+    },
+  });
+
+  const known = new Promise<void>((resolve) =>
+    a.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === c.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  a.attach(ab.port1);
+  b.attach(ab.port2);
+  b.attach(bc.port1);
+  c.attach(bc.port2);
+
+  await known;
+
+  assert.equal(await a.callTo(c.nodeId, "math", "add", [1, 2]), 3);
+  assert.equal(await a.callTo(a.nodeId, "math", "add", [1, 2]), 2);
+
+  const results = await a.collect("math", "add", [1, 2]);
+  const local = results.find((result) => result.nodeId === a.nodeId);
+  const remote = results.find((result) => result.nodeId === c.nodeId);
+
+  assert.equal(calls, 2);
+  assert.equal(results.length, 2);
+  assert.deepEqual(local, { nodeId: a.nodeId, ok: true, value: 2 });
+  assert.deepEqual(remote, { nodeId: c.nodeId, ok: true, value: 3 });
+});
+
+test("rejects a call to a node that serves nothing", async (t) => {
+  const a = new Node({ cluster: "chain-missing" });
+  const b = new Node({ cluster: "chain-missing" });
+  const channel = new MessageChannel();
+
+  t.after(() => {
+    a.close();
+    b.close();
+    channel.port1.close();
+    channel.port2.close();
+  });
+
+  b.register("math", { add: (x: number, y: number) => x + y });
+
+  const known = new Promise<void>((resolve) =>
+    a.watch("math", () => resolve()),
+  );
+
+  a.attach(channel.port1);
+  b.attach(channel.port2);
+
+  await known;
+
+  await assert.rejects(
+    a.callTo("ffffffffffffffffffffffffffffffff", "math", "add", [1, 2]),
+    (err: SwarmError) => err.kind === "not-found",
+  );
+});
+
 test("collect invokes local and remote instances and dedupes by peer", async (t) => {
   const local = new Node({ cluster: "collect-local" });
   const remote = new Node({ cluster: "collect-remote" });

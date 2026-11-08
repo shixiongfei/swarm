@@ -107,6 +107,7 @@ export class NodeLink implements Observable {
               message.timeout,
               message.ttl,
               this,
+              message.target,
             ),
           )
           .then(
@@ -280,13 +281,15 @@ export class NodeLink implements Observable {
     args: unknown[],
     timeout: number,
     ttl?: number,
+    target?: string,
   ) {
     if (this.closed) {
       return Promise.reject(new SwarmError("failed", "link is closed", true));
     }
 
     return this.pending.call(
-      (id) => this.link.call(id, to, service, method, args, timeout, ttl),
+      (id) =>
+        this.link.call(id, to, service, method, args, timeout, ttl, target),
       timeout,
       () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>

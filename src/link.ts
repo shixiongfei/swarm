@@ -75,6 +75,7 @@ export abstract class Link implements Enveloper {
     args: unknown[],
     timeout?: number,
     ttl?: number,
+    target?: string,
   ) {
     const message: Extract<Envelope, { t: "call" }> = {
       t: "call",
@@ -85,6 +86,10 @@ export abstract class Link implements Enveloper {
       method,
       args,
     };
+
+    if (target !== undefined) {
+      message.target = target;
+    }
 
     if (timeout !== undefined) {
       message.timeout = timeout;

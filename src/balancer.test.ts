@@ -132,7 +132,7 @@ describe("Balancer", () => {
     const balancer = new Balancer();
 
     assert.throws(
-      () => balancer.invoke("nope", "add", [], 10, 8),
+      () => balancer.invoke("nope", "add", [], 10, 8, undefined),
       (err: SwarmError) => err.kind === "not-found",
     );
   });

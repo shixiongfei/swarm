@@ -25,6 +25,7 @@ export type Envelope =
       id: string;
       from: string;
       to: string;
+      target?: string;
       service: string;
       method: string;
       args: unknown[];
@@ -110,6 +111,7 @@ function isCall(
     typeof message.id !== "string" ||
     typeof message.from !== "string" ||
     typeof message.to !== "string" ||
+    (message.target !== undefined && typeof message.target !== "string") ||
     typeof message.service !== "string" ||
     typeof message.method !== "string" ||
     !Array.isArray(message.args) ||

@@ -329,6 +329,33 @@ export class Node implements Provider {
     }
   }
 
+  callTo(
+    nodeId: string,
+    service: string,
+    method: string,
+    args: unknown[] = [],
+    options: { timeout?: number } = {},
+  ) {
+    this.checkOpen();
+
+    const timeout =
+      options.timeout === undefined ? this.callTimeout : options.timeout;
+
+    try {
+      return this.invoke(
+        service,
+        method,
+        args,
+        timeout,
+        maxHops,
+        undefined,
+        nodeId,
+      );
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
   invoke(
     service: string,
     method: string,
@@ -336,8 +363,13 @@ export class Node implements Provider {
     timeout?: number,
     ttl?: number,
     source?: NodeLink,
+    target?: string,
   ) {
-    if (this.nodeLocal.has(service)) {
+    if (target !== undefined && target === this.nodeId) {
+      return this.nodeLocal.invoke(service, method, args, timeout);
+    }
+
+    if (target === undefined && this.nodeLocal.has(service)) {
       try {
         return this.nodeLocal.invoke(service, method, args, timeout);
       } catch (err) {
@@ -363,14 +395,22 @@ export class Node implements Provider {
         ? this.nodeHub.links
         : this.nodeHub.links.filter((link) => link !== source);
 
+    const routed =
+      target === undefined
+        ? [links, hubLinks]
+        : [
+            links.filter((link) => link.has(service, target)),
+            hubLinks.filter((link) => link.has(service, target)),
+          ];
+
     return this.balancer.invoke(
       service,
       method,
       args,
       timeout !== undefined ? timeout : this.callTimeout,
       remaining - 1,
-      links,
-      hubLinks,
+      target,
+      ...routed,
     );
   }
 
@@ -517,43 +557,39 @@ export class Node implements Provider {
 
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
-    const calls: Array<Promise<ServiceResult>> = [];
+    const instances = this.watcher
+      .instances()
+      .filter((instance) => instance.service === service);
 
-    if (this.nodeLocal.has(service)) {
-      calls.push(
-        Promise.resolve()
-          .then(() => this.nodeLocal.invoke(service, method, args, timeout))
-          .then(
-            (value) => ({ nodeId: this.nodeId, ok: true as const, value }),
-            (error) => ({ nodeId: this.nodeId, ok: false as const, error }),
-          ),
-      );
-    }
-
-    const targets = new Map<string, NodeLink>();
-
-    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
-      const peer = nodeLink.peerId;
-
-      if (peer !== undefined && nodeLink.has(service) && !targets.has(peer)) {
-        targets.set(peer, nodeLink);
-      }
-    }
-
-    for (const [peer, nodeLink] of targets) {
-      calls.push(
-        nodeLink.call(peer, service, method, args, timeout, maxHops).then(
-          (value) => ({ nodeId: peer, ok: true as const, value }),
-          (error) => ({ nodeId: peer, ok: false as const, error }),
-        ),
-      );
-    }
-
-    if (calls.length === 0) {
+    if (instances.length === 0) {
       throw new SwarmError("not-found", `service ${service} is not available`);
     }
 
-    return Promise.all(calls);
+    return Promise.all(
+      instances.map((instance) => {
+        const promise =
+          instance.nodeId === this.nodeId
+            ? Promise.resolve().then(() =>
+                this.nodeLocal.invoke(service, method, args, timeout),
+              )
+            : Promise.resolve().then(() =>
+                this.invoke(
+                  service,
+                  method,
+                  args,
+                  timeout,
+                  maxHops,
+                  undefined,
+                  instance.nodeId,
+                ),
+              );
+
+        return promise.then(
+          (value) => ({ nodeId: instance.nodeId, ok: true as const, value }),
+          (error) => ({ nodeId: instance.nodeId, ok: false as const, error }),
+        );
+      }),
+    );
   }
 
   private relay(event: WatchEvent) {

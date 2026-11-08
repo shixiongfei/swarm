@@ -22,6 +22,7 @@ export interface Provider {
     timeout?: number,
     ttl?: number,
     source?: NodeLink,
+    target?: string,
   ): any;
 
   publish(
