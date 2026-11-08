@@ -11,10 +11,12 @@
 
 import { createSocket } from "node:dgram";
 import { eventlite } from "eventlite.js";
+import { sign, verify } from "./jwt.ts";
 import type { Socket } from "node:dgram";
 import type { PeerEntry } from "./envelope.ts";
 
 export type MulticastOptions = {
+  family?: 4 | 6;
   group?: string;
   port?: number;
   interval?: number;
@@ -25,6 +27,8 @@ export type MulticastOptions = {
 export type MulticastConfig = MulticastOptions & {
   cluster: string;
   nodeId: string;
+  started: number;
+  secret?: string;
 };
 
 export type MulticastEvents = {
@@ -32,6 +36,7 @@ export type MulticastEvents = {
 };
 
 const defaultGroup = "239.83.104.105";
+const defaultGroup6 = "ff02:53:68:69:58:46::";
 const defaultPort = 8870;
 const defaultInterval = 10000;
 
@@ -42,6 +47,9 @@ export class Multicast {
 
   private readonly cluster: string;
   private readonly nodeId: string;
+  private readonly started: number;
+  private readonly secret: string | undefined;
+  private readonly family: 4 | 6;
   private readonly group: string;
   private readonly port: number;
   private readonly interval: number;
@@ -55,7 +63,13 @@ export class Multicast {
   constructor(config: MulticastConfig) {
     this.cluster = config.cluster;
     this.nodeId = config.nodeId;
-    this.group = config.group !== undefined ? config.group : defaultGroup;
+    this.started = config.started;
+    this.secret = config.secret;
+    this.family = config.family !== undefined ? config.family : 4;
+
+    const groupForFamily = this.family === 6 ? defaultGroup6 : defaultGroup;
+
+    this.group = config.group !== undefined ? config.group : groupForFamily;
     this.port = config.port !== undefined ? config.port : defaultPort;
     this.interval =
       config.interval !== undefined ? config.interval : defaultInterval;
@@ -66,7 +80,10 @@ export class Multicast {
   async open(local: () => PeerEntry[]) {
     this.local = local;
 
-    const socket = createSocket({ type: "udp4", reuseAddr: true });
+    const socket = createSocket({
+      type: this.family === 6 ? "udp6" : "udp4",
+      reuseAddr: true,
+    });
 
     this.socket = socket;
 
@@ -121,13 +138,25 @@ export class Multicast {
       return;
     }
 
+    const secret = this.secret;
+
     for (const entry of entries) {
+      const claims = {
+        cluster: this.cluster,
+        from: entry.id,
+        addr: entry.addr,
+        started: this.started,
+      };
+
       this.socket.send(
         JSON.stringify({
           t: "advertise",
-          cluster: this.cluster,
-          from: entry.id,
-          addr: entry.addr,
+          cluster: claims.cluster,
+          from: claims.from,
+          addr: claims.addr,
+          started: claims.started,
+          secret: secret !== undefined,
+          sig: secret !== undefined ? sign(secret, claims) : undefined,
         }),
         this.port,
         this.group,
@@ -173,16 +202,41 @@ export class Multicast {
       cluster?: unknown;
       from?: unknown;
       addr?: unknown;
+      started?: unknown;
+      secret?: unknown;
+      sig?: unknown;
     };
 
     if (
       value.t !== "advertise" ||
-      value.cluster !== this.cluster ||
+      typeof value.cluster !== "string" ||
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
-      value.from === this.nodeId
+      typeof value.started !== "number" ||
+      typeof value.secret !== "boolean" ||
+      value.from === this.nodeId ||
+      value.cluster !== this.cluster ||
+      value.secret !== (this.secret !== undefined)
     ) {
       return;
+    }
+
+    if (this.secret !== undefined) {
+      if (typeof value.sig !== "string") {
+        return;
+      }
+
+      const claims = verify(this.secret, value.sig);
+
+      if (
+        claims === undefined ||
+        claims.cluster !== value.cluster ||
+        claims.from !== value.from ||
+        claims.addr !== value.addr ||
+        claims.started !== value.started
+      ) {
+        return;
+      }
     }
 
     this.events.emit("peers", [{ id: value.from, addr: value.addr }]);

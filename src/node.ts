@@ -57,6 +57,7 @@ const maxHops = 8;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
+  readonly started = Date.now();
   readonly cluster: string;
   readonly secret?: string;
 
@@ -633,6 +634,9 @@ export class Node implements Provider {
       const multicast = new Multicast({
         cluster: this.cluster,
         nodeId: this.nodeId,
+        secret: this.secret,
+        started: this.started,
+        family: options.family,
         group: options.group,
         port: options.port,
         interval: options.interval,
