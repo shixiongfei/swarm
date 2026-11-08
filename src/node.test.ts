@@ -1295,7 +1295,7 @@ test("repeated advertise keeps a single self member", async (t) => {
   assert.notEqual(first.port, second.port);
 });
 
-test("snapshot reports connected links", async (t) => {
+test("snapshot reports links and services", async (t) => {
   const hub = new Node({ cluster: "snapshot-hub" });
   const peer = new Node({ cluster: "snapshot-peer" });
 
@@ -1308,7 +1308,8 @@ test("snapshot reports connected links", async (t) => {
     hub.watch("math", () => resolve()),
   );
 
-  peer.register("math", { add: () => 1 });
+  hub.register("echo", { ping: () => 2 }, { build: 2 });
+  peer.register("math", { add: () => 1 }, { build: 1 });
 
   const address = await hub.listen("tcp://127.0.0.1:0");
 
@@ -1321,6 +1322,21 @@ test("snapshot reports connected links", async (t) => {
   assert.equal(links[0].peerId, peer.nodeId);
   assert.equal(links[0].transport, "socket");
   assert.equal(links[0].local, true);
+  assert.deepEqual(links[0].services, [
+    { service: "math", nodeId: peer.nodeId, meta: { build: 1 } },
+  ]);
+
+  const services = hub.snapshot().services;
+
+  assert.equal(services.length, 2);
+  assert.deepEqual(
+    services.find((service) => service.service === "echo"),
+    { service: "echo", nodeId: hub.nodeId, meta: { build: 2 } },
+  );
+  assert.deepEqual(
+    services.find((service) => service.service === "math"),
+    { service: "math", nodeId: peer.nodeId, meta: { build: 1 } },
+  );
 });
 
 test("snapshot distinguishes websocket links", async (t) => {

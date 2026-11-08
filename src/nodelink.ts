@@ -274,6 +274,10 @@ export class NodeLink implements Observable {
     return this.registry.lookup(service);
   }
 
+  instances() {
+    return this.registry.snapshot();
+  }
+
   has(service: string, nodeId?: string) {
     return this.registry.has(service, nodeId);
   }

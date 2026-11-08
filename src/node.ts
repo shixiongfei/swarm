@@ -28,7 +28,12 @@ import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Multicast, MulticastOptions } from "./multicast.ts";
-import type { MetaData, WatchEvent, WatchHandler } from "./registry.ts";
+import type {
+  Instance,
+  MetaData,
+  WatchEvent,
+  WatchHandler,
+} from "./registry.ts";
 import type { Server as HttpServer } from "node:http";
 import type { ServerOptions as HttpsServerOptions } from "node:https";
 
@@ -78,11 +83,13 @@ export type NodeLinkInfo = {
   transport: Transport;
   latency: number | undefined;
   local: boolean;
+  services: Instance[];
 };
 
 export type NodeSnapshot = {
   nodeId: string;
   cluster: string;
+  services: Instance[];
   members: NodeMember[];
   links: NodeLinkInfo[];
 };
@@ -165,6 +172,7 @@ export class Node implements Provider {
     return {
       nodeId: this.nodeId,
       cluster: this.cluster,
+      services: this.watcher.instances(),
       members: this.members.map((member) => ({
         id: member.id,
         addr: member.addr,
@@ -174,6 +182,7 @@ export class Node implements Provider {
         transport: nodeLink.transport,
         latency: nodeLink.latency,
         local: nodeLink.local,
+        services: nodeLink.instances(),
       })),
     };
   }
@@ -1207,5 +1216,4 @@ export function createNode(options: NodeOptions = {}) {
 
 export type { ClientOptions, MulticastOptions };
 export type { Methods, TopicHandler };
-export type { MetaData, WatchHandler };
-export type { Instance, WatchEvent } from "./registry.ts";
+export type { Instance, MetaData, WatchHandler, WatchEvent };
