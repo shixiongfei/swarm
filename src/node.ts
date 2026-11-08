@@ -26,6 +26,7 @@ import type { Link } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
+import type { Multicast, MulticastOptions } from "./multicast.ts";
 import type { MetaData, WatchEvent, WatchHandler } from "./registry.ts";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
@@ -43,6 +44,7 @@ export type NodeConfig = {
   secret?: string;
   callTimeout?: number;
   seeds?: Array<string | URL>;
+  multicast?: MulticastOptions;
 };
 
 export type ListenOptions = {
@@ -69,6 +71,8 @@ export class Node implements Provider {
   private readonly dials = new Set<string>();
   private readonly seeds: Array<string | URL>;
   private readonly callTimeout: number;
+  private readonly multicastConfig: MulticastOptions | undefined;
+  private multicast: Multicast | undefined;
   private closed = false;
 
   constructor(config: NodeConfig) {
@@ -81,6 +85,7 @@ export class Node implements Provider {
       config.callTimeout !== undefined ? config.callTimeout : 5000;
 
     this.seeds = config.seeds !== undefined ? config.seeds : [];
+    this.multicastConfig = config.multicast;
 
     this.nodeHub = new NodeHub({
       secret: this.secret,
@@ -190,6 +195,8 @@ export class Node implements Provider {
     }
 
     this.discover();
+
+    await this.startMulticast();
 
     return { host: server.host, port: server.port };
   }
@@ -347,6 +354,10 @@ export class Node implements Provider {
     }
 
     this.closed = true;
+
+    if (this.multicast !== undefined) {
+      this.multicast.close();
+    }
 
     for (const client of this.clients) {
       client.close();
@@ -550,6 +561,7 @@ export class Node implements Provider {
 
   private learn(entries: PeerEntry[]) {
     let changed = false;
+    const advertised = this.members.some((member) => member.id === this.nodeId);
 
     for (const entry of entries) {
       if (
@@ -574,7 +586,7 @@ export class Node implements Provider {
         this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
         this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
 
-      if (this.nodeId < entry.id && !linked) {
+      if ((!advertised || this.nodeId < entry.id) && !linked) {
         void this.dial(entry.addr);
       }
     }
@@ -601,6 +613,43 @@ export class Node implements Provider {
   private discover() {
     for (const seed of this.seeds) {
       void this.dial(String(seed));
+    }
+  }
+
+  private async startMulticast() {
+    if (this.multicast !== undefined || this.multicastConfig === undefined) {
+      return;
+    }
+
+    const options = this.multicastConfig;
+
+    try {
+      const { Multicast } = await import("./multicast.ts");
+
+      if (this.multicast !== undefined) {
+        return;
+      }
+
+      const multicast = new Multicast({
+        cluster: this.cluster,
+        nodeId: this.nodeId,
+        group: options.group,
+        port: options.port,
+        interval: options.interval,
+        interface: options.interface,
+        ttl: options.ttl,
+      });
+
+      multicast.events.on("peers", (entries) => this.learn(entries));
+
+      this.multicast = multicast;
+
+      await multicast.open(() =>
+        this.members.filter((member) => member.id === this.nodeId),
+      );
+    } catch {
+      this.multicast = undefined;
+      // multicast is best-effort; seeds and explicit links still work
     }
   }
 

@@ -11,3 +11,4 @@
 
 export * from "./errors.ts";
 export * from "./node.ts";
+export type { MulticastOptions } from "./multicast.ts";

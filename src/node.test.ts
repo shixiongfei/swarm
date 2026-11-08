@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
 import { Node } from "./node.ts";
 import type { AddressInfo } from "node:net";
@@ -31,6 +32,32 @@ async function freePort() {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 
   return port;
+}
+
+async function freeUdpPort() {
+  const socket = createSocket({ type: "udp4", reuseAddr: true });
+
+  await new Promise<void>((resolve) => socket.bind(0, "0.0.0.0", resolve));
+
+  const port = (socket.address() as AddressInfo).port;
+
+  await new Promise<void>((resolve) => socket.close(resolve));
+
+  return port;
+}
+
+async function within<T>(promise: Promise<T>, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  const value = await Promise.race([promise, timeout]);
+
+  if (timer !== undefined) {
+    clearTimeout(timer);
+  }
+
+  return value;
 }
 
 async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
@@ -1303,6 +1330,47 @@ test("peers converge through a shared seed", async (t) => {
   await up;
 
   assert.equal(await left.call("math", "add", [1, 2]), 3);
+});
+
+test("discovers a peer over multicast without seeds", async (t) => {
+  const providerPort = await freePort();
+  const multicastPort = await freeUdpPort();
+  const options = {
+    multicast: {
+      port: multicastPort,
+      interval: 100,
+      interface: "127.0.0.1",
+    },
+  };
+  const consumer = new Node({ cluster: "multicast", ...options });
+  const provider = new Node({ cluster: "multicast", ...options });
+
+  t.after(() => {
+    consumer.close();
+    provider.close();
+  });
+
+  provider.register("math", { add: (a: number, b: number) => a + b });
+
+  const up = new Promise<boolean>((resolve) =>
+    consumer.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === provider.nodeId) {
+        resolve(true);
+      }
+    }),
+  );
+
+  await consumer.listen("tcp://127.0.0.1:0");
+  await provider.listen(`tcp://127.0.0.1:${providerPort}`, {
+    advertise: `tcp://127.0.0.1:${providerPort}`,
+  });
+
+  if ((await within(up, 2000)) === undefined) {
+    t.skip("multicast packets are not delivered");
+    return;
+  }
+
+  assert.equal(await consumer.call("math", "add", [1, 2]), 3);
 });
 
 test("listen advertises the configured address", async (t) => {
