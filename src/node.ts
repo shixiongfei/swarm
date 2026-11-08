@@ -29,6 +29,7 @@ import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Multicast, MulticastOptions } from "./multicast.ts";
 import type { MetaData, WatchEvent, WatchHandler } from "./registry.ts";
+import type { Server as HttpServer } from "node:http";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -50,9 +51,15 @@ export type NodeConfig = {
   multicast?: MulticastOptions;
 };
 
+export type WsListenOptions = {
+  path?: string;
+  server?: HttpServer;
+};
+
 export type ListenOptions = {
   backlog?: number;
   advertise?: string | URL;
+  ws?: WsListenOptions;
 };
 
 const nodes = new Map<string, Node>();
@@ -165,6 +172,11 @@ export class Node implements Provider {
   async listen(url: string | URL, options?: ListenOptions) {
     this.checkOpen();
 
+    const { path } = parseUrl(url);
+    const ws = options !== undefined ? options.ws : undefined;
+    const listenPath =
+      ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
+
     const advertised =
       options !== undefined && options.advertise !== undefined
         ? parseUrl(options.advertise)
@@ -202,10 +214,13 @@ export class Node implements Provider {
       const name = advertised.host.includes(":")
         ? `[${advertised.host}]`
         : advertised.host;
+      const advertisedPath =
+        advertised.path !== "/" ? advertised.path : listenPath;
+      const suffix = advertisedPath === "/" ? "" : advertisedPath;
 
       this.members.push({
         id: this.nodeId,
-        addr: `${scheme}//${name}:${advertised.port}`,
+        addr: `${scheme}//${name}:${advertised.port}${suffix}`,
       });
       this.broadcastPeers();
     }
@@ -487,35 +502,47 @@ export class Node implements Provider {
     url: string | URL,
     options: ListenOptions | undefined,
   ): Promise<Server> {
-    const { protocol, secure, host, port, secret } = parseUrl(url);
+    const { protocol, secure, host, port, secret, path } = parseUrl(url);
+    const ws = options !== undefined ? options.ws : undefined;
     const backlog = options !== undefined ? options.backlog : undefined;
+    const server = ws !== undefined ? ws.server : undefined;
+    const listenPath =
+      ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
 
     if (secure) {
       throw new SwarmError("rejected", "wss listen is not supported");
     }
 
     if (protocol === "tcp:") {
-      const { TcpServer } = await import("./tcpserver.ts");
-      const server = new TcpServer(host, port, backlog);
+      if (ws !== undefined) {
+        throw new SwarmError("rejected", "tcp listen does not support http");
+      }
 
-      server.events.on("online", (socket) => {
+      const { TcpServer } = await import("./tcpserver.ts");
+      const tcpServer = new TcpServer(host, port, backlog);
+
+      tcpServer.events.on("online", (socket) => {
         this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
       });
 
-      return server;
+      return tcpServer;
     }
 
     const { WsServer } = await import("./wsserver.ts");
-    const server = new WsServer(host, port, backlog);
+    const wsServer = new WsServer(host, port, {
+      backlog,
+      path: listenPath,
+      server,
+    });
 
-    server.events.on("online", (socket) => {
+    wsServer.events.on("online", (socket) => {
       this.nodeHub.join(
         new LinkWs(socket as unknown as WebSocket, this.nodeId),
         secret,
       );
     });
 
-    return server;
+    return wsServer;
   }
 
   private async createClient(
@@ -867,6 +894,7 @@ function parseUrl(url: string | URL): {
   secure: boolean;
   host: string;
   port: number;
+  path: string;
   secret: string | undefined;
 } {
   let parsed: URL;
@@ -901,6 +929,12 @@ function parseUrl(url: string | URL): {
     throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);
   }
 
+  const path = normalizePath(parsed.pathname);
+
+  if (parsed.protocol === "tcp:" && path !== "/") {
+    throw new SwarmError("rejected", "tcp url does not support a path");
+  }
+
   let secret: string | undefined;
 
   if (parsed.password !== "") {
@@ -914,10 +948,21 @@ function parseUrl(url: string | URL): {
   return {
     host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
     port,
+    path,
     secret,
     protocol: parsed.protocol === "tcp:" ? "tcp:" : "ws:",
     secure: parsed.protocol === "wss:",
   };
+}
+
+function normalizePath(path: string | undefined) {
+  if (path === undefined || path === "") {
+    return "/";
+  }
+
+  const value = path.startsWith("/") ? path : `/${path}`;
+
+  return value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
 export type NodeOptions = Partial<NodeConfig>;

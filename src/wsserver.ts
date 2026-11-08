@@ -14,28 +14,59 @@ import { WebSocketServer } from "ws";
 import { SwarmError } from "./errors.ts";
 import { maxEnvelopeSize } from "./codec.ts";
 import { Server } from "./server.ts";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import type { WebSocket } from "ws";
+
+export type WsServerOptions = {
+  backlog?: number;
+  path?: string;
+  server?: HttpServer;
+};
 
 export class WsServer extends Server<WebSocket> {
   private readonly binding: { host: string; port: number };
   private readonly backlog: number | undefined;
-  private readonly http = createServer();
+  private readonly path: string;
+  private readonly owned: boolean;
+  private readonly http: HttpServer;
   private readonly server = new WebSocketServer({
     noServer: true,
     maxPayload: maxEnvelopeSize,
   });
 
-  constructor(host: string, port: number, backlog?: number) {
+  private readonly onUpgrade = (
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ) => {
+    const url = request.url !== undefined ? request.url : "/";
+    const path = url.split("?", 2)[0];
+
+    if (path !== this.path) {
+      if (this.http.listenerCount("upgrade") === 1) {
+        socket.destroy();
+      }
+
+      return;
+    }
+
+    this.server.handleUpgrade(request, socket, head, (ws) => this.onSocket(ws));
+  };
+
+  constructor(host: string, port: number, options?: WsServerOptions) {
     super();
 
-    this.binding = { host, port };
-    this.backlog = backlog;
+    const attach = options !== undefined ? options.server : undefined;
 
-    this.http.on("upgrade", (request, socket, head) =>
-      this.upgrade(request, socket, head),
-    );
+    this.binding = { host, port };
+    this.backlog = options !== undefined ? options.backlog : undefined;
+    this.path =
+      options !== undefined && options.path !== undefined ? options.path : "/";
+    this.owned = attach === undefined;
+    this.http = attach !== undefined ? attach : createServer();
+
+    this.http.on("upgrade", this.onUpgrade);
   }
 
   get host() {
@@ -61,6 +92,10 @@ export class WsServer extends Server<WebSocket> {
 
     if (this.http.listening) {
       return this;
+    }
+
+    if (!this.owned) {
+      throw new SwarmError("rejected", "http server is not listening");
     }
 
     await new Promise<void>((resolve, reject) => {
@@ -92,19 +127,16 @@ export class WsServer extends Server<WebSocket> {
   }
 
   protected stop() {
-    if (this.http.listening) {
+    this.http.off("upgrade", this.onUpgrade);
+    this.server.close();
+
+    if (this.owned && this.http.listening) {
       this.http.close();
     }
-
-    this.server.close();
   }
 
   protected destroy(socket: WebSocket) {
     socket.terminate();
-  }
-
-  private upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
-    this.server.handleUpgrade(request, socket, head, (ws) => this.onSocket(ws));
   }
 
   private onSocket(socket: WebSocket) {

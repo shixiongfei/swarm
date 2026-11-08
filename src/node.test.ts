@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { Node } from "./node.ts";
 import type { AddressInfo } from "node:net";
 import type { SwarmError } from "./errors.ts";
@@ -1131,6 +1132,27 @@ test("listen rejects a wss url", async (t) => {
   );
 });
 
+test("tcp listen rejects paths and attached http servers", async (t) => {
+  const node = new Node({ cluster: "tcp-reject" });
+  const http = createHttpServer();
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    () => node.listen("tcp://127.0.0.1:1/swarm"),
+    (err: SwarmError) =>
+      err.kind === "rejected" &&
+      err.message === "tcp url does not support a path",
+  );
+
+  await assert.rejects(
+    () => node.listen("tcp://127.0.0.1:1", { ws: { server: http } }),
+    (err: SwarmError) =>
+      err.kind === "rejected" &&
+      err.message === "tcp listen does not support http",
+  );
+});
+
 test("ws and wss default to ports 80 and 443", async (t) => {
   const node = new Node({ cluster: "default-ports" });
 
@@ -1190,6 +1212,59 @@ test("collect invokes local and remote instances and dedupes by peer", async (t)
   assert.equal(results.length, 2);
   assert.deepEqual(results[0], { nodeId: local.nodeId, ok: true, value: 3 });
   assert.deepEqual(results[1], { nodeId: remote.nodeId, ok: true, value: 5 });
+});
+
+test("listens on a websocket path and advertises it", async (t) => {
+  const provider = new Node({ cluster: "ws-path-provider" });
+  const consumer = new Node({ cluster: "ws-path-consumer" });
+  const http = createHttpServer((_request, response) => response.end("ok"));
+  const port = await freePort();
+
+  await new Promise<void>((resolve) => http.listen(port, "127.0.0.1", resolve));
+
+  t.after(() => {
+    consumer.close();
+    provider.close();
+    http.close();
+  });
+
+  provider.register("math", {
+    add: async (a: number, b: number) => a + b,
+  });
+
+  const listening = await provider.listen(`ws://127.0.0.1:${port}/swarm`, {
+    advertise: `ws://127.0.0.1:${port}`,
+    ws: { server: http },
+  });
+
+  assert.equal(listening.port, port);
+  assert.equal(
+    (provider as unknown as NodeInternals).members[0].addr,
+    `ws://127.0.0.1:${port}/swarm`,
+  );
+
+  const up = new Promise<void>((resolve) =>
+    consumer.watch("math", (event) => {
+      if (event.type === "up" && event.instance.nodeId === provider.nodeId) {
+        resolve();
+      }
+    }),
+  );
+
+  await assert.rejects(
+    () => consumer.connect(`ws://127.0.0.1:${port}`, { reconnect: false }),
+    (err: SwarmError) => err.kind === "failed",
+  );
+
+  await consumer.connect(`ws://127.0.0.1:${port}/swarm`);
+  await up;
+
+  assert.equal(await consumer.call("math", "add", [1, 2]), 3);
+
+  consumer.close();
+  provider.close();
+
+  assert.equal(http.listening, true);
 });
 
 test("collect isolates a failing local instance", async (t) => {

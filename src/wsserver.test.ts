@@ -11,16 +11,18 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
 import { test } from "node:test";
 import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
 import { WsServer } from "./wsserver.ts";
+import type { AddressInfo } from "node:net";
 
 const host = "127.0.0.1";
 
-function openSocket(port: number) {
+function openSocket(port: number, path = "/") {
   return new Promise<WebSocket>((resolve, reject) => {
-    const socket = new WebSocket(`ws://${host}:${port}`);
+    const socket = new WebSocket(`ws://${host}:${port}${path}`);
 
     socket.once("open", () => resolve(socket));
     socket.once("error", reject);
@@ -64,6 +66,53 @@ test("accept emits online and tracks the connection", async () => {
 
   assert.equal(await offline, accepted);
   assert.equal(server.size, 0);
+
+  server.close();
+});
+
+test("attaches to an existing http server on a path", async (t) => {
+  const http = createHttpServer((_request, response) => response.end("ok"));
+  const port = await new Promise<number>((resolve) => {
+    http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
+  });
+  const server = new WsServer(host, 0, { server: http, path: "/swarm" });
+  const online = new Promise<WebSocket>((resolve) => {
+    server.events.once("online", resolve);
+  });
+
+  t.after(() => {
+    server.close();
+    http.close();
+  });
+
+  await server.listen();
+
+  assert.equal(server.port, port);
+  assert.equal(server.host, host);
+
+  const client = await openSocket(port, "/swarm");
+  const accepted = await online;
+
+  assert.equal(server.size, 1);
+  assert.equal(server.connections[0], accepted);
+
+  await assert.rejects(() => openSocket(port, "/other"));
+
+  server.close();
+  client.terminate();
+
+  assert.equal(http.listening, true);
+});
+
+test("listen rejects when the attached http server is not listening", async () => {
+  const http = createHttpServer();
+  const server = new WsServer(host, 0, { server: http });
+
+  await assert.rejects(
+    () => server.listen(),
+    (error: unknown) =>
+      error instanceof SwarmError && error.kind === "rejected",
+  );
 
   server.close();
 });
