@@ -12,7 +12,8 @@
 import { createSocket } from "node:dgram";
 import { eventlite } from "eventlite.js";
 import { sign, verify } from "./jwt.ts";
-import type { Socket } from "node:dgram";
+import { isLoopback } from "./address.ts";
+import type { RemoteInfo, Socket } from "node:dgram";
 import type { PeerEntry } from "./envelope.ts";
 
 export type MulticastOptions = {
@@ -122,7 +123,7 @@ export class Multicast {
         }
 
         socket.on("error", () => this.close());
-        socket.on("message", (data) => this.receive(data));
+        socket.on("message", (data, rinfo) => this.receive(data, rinfo));
 
         this.announce();
 
@@ -188,7 +189,7 @@ export class Multicast {
     this.send(this.local());
   }
 
-  private receive(data: Buffer) {
+  private receive(data: Buffer, rinfo: RemoteInfo) {
     let message: unknown;
 
     try {
@@ -239,6 +240,23 @@ export class Multicast {
       }
     }
 
+    const host = hostname(value.addr);
+
+    if (
+      host === undefined ||
+      (!isLoopback(rinfo.address) && isLoopback(host))
+    ) {
+      return;
+    }
+
     this.events.emit("peers", [{ id: value.from, addr: value.addr }]);
+  }
+}
+
+function hostname(addr: string) {
+  try {
+    return new URL(addr).hostname.replace(/^\[(.*)\]$/, "$1");
+  } catch {
+    return undefined;
   }
 }

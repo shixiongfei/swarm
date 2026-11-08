@@ -214,6 +214,10 @@ export class NodeLink implements Observable {
     return this.link.transport;
   }
 
+  get local() {
+    return this.link.local;
+  }
+
   hello() {
     this.link.hello(this.token());
   }

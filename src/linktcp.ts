@@ -11,6 +11,7 @@
 
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
+import { isLoopback } from "./address.ts";
 import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
@@ -23,6 +24,7 @@ const maxQueueSize = maxEnvelopeSize * 2;
 
 export class LinkTcp extends Link {
   readonly transport = "socket";
+  readonly local: boolean;
   private readonly socket: Socket;
   private buffer: Uint8Array = new Uint8Array(0);
   private head = 0;
@@ -76,6 +78,7 @@ export class LinkTcp extends Link {
     super(nodeId);
 
     this.socket = socket;
+    this.local = isLoopback(socket.remoteAddress);
 
     socket.setNoDelay(true);
     socket.on("data", this.onData);

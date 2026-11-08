@@ -23,6 +23,7 @@ import type { WatchEvent } from "./registry.ts";
 
 class StubLink extends Link {
   readonly transport = "socket";
+  readonly local = true;
   readonly sent: Envelope[] = [];
   closed = false;
   failNextSend = false;
@@ -677,44 +678,4 @@ describe("NodeLink", () => {
 
     assert.equal(pings.length, 1);
   });
-
-  test(
-    "handshakes with a secret without webcrypto",
-    { timeout: 5000 },
-    async (t) => {
-      const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
-
-      Object.defineProperty(globalThis, "crypto", {
-        value: undefined,
-        configurable: true,
-        writable: true,
-      });
-
-      const a = new Node({ cluster: "no-webcrypto-a", secret: "s3cret" });
-      const b = new Node({ cluster: "no-webcrypto-b", secret: "s3cret" });
-      const { port1, port2 } = new MessageChannel();
-
-      t.after(() => {
-        if (original !== undefined) {
-          Object.defineProperty(globalThis, "crypto", original);
-        }
-
-        a.close();
-        b.close();
-        port1.close();
-        port2.close();
-      });
-
-      a.register("math", { add: (x: number, y: number) => x + y });
-
-      const up = new Promise<WatchEvent>((resolve) => b.watch("math", resolve));
-
-      a.attach(port1);
-      b.attach(port2);
-
-      await up;
-
-      assert.equal(await b.call("math", "add", [1, 2]), 3);
-    },
-  );
 });

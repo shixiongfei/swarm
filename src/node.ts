@@ -11,6 +11,7 @@
 
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
+import { isAdvertisable, isLoopback } from "./address.ts";
 import { Balancer } from "./balancer.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
@@ -43,6 +44,8 @@ export type NodeConfig = {
   cluster: string;
   secret?: string;
   callTimeout?: number;
+  memberTtl?: number;
+  dialTtl?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
 };
@@ -69,9 +72,13 @@ export class Node implements Provider {
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
   private readonly members: PeerEntry[] = [];
-  private readonly dials = new Set<string>();
+  private readonly seen = new Map<string, number>();
+  private readonly dials = new Map<string, Client | undefined>();
+  private readonly expiries = new Map<string, number>();
   private readonly seeds: Array<string | URL>;
   private readonly callTimeout: number;
+  private readonly memberTtl: number;
+  private readonly dialTtl: number;
   private readonly multicastConfig: MulticastOptions | undefined;
   private multicast: Multicast | undefined;
   private closed = false;
@@ -85,6 +92,10 @@ export class Node implements Provider {
     this.callTimeout =
       config.callTimeout !== undefined ? config.callTimeout : 5000;
 
+    this.memberTtl = config.memberTtl !== undefined ? config.memberTtl : 60000;
+    this.dialTtl =
+      config.dialTtl !== undefined ? config.dialTtl : 24 * 60 * 60 * 1000;
+
     this.seeds = config.seeds !== undefined ? config.seeds : [];
     this.multicastConfig = config.multicast;
 
@@ -93,8 +104,12 @@ export class Node implements Provider {
       provider: this,
     });
 
-    this.nodeHub.events.on("open", (nodeLink) => nodeLink.peers(this.members));
-    this.nodeHub.events.on("peers", (members) => this.learn(members));
+    this.nodeHub.events.on("open", (nodeLink) =>
+      nodeLink.peers(this.shared(nodeLink)),
+    );
+    this.nodeHub.events.on("peers", (nodeLink, members) =>
+      this.learn(members, nodeLink),
+    );
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
@@ -506,6 +521,7 @@ export class Node implements Provider {
   private async createClient(
     url: string | URL,
     options: ClientOptions | undefined,
+    expected?: string,
   ): Promise<Client> {
     const { protocol, host, port, secret: urlSecret } = parseUrl(url);
     const secret =
@@ -518,7 +534,12 @@ export class Node implements Provider {
       const client = new TcpClient(host, port, options);
 
       client.events.on("online", (socket) => {
-        this.attachLink(new LinkTcp(socket, this.nodeId), secret);
+        this.attachLink(
+          new LinkTcp(socket, this.nodeId),
+          secret,
+          expected,
+          String(url),
+        );
       });
 
       return client;
@@ -528,13 +549,23 @@ export class Node implements Provider {
     const client = new WsClient(url, options);
 
     client.events.on("online", (socket) => {
-      this.attachLink(new LinkWs(socket, this.nodeId), secret);
+      this.attachLink(
+        new LinkWs(socket, this.nodeId, isLoopback(host)),
+        secret,
+        expected,
+        String(url),
+      );
     });
 
     return client;
   }
 
-  private attachLink(link: Link, secret?: string) {
+  private attachLink(
+    link: Link,
+    secret?: string,
+    expected?: string,
+    addr?: string,
+  ) {
     const nodeLink = new NodeLink(link, {
       provider: this,
       secret: secret !== undefined ? secret : this.secret,
@@ -543,8 +574,34 @@ export class Node implements Provider {
     this.nodeLinks.push(nodeLink);
     this.watcher.addSource(nodeLink);
 
-    nodeLink.events.on("open", () => nodeLink.peers(this.members));
-    nodeLink.events.on("peers", (members) => this.learn(members));
+    nodeLink.events.on("open", (peer) => {
+      if (expected !== undefined && peer !== expected) {
+        nodeLink.close();
+
+        if (addr !== undefined) {
+          this.forget(expected, addr);
+        }
+
+        return;
+      }
+
+      if (addr !== undefined) {
+        this.expiries.delete(addr);
+      }
+
+      if (expected !== undefined && addr !== undefined) {
+        this.seen.set(expected, Date.now());
+
+        if (!this.members.some((member) => member.id === expected)) {
+          this.members.push({ id: expected, addr });
+          this.broadcastPeers();
+          return;
+        }
+      }
+
+      nodeLink.peers(this.shared(nodeLink));
+    });
+    nodeLink.events.on("peers", (members) => this.learn(members, nodeLink));
     nodeLink.events.on("close", () => this.detach(nodeLink));
 
     nodeLink.hello();
@@ -558,29 +615,48 @@ export class Node implements Provider {
     }
 
     this.watcher.removeSource(nodeLink);
+
+    const peer = nodeLink.peerId;
+
+    if (
+      peer !== undefined &&
+      this.members.some((member) => member.id === peer)
+    ) {
+      this.seen.set(peer, Date.now());
+    }
   }
 
-  private learn(entries: PeerEntry[]) {
-    let changed = false;
+  private learn(entries: PeerEntry[], nodeLink?: NodeLink) {
+    const now = Date.now();
+    const local = nodeLink === undefined ? true : nodeLink.local;
     const advertised = this.members.some((member) => member.id === this.nodeId);
+    let changed = false;
 
     for (const entry of entries) {
-      if (
-        entry.id === this.nodeId ||
-        this.members.some((member) => member.id === entry.id)
-      ) {
+      if (entry.id === this.nodeId) {
         continue;
       }
 
+      let host: string;
+
       try {
-        if (!isAdvertisable(parseUrl(entry.addr).host)) {
-          continue;
-        }
+        host = parseUrl(entry.addr).host;
       } catch {
         continue;
       }
 
+      if (!isAdvertisable(host) || (!local && isLoopback(host))) {
+        continue;
+      }
+
+      this.seen.set(entry.id, now);
+
+      if (this.members.some((member) => member.id === entry.id)) {
+        continue;
+      }
+
       this.members.push(entry);
+      this.expiries.delete(entry.addr);
       changed = true;
 
       const linked =
@@ -588,8 +664,12 @@ export class Node implements Provider {
         this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
 
       if ((!advertised || this.nodeId < entry.id) && !linked) {
-        void this.dial(entry.addr);
+        void this.dial(entry.addr, entry.id);
       }
+    }
+
+    if (this.prune(now)) {
+      changed = true;
     }
 
     if (changed) {
@@ -597,16 +677,106 @@ export class Node implements Provider {
     }
   }
 
-  private broadcastPeers() {
+  private prune(now: number) {
+    const linked = new Set<string>();
+
     for (const nodeLink of this.nodeLinks) {
       if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.members);
+        linked.add(nodeLink.peerId);
       }
     }
 
     for (const nodeLink of this.nodeHub.links) {
       if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.members);
+        linked.add(nodeLink.peerId);
+      }
+    }
+
+    let changed = false;
+
+    for (let index = this.members.length - 1; index >= 0; index -= 1) {
+      const member = this.members[index];
+
+      if (member.id === this.nodeId || linked.has(member.id)) {
+        continue;
+      }
+
+      const seen = this.seen.get(member.id);
+
+      if (seen === undefined || seen + this.memberTtl > now) {
+        continue;
+      }
+
+      this.members.splice(index, 1);
+      this.seen.delete(member.id);
+
+      if (this.dials.has(member.addr)) {
+        this.expiries.set(member.addr, now + this.dialTtl);
+      }
+
+      changed = true;
+    }
+
+    for (const [addr, expires] of this.expiries) {
+      if (expires <= now) {
+        this.dropDial(addr);
+      }
+    }
+
+    return changed;
+  }
+
+  private forget(id: string, addr: string) {
+    const index = this.members.findIndex((member) => member.id === id);
+
+    if (index >= 0) {
+      this.members.splice(index, 1);
+      this.seen.delete(id);
+      this.broadcastPeers();
+    }
+
+    this.dropDial(addr);
+  }
+
+  private dropDial(addr: string) {
+    const client = this.dials.get(addr);
+
+    this.dials.delete(addr);
+    this.expiries.delete(addr);
+
+    if (client === undefined) {
+      return;
+    }
+
+    const index = this.clients.indexOf(client);
+
+    if (index >= 0) {
+      this.clients.splice(index, 1);
+    }
+
+    client.close();
+  }
+
+  private shared(nodeLink: NodeLink) {
+    if (nodeLink.local) {
+      return this.members;
+    }
+
+    return this.members.filter(
+      (member) => !isLoopback(parseUrl(member.addr).host),
+    );
+  }
+
+  private broadcastPeers() {
+    for (const nodeLink of this.nodeLinks) {
+      if (nodeLink.peerId !== undefined) {
+        nodeLink.peers(this.shared(nodeLink));
+      }
+    }
+
+    for (const nodeLink of this.nodeHub.links) {
+      if (nodeLink.peerId !== undefined) {
+        nodeLink.peers(this.shared(nodeLink));
       }
     }
   }
@@ -657,23 +827,39 @@ export class Node implements Provider {
     }
   }
 
-  private async dial(addr: string) {
+  private async dial(addr: string, id?: string) {
     if (this.dials.has(addr)) {
       return;
     }
 
-    this.dials.add(addr);
+    this.dials.set(addr, undefined);
+
+    let client: Client;
 
     try {
-      await this.connect(addr);
+      client = await this.createClient(addr, undefined, id);
+    } catch {
+      this.dials.delete(addr);
+      return;
+    }
+
+    this.dials.set(addr, client);
+    this.clients.push(client);
+
+    client.events.on("retry", () => {
+      queueMicrotask(() => {
+        if (this.prune(Date.now())) {
+          this.broadcastPeers();
+        }
+      });
+    });
+
+    try {
+      await client.connect();
     } catch {
       // the client retries on its own
     }
   }
-}
-
-function isAdvertisable(host: string) {
-  return host !== "0.0.0.0" && host !== "::" && host !== "::ffff:0:0";
 }
 
 function parseUrl(url: string | URL): {
@@ -750,7 +936,7 @@ export function createNode(options: NodeOptions = {}) {
   return node;
 }
 
-export type { ClientOptions };
+export type { ClientOptions, MulticastOptions };
 export type { Methods, TopicHandler };
 export type { MetaData, WatchHandler };
 export type { Instance, WatchEvent } from "./registry.ts";

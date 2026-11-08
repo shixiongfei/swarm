@@ -18,6 +18,7 @@ const linked = new WeakSet<MessagePort>();
 
 export class LinkPort extends Link {
   readonly transport = "port";
+  readonly local = true;
   private readonly port: MessagePort;
 
   private readonly dispose: () => void;

@@ -24,6 +24,7 @@ export type Transport = "port" | "socket";
 export abstract class Link implements Enveloper {
   readonly nodeId: string;
   abstract readonly transport: Transport;
+  abstract readonly local: boolean;
   readonly events = eventlite<LinkEvents>({
     allowDuplicate: true,
     isolate: true,

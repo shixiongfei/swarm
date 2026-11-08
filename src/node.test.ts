@@ -1631,3 +1631,265 @@ test("rejects a forwarded call whose hop budget is exhausted", async (t) => {
 
   assert.equal((await failed).kind, "not-found");
 });
+
+test("dial rejects a peer that does not match the advertised id", async (t) => {
+  const target = new Node({ cluster: "dial-identity-target" });
+  const node = new Node({ cluster: "dial-identity" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    target.close();
+    port1.close();
+    port2.close();
+  });
+
+  target.register("math", { add: (x: number, y: number) => x + y });
+  node.register("pingpong", { ping: () => "pong" });
+
+  const bound = await target.listen("tcp://127.0.0.1:0");
+
+  const up = new Promise<WatchEvent>((resolve) =>
+    target.watch("pingpong", resolve),
+  );
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "ghost" });
+  port2.postMessage({
+    t: "peers",
+    from: "ghost",
+    members: [{ id: "expected", addr: `tcp://127.0.0.1:${bound.port}` }],
+  });
+
+  const event = await within(up, 2000);
+
+  assert.notEqual(event, undefined);
+  assert.equal(event?.type, "up");
+
+  let rejected = false;
+
+  for (let attempt = 0; attempt < 20 && !rejected; attempt += 1) {
+    try {
+      await node.call("math", "add", [1, 2]);
+    } catch {
+      rejected = true;
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  assert.equal(rejected, true);
+});
+
+test("peers drops loopback members from a non-local link", (t) => {
+  const node = new Node({ cluster: "peers-loopback" });
+  const internals = node as unknown as NodeInternals;
+  const self = { id: node.nodeId, addr: "tcp://127.0.0.1:9" };
+  const remote = {
+    id: "00000000000000000000000000000000",
+    addr: "tcp://192.168.0.9:9",
+  };
+
+  t.after(() => node.close());
+
+  internals.members.push(self);
+  internals.learn([{ id: "local", addr: "tcp://127.0.0.1:9" }], {
+    local: false,
+  });
+  internals.learn([remote], { local: false });
+
+  assert.deepEqual(
+    internals.members.map((member) => member.id),
+    [self.id, remote.id],
+  );
+});
+
+test("expires members whose advertisements stopped", async (t) => {
+  const port = await freePort();
+  const node = new Node({ cluster: "members-expire", memberTtl: 1000 });
+  const internals = node as unknown as NodeInternals;
+  const remote = {
+    id: "00000000000000000000000000000000",
+    addr: `tcp://127.0.0.1:${port}`,
+  };
+
+  t.after(() => node.close());
+
+  internals.learn([remote], { local: true });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(internals.members.length, 1);
+
+  internals.seen.set(remote.id, Date.now() - 2000);
+  internals.learn([], { local: true });
+
+  assert.equal(internals.members.length, 0);
+  assert.equal(internals.seen.has(remote.id), false);
+  assert.equal(internals.dials.has(remote.addr), true);
+  assert.equal(internals.expiries.has(remote.addr), true);
+  assert.equal(internals.clients.length, 1);
+});
+
+test("drops a dial after the eviction window", async (t) => {
+  const port = await freePort();
+  const node = new Node({
+    cluster: "members-dial-ttl",
+    memberTtl: 1000,
+    dialTtl: 1000,
+  });
+  const internals = node as unknown as NodeInternals;
+  const remote = {
+    id: "00000000000000000000000000000000",
+    addr: `tcp://127.0.0.1:${port}`,
+  };
+
+  t.after(() => node.close());
+
+  internals.learn([remote], { local: true });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  internals.seen.set(remote.id, Date.now() - 2000);
+  internals.learn([], { local: true });
+
+  assert.equal(internals.dials.has(remote.addr), true);
+  assert.equal(internals.expiries.has(remote.addr), true);
+
+  internals.expiries.set(remote.addr, Date.now() - 1);
+  internals.learn([], { local: true });
+
+  assert.equal(internals.dials.has(remote.addr), false);
+  assert.equal(internals.clients.length, 0);
+  assert.equal(internals.expiries.has(remote.addr), false);
+});
+
+test("restores a member when the dial link reconnects", async (t) => {
+  const a = new Node({ cluster: "members-restore" });
+  const b = new Node({ cluster: "members-restore" });
+  const internals = b as unknown as NodeInternals & {
+    nodeLinks: unknown[];
+  };
+
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+
+  const address = await a.listen("tcp://127.0.0.1:0");
+
+  internals.learn([{ id: a.nodeId, addr: `tcp://127.0.0.1:${address.port}` }], {
+    local: true,
+  });
+
+  const linked = await within(
+    new Promise<boolean>((resolve) => {
+      const tick = () => {
+        if (internals.nodeLinks.length > 0) {
+          resolve(true);
+          return;
+        }
+
+        setTimeout(tick, 20);
+      };
+
+      tick();
+    }),
+    2000,
+  );
+
+  assert.equal(linked, true);
+
+  (a as unknown as { servers: Array<{ close(): void }> }).servers[0].close();
+
+  internals.members.length = 0;
+  internals.seen.clear();
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  await a.listen(`tcp://127.0.0.1:${address.port}`);
+
+  const restored = await within(
+    new Promise<boolean>((resolve) => {
+      const tick = () => {
+        if (internals.members.some((member) => member.id === a.nodeId)) {
+          resolve(true);
+          return;
+        }
+
+        setTimeout(tick, 20);
+      };
+
+      tick();
+    }),
+    4000,
+  );
+
+  assert.equal(restored, true);
+});
+
+test("refreshes member freshness when the link closes", async (t) => {
+  const node = new Node({ cluster: "members-detach", memberTtl: 1000 });
+  const { port1, port2 } = new MessageChannel();
+  const internals = node as unknown as NodeInternals & {
+    nodeLinks: Array<{ peerId?: string; close(): void }>;
+  };
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  node.attach(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "peer" });
+
+  const opened = await within(
+    new Promise<boolean>((resolve) => {
+      const tick = () => {
+        const nodeLink = internals.nodeLinks[0];
+
+        if (nodeLink !== undefined && nodeLink.peerId === "peer") {
+          resolve(true);
+          return;
+        }
+
+        setTimeout(tick, 10);
+      };
+
+      tick();
+    }),
+    2000,
+  );
+
+  assert.equal(opened, true);
+
+  internals.learn([{ id: "peer", addr: "tcp://10.0.0.9:9" }], { local: true });
+  internals.seen.set("peer", Date.now() - 5000);
+
+  const before = Date.now();
+
+  internals.nodeLinks[0].close();
+
+  assert.equal(internals.members.length, 1);
+  assert.equal((internals.seen.get("peer") as number) >= before, true);
+
+  internals.learn([], { local: true });
+
+  assert.equal(internals.members.length, 1);
+});
+
+type NodeInternals = {
+  members: Array<{ id: string; addr: string }>;
+  seen: Map<string, number>;
+  dials: Map<string, unknown>;
+  expiries: Map<string, number>;
+  clients: unknown[];
+  learn(
+    entries: Array<{ id: string; addr: string }>,
+    link: { local: boolean },
+  ): void;
+};
