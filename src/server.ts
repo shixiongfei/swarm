@@ -12,7 +12,7 @@
 import { eventlite } from "eventlite.js";
 
 export type ServerEvents<S = any> = {
-  online: (socket: S) => void;
+  online: (socket: S, remoteAddress?: string) => void;
   offline: (socket: S) => void;
   error: (error: Error) => void;
 };
@@ -65,14 +65,14 @@ export abstract class Server<S = any> {
     this.sockets.clear();
   }
 
-  protected accept(socket: S) {
+  protected accept(socket: S, remoteAddress?: string) {
     if (this.closed) {
       this.destroy(socket);
       return;
     }
 
     this.sockets.add(socket);
-    this.events.emit("online", socket);
+    this.events.emit("online", socket, remoteAddress);
   }
 
   protected drop(socket: S) {

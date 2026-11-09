@@ -54,7 +54,9 @@ export class WsServer extends Server<WebSocket> {
       return;
     }
 
-    this.server.handleUpgrade(request, socket, head, (ws) => this.onSocket(ws));
+    this.server.handleUpgrade(request, socket, head, (ws) =>
+      this.onSocket(ws, (socket as { remoteAddress?: string }).remoteAddress),
+    );
   };
 
   constructor(host: string, port: number, options?: WsServerOptions) {
@@ -148,10 +150,10 @@ export class WsServer extends Server<WebSocket> {
     socket.terminate();
   }
 
-  private onSocket(socket: WebSocket) {
+  private onSocket(socket: WebSocket, remoteAddress?: string) {
     socket.on("error", () => socket.terminate());
     socket.once("close", () => this.drop(socket));
 
-    this.accept(socket);
+    this.accept(socket, remoteAddress);
   }
 }

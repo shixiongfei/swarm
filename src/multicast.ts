@@ -79,6 +79,10 @@ export class Multicast {
     this.ttl = config.ttl !== undefined ? config.ttl : 1;
   }
 
+  get active() {
+    return this.socket !== undefined;
+  }
+
   async open(local: () => PeerEntry[]) {
     this.local = local;
 

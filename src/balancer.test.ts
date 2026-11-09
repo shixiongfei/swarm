@@ -143,7 +143,7 @@ describe("Balancer", () => {
     const balancer = new Balancer();
 
     assert.throws(
-      () => balancer.invoke("nope", "add", [], 10, 8, undefined),
+      () => balancer.invoke("nope", "add", [], 10, 8, undefined, undefined),
       (err: SwarmError) => err.kind === "not-found",
     );
   });
@@ -156,10 +156,16 @@ describe("Balancer", () => {
     const healthy = link("healthy", async () => 7);
 
     assert.equal(
-      await balancer.invoke("math", "add", [1, 2], 10, 8, undefined, [
-        stale,
-        healthy,
-      ]),
+      await balancer.invoke(
+        "math",
+        "add",
+        [1, 2],
+        10,
+        8,
+        undefined,
+        undefined,
+        [stale, healthy],
+      ),
       7,
     );
   });
@@ -174,12 +180,126 @@ describe("Balancer", () => {
     const healthy = link("healthy", async () => 7);
 
     await assert.rejects(
-      balancer.invoke("math", "add", [], 10, 8, undefined, [
+      balancer.invoke("math", "add", [], 10, 8, undefined, undefined, [
         rejecting,
         healthy,
       ]),
       (err: SwarmError) => err.kind === "rejected",
     );
     assert.equal(calls, 1);
+  });
+
+  test("invoke retries the next link when a call times out", async () => {
+    const balancer = new Balancer();
+    const slow = link("slow", async () => {
+      throw new SwarmError("timeout", "call timed out: math.add");
+    });
+    const healthy = link("healthy", async () => 7);
+
+    assert.equal(
+      await balancer.invoke(
+        "math",
+        "add",
+        [1, 2],
+        10,
+        8,
+        undefined,
+        undefined,
+        [slow, healthy],
+      ),
+      7,
+    );
+  });
+
+  test("invoke passes a reduced timeout to retried calls", async () => {
+    const balancer = new Balancer();
+    const seen: number[] = [];
+    const slow = {
+      ...link("slow", async () => {
+        throw new SwarmError("timeout", "call timed out: math.add");
+      }),
+      call: (...args: unknown[]) => {
+        seen.push(args[4] as number);
+        return new Promise<never>((_resolve, reject) => {
+          setTimeout(
+            () => reject(new SwarmError("timeout", "call timed out: math.add")),
+            20,
+          );
+        });
+      },
+    } as unknown as NodeLink;
+    const healthy = {
+      ...link("healthy", async () => 7),
+      call: (...args: unknown[]) => {
+        seen.push(args[4] as number);
+        return Promise.resolve(7);
+      },
+    } as unknown as NodeLink;
+
+    await balancer.invoke(
+      "math",
+      "add",
+      [1, 2],
+      1000,
+      8,
+      undefined,
+      undefined,
+      [slow, healthy],
+    );
+
+    assert.equal(seen.length, 2);
+    assert.ok(seen[0] <= 1000);
+    assert.ok(seen[1] < seen[0]);
+  });
+
+  test("invoke stops retrying when the timeout budget is exhausted", async () => {
+    const balancer = new Balancer();
+    let calls = 0;
+    const slow = link(
+      "slow",
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          calls += 1;
+          setTimeout(
+            () => reject(new SwarmError("timeout", "call timed out: math.add")),
+            50,
+          );
+        }),
+    );
+    const healthy = link("healthy", async () => {
+      calls += 1;
+      return 7;
+    });
+
+    await assert.rejects(
+      balancer.invoke("math", "add", [], 20, 8, undefined, undefined, [
+        slow,
+        healthy,
+      ]),
+      (err: SwarmError) => err.kind === "timeout",
+    );
+    assert.equal(calls, 1);
+  });
+
+  test("invoke rejects with timeout immediately when no budget remains", async () => {
+    const balancer = new Balancer();
+    let calls = 0;
+    const slow = link("slow", async () => {
+      calls += 1;
+      throw new SwarmError("timeout", "call timed out: math.add");
+    });
+    const healthy = link("healthy", async () => {
+      calls += 1;
+      return 7;
+    });
+
+    await assert.rejects(
+      balancer.invoke("math", "add", [], 0, 8, undefined, undefined, [
+        slow,
+        healthy,
+      ]),
+      (err: SwarmError) => err.kind === "timeout",
+    );
+    assert.equal(calls, 0);
   });
 });

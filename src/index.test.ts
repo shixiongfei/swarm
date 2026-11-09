@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createNode, Node } from "./index.ts";
+import { SwarmError } from "./errors.ts";
 
 describe("createNode", () => {
   test("returns the same node for the same cluster", () => {
@@ -19,6 +20,18 @@ describe("createNode", () => {
     const second = createNode({ cluster: "same-cluster" });
 
     assert.equal(first, second);
+  });
+
+  test("rejects conflicting options for an existing cluster", (t) => {
+    const node = createNode({ cluster: "conflict-cluster", secret: "one" });
+
+    t.after(() => node.close());
+
+    assert.throws(
+      () => createNode({ cluster: "conflict-cluster", secret: "two" }),
+      (err: SwarmError) =>
+        err.kind === "rejected" && err.message.includes("secret"),
+    );
   });
 
   test("defaults to the default cluster", () => {

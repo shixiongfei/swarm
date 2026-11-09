@@ -11,7 +11,6 @@
 
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
-import { isLoopback } from "./address.ts";
 import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -82,12 +81,11 @@ export class LinkWs extends Link {
     this.events.emit("close");
   };
 
-  constructor(socket: WebSocket, nodeId: string, local?: boolean) {
+  constructor(socket: WebSocket, nodeId: string, local: boolean) {
     super(nodeId);
 
     this.socket = socket;
-    this.local =
-      local !== undefined ? local : isLoopback(socketRemoteAddress(socket));
+    this.local = local;
     this.socket.binaryType = "arraybuffer";
 
     socket.addEventListener("message", this.onMessage);
@@ -152,12 +150,4 @@ export class LinkWs extends Link {
     this.socket.removeEventListener("close", this.onClose);
     this.socket.close();
   }
-}
-
-function socketRemoteAddress(socket: WebSocket) {
-  const address = (
-    socket as unknown as { _socket?: { remoteAddress?: string } }
-  )._socket;
-
-  return address !== undefined ? address.remoteAddress : undefined;
 }

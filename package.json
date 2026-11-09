@@ -17,6 +17,7 @@
     "./dist/multicast.js": false,
     "./dist/tcpclient.js": false,
     "./dist/tcpserver.js": false,
+    "./dist/wsclient.tls.js": false,
     "./dist/wsserver.js": false
   },
   "engines": {

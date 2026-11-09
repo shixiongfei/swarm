@@ -11,7 +11,7 @@
 
 import { randomId } from "./random.ts";
 import { withTimeout } from "./timeout.ts";
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 
 type Entry = {
   resolve(value: unknown): void;
@@ -21,22 +21,51 @@ type Entry = {
 export class PendingCalls {
   private readonly entries = new Map<string, Entry>();
 
+  get size() {
+    return this.entries.size;
+  }
+
   call(
     send: (id: string) => void,
     timeout: number,
     timeoutError: () => SwarmError,
     sendError: (cause: unknown) => SwarmError,
+    signal?: AbortSignal,
   ) {
     const id = randomId();
 
     const reply = new Promise<unknown>((resolve, reject) => {
       this.entries.set(id, { resolve, reject });
 
+      if (signal !== undefined && signal.aborted) {
+        this.entries.delete(id);
+        reject(new SwarmError("cancelled", "call was cancelled"));
+        return;
+      }
+
       try {
         send(id);
       } catch (err) {
         this.entries.delete(id);
         reject(sendError(err));
+        return;
+      }
+
+      if (signal !== undefined) {
+        signal.addEventListener(
+          "abort",
+          () => {
+            const entry = this.entries.get(id);
+
+            if (entry === undefined) {
+              return;
+            }
+
+            this.entries.delete(id);
+            entry.reject(new SwarmError("cancelled", "call was cancelled"));
+          },
+          { once: true },
+        );
       }
     });
 

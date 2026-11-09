@@ -89,7 +89,6 @@ export abstract class Client<S = any> {
     try {
       const opening = this.open();
 
-      // a late rejection after the timeout must not become unhandled
       void opening.catch(() => {});
 
       await Promise.race([

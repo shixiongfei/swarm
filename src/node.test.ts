@@ -184,6 +184,24 @@ describe("Node", () => {
     assert.deepEqual(received, []);
   });
 
+  test("call returns a promise for a local service", async (t) => {
+    const node = makeNode();
+
+    t.after(() => node.close());
+
+    node.register("math", { add: () => 3 });
+
+    const call = node.call("math", "add");
+
+    assert.equal(call instanceof Promise, true);
+    assert.equal(await call, 3);
+
+    const targeted = node.callTo(node.nodeId, "math", "add");
+
+    assert.equal(targeted instanceof Promise, true);
+    assert.equal(await targeted, 3);
+  });
+
   test("call uses the node call timeout", async (t) => {
     const node = makeNode(20);
     const ghost = await attachGhost(node, "math");
@@ -336,7 +354,6 @@ describe("Node", () => {
     b.attach(cb.port2);
     assert.equal(await waitFor(() => b.snapshot().services.length === 1), true);
 
-    // b already knows a's service; opening b-a announces it back to a.
     b.attach(ba.port1);
     a.attach(ba.port2);
     assert.equal(await waitFor(() => a.snapshot().links.length === 2), true);
@@ -458,7 +475,7 @@ describe("Node", () => {
     );
   });
 
-  test("operations fail after close", (t) => {
+  test("operations fail after close", async (t) => {
     const node = makeNode();
     const { port1, port2 } = new MessageChannel();
 
@@ -498,10 +515,287 @@ describe("Node", () => {
       () => node.attach(port1),
       (err: SwarmError) => err.kind === "rejected",
     );
-    assert.throws(
-      () => node.call("math", "add"),
+    await assert.rejects(
+      node.call("math", "add"),
       (err: SwarmError) => err.kind === "rejected",
     );
+  });
+
+  test("snapshot reports closed and empty after close", () => {
+    const node = makeNode();
+    node.register("math", { add: () => 0 });
+
+    assert.equal(node.snapshot().closed, false);
+    assert.equal(node.snapshot().services.length, 1);
+
+    node.close();
+
+    const snap = node.snapshot();
+    assert.equal(snap.closed, true);
+    assert.deepEqual(snap.services, []);
+    assert.deepEqual(snap.members, []);
+    assert.deepEqual(snap.links, []);
+  });
+
+  test("snapshot exposes seeds, multicast state, and health", (t) => {
+    const node = new Node({
+      cluster: "obs-snapshot",
+      seeds: ["tcp://127.0.0.1:1234", new URL("ws://127.0.0.1:5678")],
+    });
+
+    t.after(() => node.close());
+
+    const snap = node.snapshot();
+
+    assert.deepEqual(snap.seeds, [
+      "tcp://127.0.0.1:1234",
+      "ws://127.0.0.1:5678/",
+    ]);
+    assert.equal(snap.multicast, false);
+    assert.equal(snap.health, "isolated");
+  });
+
+  test("snapshot link info includes setup duration and queue depth", async (t) => {
+    const hub = new Node({ cluster: "obs-link-info" });
+    const peer = new Node({ cluster: "obs-link-peer" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    const address = await hub.listen("tcp://127.0.0.1:0");
+    await peer.connect(`tcp://127.0.0.1:${address.port}`);
+
+    await waitFor(
+      () =>
+        hub.snapshot().links.length === 1 &&
+        hub.snapshot().links[0].setup !== undefined,
+    );
+
+    const link = hub.snapshot().links[0];
+
+    assert.equal(typeof link.setup, "number");
+    assert.equal(link.setup !== undefined && link.setup >= 0, true);
+    assert.equal(link.queue, 0);
+  });
+
+  test("emits link-up and link-down events", async (t) => {
+    const node = new Node({ cluster: "obs-link-events" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    const ups: unknown[] = [];
+    const downs: unknown[] = [];
+
+    node.events.on("link-up", (link) => ups.push(link));
+    node.events.on("link-down", (link) => downs.push(link));
+
+    node.join(port1);
+    port2.start();
+    port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+
+    await waitFor(() => ups.length === 1);
+
+    port2.close();
+
+    await waitFor(() => downs.length === 1);
+  });
+
+  test("emits member-up and member-down events", async (t) => {
+    const hub = new Node({ cluster: "obs-member-events" });
+    const peer = new Node({ cluster: "obs-member-peer" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    const ups: unknown[] = [];
+    const downs: unknown[] = [];
+
+    hub.events.on("member-up", (member) => ups.push(member));
+    hub.events.on("member-down", (member) => downs.push(member));
+
+    const address = await hub.listen("tcp://127.0.0.1:0");
+    await peer.connect(`tcp://127.0.0.1:${address.port}`);
+
+    await waitFor(() =>
+      ups.some((member) => (member as { id?: string }).id === peer.nodeId),
+    );
+
+    peer.close();
+
+    await waitFor(() =>
+      downs.some((member) => (member as { id?: string }).id === peer.nodeId),
+    );
+  });
+
+  test("accepts an error event listener", () => {
+    const node = makeNode();
+    let received: Error | undefined;
+
+    node.events.on("error", (error) => {
+      received = error;
+    });
+
+    node.close();
+
+    assert.equal(received, undefined);
+  });
+
+  test("call rejects with cancelled when the signal aborts", async (t) => {
+    const node = new Node({ cluster: "cancel-call" });
+
+    t.after(() => node.close());
+
+    node.register("slow", {
+      work: () => new Promise(() => {}),
+    });
+
+    const controller = new AbortController();
+    const promise = node.call("slow", "work", [], {
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await assert.rejects(
+      promise,
+      (err: SwarmError) =>
+        err.kind === "cancelled" && err.message.includes("cancelled"),
+    );
+  });
+
+  test("leave removes a member and closes its link", async (t) => {
+    const hub = new Node({ cluster: "leave-hub" });
+    const peer = new Node({ cluster: "leave-peer" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    const address = await hub.listen("tcp://127.0.0.1:0");
+    await peer.connect(`tcp://127.0.0.1:${address.port}`);
+
+    await waitFor(
+      () =>
+        hub.snapshot().members.some((m) => m.id === peer.nodeId) &&
+        hub.snapshot().links.length > 0,
+    );
+
+    hub.leave(peer.nodeId);
+
+    await waitFor(() => hub.snapshot().links.length === 0);
+    assert.equal(
+      hub.snapshot().members.some((m) => m.id === peer.nodeId),
+      false,
+    );
+  });
+
+  test("rejects calls that exceed the per-link in-flight limit", async (t) => {
+    const a = new Node({ cluster: "bp-a", maxInflight: 1 });
+    const b = new Node({ cluster: "bp-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    let release: (value?: unknown) => void;
+    const started = new Promise<void>((resolve) => {
+      b.register("slow", {
+        work: () => {
+          resolve();
+          return new Promise((r) => {
+            release = r;
+          });
+        },
+      });
+    });
+
+    const up = new Promise<WatchEvent>((resolve) => a.watch("slow", resolve));
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await up;
+
+    const first = a.call("slow", "work", [], { timeout: 60000 });
+    await started;
+
+    await assert.rejects(
+      a.call("slow", "work", [], { timeout: 60000 }),
+      (err: SwarmError) =>
+        err.kind === "rejected" && err.message.includes("in-flight"),
+    );
+
+    release!();
+    await first;
+  });
+
+  test("addSeed dials the new seed and removeSeed drops it", async (t) => {
+    const hub = new Node({ cluster: "seed-hub" });
+    const node = new Node({ cluster: "seed-node" });
+
+    t.after(() => {
+      hub.close();
+      node.close();
+    });
+
+    const address = await hub.listen("tcp://127.0.0.1:0");
+
+    assert.deepEqual(node.snapshot().seeds, []);
+
+    node.addSeed(`tcp://127.0.0.1:${address.port}`);
+
+    assert.equal(node.snapshot().seeds.length, 1);
+
+    await waitFor(
+      () =>
+        node.snapshot().members.some((m) => m.id === hub.nodeId) ||
+        node.snapshot().links.length > 0,
+    );
+
+    node.removeSeed(`tcp://127.0.0.1:${address.port}`);
+    assert.deepEqual(node.snapshot().seeds, []);
+  });
+
+  test("keeps redundant explicit links to the same peer", async (t) => {
+    const a = new Node({ cluster: "redun-a" });
+    const b = new Node({ cluster: "redun-b" });
+    const first = new MessageChannel();
+    const second = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      first.port1.close();
+      first.port2.close();
+      second.port1.close();
+      second.port2.close();
+    });
+
+    b.register("math", { add: () => 1 });
+
+    const up = new Promise<WatchEvent>((resolve) => a.watch("math", resolve));
+
+    a.attach(first.port1);
+    b.attach(first.port2);
+    a.attach(second.port1);
+    b.attach(second.port2);
+
+    await waitFor(() => a.snapshot().links.length === 2);
+    await up;
+    assert.equal(await a.call("math", "add"), 1);
   });
 
   test("passes the publisher nodeId to subscribers", async (t) => {
@@ -933,6 +1227,127 @@ describe("Node", () => {
 
     assert.equal(await received, 1);
   });
+
+  test("attach rejects a port that is already linked", (t) => {
+    const a = new Node({ cluster: "dup-attach-a" });
+    const b = new Node({ cluster: "dup-attach-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    a.attach(port1);
+
+    assert.throws(
+      () => b.attach(port1),
+      (err: SwarmError) =>
+        err.kind === "rejected" && /already linked/.test(err.message),
+    );
+  });
+
+  test("join rejects a port that is already attached", (t) => {
+    const a = new Node({ cluster: "misuse-join-a" });
+    const b = new Node({ cluster: "misuse-join-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    a.attach(port1);
+
+    assert.throws(
+      () => b.join(port1),
+      (err: SwarmError) =>
+        err.kind === "rejected" && /already linked/.test(err.message),
+    );
+  });
+
+  test("attach rejects a port that is already joined", (t) => {
+    const a = new Node({ cluster: "misuse-attach-a" });
+    const b = new Node({ cluster: "misuse-attach-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    a.join(port1);
+
+    assert.throws(
+      () => b.attach(port1),
+      (err: SwarmError) =>
+        err.kind === "rejected" && /already linked/.test(err.message),
+    );
+  });
+
+  test(
+    "attach cleans up the link when the port is closed",
+    {
+      timeout: 1000,
+    },
+    async (t) => {
+      const node = new Node({ cluster: "closed-port-cleanup" });
+      const { port1, port2 } = new MessageChannel();
+
+      t.after(() => {
+        node.close();
+        port2.close();
+      });
+
+      port1.close();
+      node.attach(port1);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      assert.equal(node.snapshot().links.length, 0);
+    },
+  );
+
+  test("attach cleans up when the initial hello fails", (t) => {
+    const node = new Node({ cluster: "hello-fail-cleanup" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    const failingPort = new Proxy(port1, {
+      get(target, prop, receiver) {
+        if (prop === "postMessage") {
+          return (message: unknown) => {
+            if ((message as { t?: string })?.t === "hello") {
+              throw new Error("simulated send failure");
+            }
+            return target.postMessage(message);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value === "function") {
+          return value.bind(target);
+        }
+        return value;
+      },
+    });
+
+    assert.throws(
+      () => node.attach(failingPort as unknown as MessagePort),
+      (err: SwarmError) => err.kind === "failed",
+    );
+
+    assert.equal(node.snapshot().links.length, 0);
+  });
 });
 
 for (const protocol of ["tcp", "ws"] as const) {
@@ -1258,8 +1673,8 @@ for (const protocol of ["tcp", "ws"] as const) {
 
         hub.close();
 
-        assert.throws(
-          () => hub.call("math", "add"),
+        await assert.rejects(
+          hub.call("math", "add"),
           (err: SwarmError) => err.kind === "rejected",
         );
       },
@@ -2113,6 +2528,45 @@ test("listen fills the bound port when advertise uses port 0", async (t) => {
   ]);
 });
 
+test("listen fills the bound port when advertise omits the port", async (t) => {
+  const node = new Node({ cluster: "advertise-port-omitted" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  const bound = await node.listen("ws://0.0.0.0:0", {
+    advertise: "ws://127.0.0.1/",
+  });
+
+  const learned = new Promise<Array<{ id: string; addr: string }>>(
+    (resolve) => {
+      port2.addEventListener("message", (event) => {
+        const message = event.data as { t?: string; members?: unknown };
+
+        if (
+          message.t === "peers" &&
+          Array.isArray(message.members) &&
+          message.members.length > 0
+        ) {
+          resolve(message.members as Array<{ id: string; addr: string }>);
+        }
+      });
+    },
+  );
+
+  node.join(port1);
+  port2.start();
+  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+
+  assert.deepEqual(await learned, [
+    { id: node.nodeId, addr: `ws://127.0.0.1:${bound.port}` },
+  ]);
+});
+
 test("listen does not advertise without options", async (t) => {
   const node = new Node({ cluster: "advertise-off" });
   const { port1, port2 } = new MessageChannel();
@@ -2451,8 +2905,8 @@ test("updates a member address and its dial", async (t) => {
     .members.filter((member) => member.id === remoteId);
 
   assert.equal(members.length, 1);
-  assert.equal(members[0].addr, second.addr);
-  assert.equal(internals.dials.has(firstAddr), false);
+  assert.equal(members[0].addr, first.addr);
+  assert.equal(internals.dials.has(firstAddr), true);
   assert.equal(internals.dials.has(second.addr), true);
 });
 

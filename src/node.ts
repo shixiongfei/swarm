@@ -9,6 +9,7 @@
  * https://github.com/shixiongfei/swarm
  */
 
+import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
 import { isAdvertisable, isLoopback } from "./address.ts";
@@ -58,6 +59,7 @@ export type NodeConfig = {
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
+  maxInflight?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
 };
@@ -85,17 +87,33 @@ export type NodeLinkInfo = {
   latency: number | undefined;
   local: boolean;
   services: Instance[];
+  setup: number | undefined;
+  queue: number;
 };
+
+export type NodeHealth = "healthy" | "isolated" | "down";
 
 export type NodeSnapshot = {
   nodeId: string;
   cluster: string;
+  closed: boolean;
   services: Instance[];
   members: NodeMember[];
   links: NodeLinkInfo[];
+  seeds: string[];
+  multicast: boolean;
+  health: NodeHealth;
 };
 
-const nodes = new Map<string, Node>();
+export type NodeEvents = {
+  "member-up": (member: NodeMember) => void;
+  "member-down": (member: NodeMember) => void;
+  "link-up": (link: NodeLinkInfo) => void;
+  "link-down": (link: NodeLinkInfo) => void;
+  error: (error: Error) => void;
+};
+
+const nodes = new Map<string, { node: Node; options: NodeOptions }>();
 const defaultMaxHops = 8;
 const maxSeenPubs = 1024;
 const closeFlushTimeout = 1000;
@@ -105,6 +123,10 @@ export class Node implements Provider {
   readonly started = Date.now();
   readonly cluster: string;
   readonly secret?: string;
+  readonly events = eventlite<NodeEvents>({
+    allowDuplicate: true,
+    isolate: true,
+  });
 
   private readonly nodeLocal = new NodeLocal(this.nodeId);
   private readonly nodeLinks: NodeLink[] = [];
@@ -118,12 +140,13 @@ export class Node implements Provider {
   private readonly dials = new Map<string, Client | undefined>();
   private readonly expiries = new Map<string, number>();
   private readonly seenPubs = new Set<string>();
-  private readonly seeds: Array<string | URL>;
   private readonly callTimeout: number;
   private readonly memberTtl: number;
   private readonly dialTtl: number;
   private readonly maxHops: number;
+  private readonly maxInflight: number | undefined;
   private readonly multicastConfig: MulticastOptions | undefined;
+  private seeds: Array<string | URL>;
   private multicast: Multicast | undefined;
   private closed = false;
   private pruneTimer: ReturnType<typeof setTimeout> | undefined;
@@ -142,6 +165,7 @@ export class Node implements Provider {
       config.dialTtl !== undefined ? config.dialTtl : 24 * 60 * 60 * 1000;
     this.maxHops =
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
+    this.maxInflight = config.maxInflight;
 
     this.seeds = config.seeds !== undefined ? config.seeds : [];
     this.multicastConfig = config.multicast;
@@ -152,15 +176,20 @@ export class Node implements Provider {
       heartbeatInterval: config.heartbeatInterval,
       heartbeatTimeout: config.heartbeatTimeout,
       handshakeTimeout: config.handshakeTimeout,
+      maxInflight: this.maxInflight,
     });
 
-    this.nodeHub.events.on("open", (nodeLink) =>
-      nodeLink.peers(this.shared(nodeLink)),
-    );
+    this.nodeHub.events.on("open", (nodeLink) => {
+      this.events.emit("link-up", this.linkInfo(nodeLink));
+      nodeLink.events.once("close", () =>
+        this.events.emit("link-down", this.linkInfo(nodeLink)),
+      );
+      nodeLink.peers(this.shared(nodeLink));
+    });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
       this.learn(members, nodeLink),
     );
-    this.nodeHub.events.on("bye", (nodeLink) => this.leave(nodeLink));
+    this.nodeHub.events.on("bye", (nodeLink) => this.forgetByLink(nodeLink));
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
@@ -170,22 +199,42 @@ export class Node implements Provider {
     return this.watcher.instances();
   }
 
+  private linkInfo(nodeLink: NodeLink): NodeLinkInfo {
+    return {
+      peerId: nodeLink.peerId,
+      transport: nodeLink.transport,
+      latency: nodeLink.latency,
+      local: nodeLink.local,
+      services: nodeLink.instances(),
+      setup: nodeLink.setup,
+      queue: nodeLink.queue,
+    };
+  }
+
   snapshot(): NodeSnapshot {
+    const links = [...this.nodeLinks, ...this.nodeHub.links].map((nodeLink) =>
+      this.linkInfo(nodeLink),
+    );
+
+    const health: NodeHealth = this.closed
+      ? "down"
+      : links.length > 0
+        ? "healthy"
+        : "isolated";
+
     return {
       nodeId: this.nodeId,
       cluster: this.cluster,
+      closed: this.closed,
       services: this.watcher.instances(),
       members: this.members.map((member) => ({
         id: member.id,
         addr: member.addr,
       })),
-      links: [...this.nodeLinks, ...this.nodeHub.links].map((nodeLink) => ({
-        peerId: nodeLink.peerId,
-        transport: nodeLink.transport,
-        latency: nodeLink.latency,
-        local: nodeLink.local,
-        services: nodeLink.instances(),
-      })),
+      links,
+      seeds: this.seeds.map((seed) => String(seed)),
+      multicast: this.multicast !== undefined && this.multicast.active,
+      health,
     };
   }
 
@@ -271,7 +320,7 @@ export class Node implements Provider {
     }
 
     if (advertised !== undefined) {
-      if (advertised.port === 0) {
+      if (advertised.portOmitted || advertised.port === 0) {
         advertised.port = server.port;
       }
 
@@ -332,19 +381,56 @@ export class Node implements Provider {
     return this;
   }
 
+  addSeed(seed: string | URL) {
+    this.checkOpen();
+
+    if (this.seeds.some((existing) => String(existing) === String(seed))) {
+      return this;
+    }
+
+    this.seeds.push(seed);
+    void this.dial(String(seed));
+
+    return this;
+  }
+
+  removeSeed(seed: string | URL) {
+    const target = String(seed);
+    const index = this.seeds.findIndex(
+      (existing) => String(existing) === target,
+    );
+
+    if (index >= 0) {
+      this.seeds.splice(index, 1);
+    }
+
+    return this;
+  }
+
   call(
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number } = {},
+    options: { timeout?: number; signal?: AbortSignal } = {},
   ) {
-    this.checkOpen();
-
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
     try {
-      return this.invoke(service, method, args, timeout, this.maxHops);
+      this.checkOpen();
+
+      return Promise.resolve(
+        this.invoke(
+          service,
+          method,
+          args,
+          timeout,
+          this.maxHops,
+          undefined,
+          undefined,
+          options.signal,
+        ),
+      );
     } catch (err) {
       return Promise.reject(err);
     }
@@ -355,22 +441,25 @@ export class Node implements Provider {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number } = {},
+    options: { timeout?: number; signal?: AbortSignal } = {},
   ) {
-    this.checkOpen();
-
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
 
     try {
-      return this.invoke(
-        service,
-        method,
-        args,
-        timeout,
-        this.maxHops,
-        undefined,
-        nodeId,
+      this.checkOpen();
+
+      return Promise.resolve(
+        this.invoke(
+          service,
+          method,
+          args,
+          timeout,
+          this.maxHops,
+          undefined,
+          nodeId,
+          options.signal,
+        ),
       );
     } catch (err) {
       return Promise.reject(err);
@@ -385,14 +474,21 @@ export class Node implements Provider {
     ttl?: number,
     source?: NodeLink,
     target?: string,
+    signal?: AbortSignal,
   ) {
     if (target !== undefined && target === this.nodeId) {
-      return this.nodeLocal.invoke(service, method, args, timeout);
+      return this.withCancel(
+        this.nodeLocal.invoke(service, method, args, timeout),
+        signal,
+      );
     }
 
     if (target === undefined && this.nodeLocal.has(service)) {
       try {
-        return this.nodeLocal.invoke(service, method, args, timeout);
+        return this.withCancel(
+          this.nodeLocal.invoke(service, method, args, timeout),
+          signal,
+        );
       } catch (err) {
         if (!(err instanceof SwarmError) || err.kind !== "not-found") {
           throw err;
@@ -431,8 +527,37 @@ export class Node implements Provider {
       timeout !== undefined ? timeout : this.callTimeout,
       remaining - 1,
       target,
+      signal,
       ...routed,
     );
+  }
+
+  private withCancel<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal === undefined) {
+      return promise;
+    }
+
+    if (signal.aborted) {
+      return Promise.reject(new SwarmError("cancelled", "call was cancelled"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const onAbort = () =>
+        reject(new SwarmError("cancelled", "call was cancelled"));
+
+      signal.addEventListener("abort", onAbort, { once: true });
+
+      promise.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (error) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+      );
+    });
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -524,6 +649,7 @@ export class Node implements Provider {
     }
 
     this.closed = true;
+    this.members.length = 0;
 
     if (this.pruneTimer !== undefined) {
       clearTimeout(this.pruneTimer);
@@ -540,11 +666,16 @@ export class Node implements Provider {
       nodeLink.bye();
     }
 
+    this.nodeLinks.length = 0;
+    this.nodeHub.close();
+
     this.dials.clear();
     this.expiries.clear();
     this.seenPubs.clear();
 
-    if (nodes.get(this.cluster) === this) {
+    const entry = nodes.get(this.cluster);
+
+    if (entry !== undefined && entry.node === this) {
       nodes.delete(this.cluster);
     }
 
@@ -566,11 +697,9 @@ export class Node implements Provider {
         timer = undefined;
       }
 
-      for (const nodeLink of this.nodeLinks.slice()) {
+      for (const nodeLink of links) {
         nodeLink.close();
       }
-
-      this.nodeLinks.length = 0;
 
       for (const client of this.clients) {
         client.close();
@@ -583,8 +712,6 @@ export class Node implements Provider {
       }
 
       this.servers.length = 0;
-
-      this.nodeHub.close();
     };
 
     if (links.length === 0) {
@@ -714,7 +841,10 @@ export class Node implements Provider {
       tcpServer.events.on("online", (socket) => {
         this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
       });
-      tcpServer.events.on("error", () => this.closeServer(tcpServer));
+      tcpServer.events.on("error", (error) => {
+        this.events.emit("error", error);
+        this.closeServer(tcpServer);
+      });
 
       return tcpServer;
     }
@@ -727,13 +857,20 @@ export class Node implements Provider {
       tls,
     });
 
-    wsServer.events.on("online", (socket) => {
+    wsServer.events.on("online", (socket, remoteAddress) => {
       this.nodeHub.join(
-        new LinkWs(socket as unknown as WebSocket, this.nodeId),
+        new LinkWs(
+          socket as unknown as WebSocket,
+          this.nodeId,
+          isLoopback(remoteAddress),
+        ),
         secret,
       );
     });
-    wsServer.events.on("error", () => this.closeServer(wsServer));
+    wsServer.events.on("error", (error) => {
+      this.events.emit("error", error);
+      this.closeServer(wsServer);
+    });
 
     return wsServer;
   }
@@ -789,6 +926,7 @@ export class Node implements Provider {
     const nodeLink = new NodeLink(link, {
       provider: this,
       secret: secret !== undefined ? secret : this.secret,
+      maxInflight: this.maxInflight,
     });
 
     this.nodeLinks.push(nodeLink);
@@ -805,6 +943,20 @@ export class Node implements Provider {
         return;
       }
 
+      if (expected !== undefined) {
+        const duplicate =
+          this.nodeLinks.some(
+            (existing) => existing !== nodeLink && existing.peerId === peer,
+          ) || this.nodeHub.links.some((existing) => existing.peerId === peer);
+
+        if (duplicate) {
+          nodeLink.close();
+          return;
+        }
+      }
+
+      this.events.emit("link-up", this.linkInfo(nodeLink));
+
       if (addr !== undefined) {
         this.expiries.delete(addr);
       }
@@ -813,8 +965,10 @@ export class Node implements Provider {
         this.seen.set(expected, Date.now());
 
         if (!this.members.some((member) => member.id === expected)) {
-          this.members.push({ id: expected, addr });
+          const member = { id: expected, addr };
+          this.members.push(member);
           this.broadcastPeers();
+          this.events.emit("member-up", member);
           return;
         }
       }
@@ -822,13 +976,43 @@ export class Node implements Provider {
       nodeLink.peers(this.shared(nodeLink));
     });
     nodeLink.events.on("peers", (members) => this.learn(members, nodeLink));
-    nodeLink.events.on("bye", () => this.leave(nodeLink));
+    nodeLink.events.on("bye", () => this.forgetByLink(nodeLink));
     nodeLink.events.on("close", () => this.detach(nodeLink));
 
-    nodeLink.hello();
+    try {
+      nodeLink.hello();
+    } catch (err) {
+      this.detach(nodeLink);
+      nodeLink.close();
+      throw err;
+    }
   }
 
-  private leave(nodeLink: NodeLink) {
+  leave(nodeId: string) {
+    this.checkOpen();
+
+    for (const member of this.members.filter(
+      (member) => member.id === nodeId,
+    )) {
+      this.forget(member.id, member.addr);
+    }
+
+    for (const nodeLink of this.nodeLinks) {
+      if (nodeLink.peerId === nodeId) {
+        nodeLink.close();
+      }
+    }
+
+    for (const nodeLink of this.nodeHub.links) {
+      if (nodeLink.peerId === nodeId) {
+        nodeLink.close();
+      }
+    }
+
+    return this;
+  }
+
+  private forgetByLink(nodeLink: NodeLink) {
     const peer = nodeLink.peerId;
 
     if (peer === undefined) {
@@ -847,6 +1031,7 @@ export class Node implements Provider {
 
     if (index >= 0) {
       this.nodeLinks.splice(index, 1);
+      this.events.emit("link-down", this.linkInfo(nodeLink));
     }
 
     this.watcher.removeSource(nodeLink);
@@ -893,13 +1078,11 @@ export class Node implements Provider {
 
       if (existing !== undefined) {
         if (existing.addr !== entry.addr) {
-          const oldAddr = existing.addr;
+          const linked =
+            this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
+            this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
 
-          existing.addr = entry.addr;
-          changed = true;
-
-          if (this.dials.has(oldAddr)) {
-            this.dropDial(oldAddr);
+          if (!linked && !this.dials.has(entry.addr)) {
             void this.dial(entry.addr, entry.id);
           }
         }
@@ -909,6 +1092,7 @@ export class Node implements Provider {
 
       this.members.push(entry);
       changed = true;
+      this.events.emit("member-up", { id: entry.id, addr: entry.addr });
 
       const linked =
         this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
@@ -946,6 +1130,7 @@ export class Node implements Provider {
 
       this.members.splice(index, 1);
       this.seen.delete(member.id);
+      this.events.emit("member-down", { id: member.id, addr: member.addr });
 
       if (this.dials.has(member.addr)) {
         this.expiries.set(member.addr, now + this.dialTtl);
@@ -1039,9 +1224,10 @@ export class Node implements Provider {
     const index = this.members.findIndex((member) => member.id === id);
 
     if (index >= 0) {
-      this.members.splice(index, 1);
+      const [member] = this.members.splice(index, 1);
       this.seen.delete(id);
       this.broadcastPeers();
+      this.events.emit("member-down", { id: member.id, addr: member.addr });
     }
 
     this.dropDial(addr);
@@ -1173,6 +1359,7 @@ function parseUrl(url: string | URL): {
   secure: boolean;
   host: string;
   port: number;
+  portOmitted: boolean;
   path: string;
   secret: string | undefined;
 } {
@@ -1197,12 +1384,12 @@ function parseUrl(url: string | URL): {
     );
   }
 
-  const port =
-    parsed.port === ""
-      ? parsed.protocol === "wss:"
-        ? 443
-        : 80
-      : Number(parsed.port);
+  const portOmitted = parsed.port === "";
+  const port = portOmitted
+    ? parsed.protocol === "wss:"
+      ? 443
+      : 80
+    : Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
     throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);
@@ -1227,6 +1414,7 @@ function parseUrl(url: string | URL): {
   return {
     host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
     port,
+    portOmitted,
     path,
     secret,
     protocol: parsed.protocol === "tcp:" ? "tcp:" : "ws:",
@@ -1251,20 +1439,31 @@ export function createNode(options: NodeOptions = {}) {
   const existing = nodes.get(cluster);
 
   if (existing !== undefined) {
-    return existing;
+    for (const key of Object.keys(options) as Array<keyof NodeOptions>) {
+      const value = options[key];
+
+      if (
+        value !== undefined &&
+        JSON.stringify(value) !== JSON.stringify(existing.options[key])
+      ) {
+        throw new SwarmError(
+          "rejected",
+          `cluster ${cluster} was created with a different ${key}`,
+        );
+      }
+    }
+
+    return existing.node;
   }
 
-  const node = new Node({ ...options, cluster });
-  nodes.set(cluster, node);
+  const copied = { ...options, cluster };
+  const node = new Node(copied);
+
+  nodes.set(cluster, { node, options: copied });
 
   return node;
 }
 
-export type {
-  ClientOptions,
-  MulticastOptions,
-  WsClientOptions,
-  WsTlsOptions as WsTlsOptions,
-};
+export type { ClientOptions, MulticastOptions, WsClientOptions, WsTlsOptions };
 export type { Methods, TopicHandler };
 export type { Instance, MetaData, WatchHandler, WatchEvent };

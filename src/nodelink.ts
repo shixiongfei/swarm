@@ -37,6 +37,7 @@ type NodeLinkConfig = {
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
+  maxInflight?: number;
 };
 
 export class NodeLink implements Observable {
@@ -46,6 +47,7 @@ export class NodeLink implements Observable {
   });
   readonly secret?: string;
 
+  private readonly createdAt = Date.now();
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
   private readonly provider: Provider;
@@ -53,6 +55,7 @@ export class NodeLink implements Observable {
   private readonly heartbeatInterval: number;
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number;
+  private readonly maxInflight: number | undefined;
   private readonly disposes: Array<() => void>;
   private peer?: string;
   private closed = false;
@@ -61,6 +64,7 @@ export class NodeLink implements Observable {
   private handshake?: ReturnType<typeof setTimeout>;
   private pingAt?: number;
   private rtt?: number;
+  private openedAt?: number;
 
   private readonly onEnvelope = (message: Envelope) => {
     this.lastSeen = Date.now();
@@ -233,6 +237,7 @@ export class NodeLink implements Observable {
       config.handshakeTimeout !== undefined
         ? config.handshakeTimeout
         : defaultHandshakeTimeout;
+    this.maxInflight = config.maxInflight;
 
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
@@ -265,6 +270,16 @@ export class NodeLink implements Observable {
 
   get local() {
     return this.link.local;
+  }
+
+  get setup() {
+    return this.openedAt !== undefined
+      ? this.openedAt - this.createdAt
+      : undefined;
+  }
+
+  get queue() {
+    return this.pending.size;
   }
 
   hello() {
@@ -313,9 +328,19 @@ export class NodeLink implements Observable {
     timeout: number,
     ttl?: number,
     target?: string,
+    signal?: AbortSignal,
   ) {
     if (this.closed) {
       return Promise.reject(new SwarmError("failed", "link is closed", true));
+    }
+
+    if (
+      this.maxInflight !== undefined &&
+      this.pending.size >= this.maxInflight
+    ) {
+      return Promise.reject(
+        new SwarmError("rejected", "too many in-flight calls"),
+      );
     }
 
     return this.pending.call(
@@ -333,6 +358,7 @@ export class NodeLink implements Observable {
                 cause instanceof Error ? cause.message : String(cause),
                 true,
               ),
+      signal,
     );
   }
 
@@ -386,6 +412,7 @@ export class NodeLink implements Observable {
     }
 
     this.lastSeen = Date.now();
+    this.openedAt = Date.now();
 
     if (this.heartbeat === undefined) {
       this.heartbeat = setInterval(() => this.beat(), this.heartbeatInterval);

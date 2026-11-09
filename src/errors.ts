@@ -9,7 +9,8 @@
  * https://github.com/shixiongfei/swarm
  */
 
-export type ErrorKind = "not-found" | "timeout" | "rejected" | "failed";
+export type ErrorKind =
+  "not-found" | "timeout" | "rejected" | "failed" | "cancelled";
 
 export class SwarmError extends Error {
   readonly kind: ErrorKind;

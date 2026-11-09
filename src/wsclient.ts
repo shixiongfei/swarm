@@ -46,10 +46,22 @@ export class WsClient extends Client<WebSocket> {
   }
 
   protected async open() {
-    const socket =
-      this.tls !== undefined
-        ? await openTls(this.url, this.tls)
-        : new WebSocket(this.url);
+    let socket: WebSocket;
+
+    if (this.tls === undefined) {
+      socket = new WebSocket(this.url);
+    } else {
+      const tls = await import("./wsclient.tls.ts");
+
+      if (tls.openTls === undefined) {
+        throw new SwarmError(
+          "rejected",
+          "tls is not supported in this environment",
+        );
+      }
+
+      socket = await tls.openTls(this.url, this.tls);
+    }
 
     this.socket = socket;
 
@@ -113,10 +125,4 @@ export class WsClient extends Client<WebSocket> {
 function errorMessage(event: unknown) {
   const message = (event as { message?: unknown }).message;
   return typeof message === "string" ? message : "socket error";
-}
-
-async function openTls(url: string | URL, tls: WsTlsOptions) {
-  const { WebSocket: WsSocket } = await import("ws");
-
-  return new WsSocket(url, undefined, tls) as unknown as WebSocket;
 }

@@ -30,6 +30,7 @@ export type NodeHubConfig = {
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
+  maxInflight?: number;
 };
 
 export class NodeHub implements Observable {
@@ -43,6 +44,7 @@ export class NodeHub implements Observable {
   private readonly heartbeatInterval?: number;
   private readonly heartbeatTimeout?: number;
   private readonly handshakeTimeout?: number;
+  private readonly maxInflight?: number;
   private readonly nodeLinks: NodeLink[] = [];
   private readonly watcher = new Watcher();
   private closed = false;
@@ -53,6 +55,7 @@ export class NodeHub implements Observable {
     this.heartbeatInterval = config.heartbeatInterval;
     this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout = config.handshakeTimeout;
+    this.maxInflight = config.maxInflight;
   }
 
   join(link: Link, secret?: string) {
@@ -62,6 +65,7 @@ export class NodeHub implements Observable {
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
+      maxInflight: this.maxInflight,
     });
 
     this.nodeLinks.push(nodeLink);
@@ -100,10 +104,6 @@ export class NodeHub implements Observable {
 
     this.closed = true;
 
-    for (const nodeLink of this.nodeLinks.slice()) {
-      nodeLink.close();
-    }
-
     this.nodeLinks.length = 0;
     this.watcher.close();
   }
@@ -116,7 +116,6 @@ export class NodeHub implements Observable {
     }
 
     this.nodeLinks.splice(index, 1);
-
     this.watcher.removeSource(link);
   }
 }

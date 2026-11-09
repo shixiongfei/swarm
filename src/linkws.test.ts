@@ -55,8 +55,12 @@ function createPair() {
 
 test("sends envelopes over a socket", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
-  const remote = new LinkWs(peer as unknown as WebSocket, "peer-node");
+  const client = new LinkWs(
+    socket as unknown as WebSocket,
+    "client-node",
+    true,
+  );
+  const remote = new LinkWs(peer as unknown as WebSocket, "peer-node", true);
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -112,7 +116,11 @@ test("sends envelopes over a socket", async (t) => {
 
 test("emits close once when the peer closes", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
+  const client = new LinkWs(
+    socket as unknown as WebSocket,
+    "client-node",
+    true,
+  );
   let closes = 0;
 
   client.events.on("close", () => {
@@ -146,7 +154,7 @@ test("rejects a send when the socket is congested", () => {
     close() {},
   } as unknown as WebSocket;
 
-  const link = new LinkWs(socket, "client-node");
+  const link = new LinkWs(socket, "client-node", false);
 
   assert.throws(
     () =>
@@ -168,7 +176,11 @@ test("rejects a send when the socket is congested", () => {
 
 test("ignores a send after close", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkWs(socket as unknown as WebSocket, "client-node");
+  const client = new LinkWs(
+    socket as unknown as WebSocket,
+    "client-node",
+    true,
+  );
 
   t.after(() => {
     peer.terminate();
