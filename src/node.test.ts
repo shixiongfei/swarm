@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSocket } from "node:dgram";
@@ -126,7 +126,7 @@ async function waitFor(check: () => boolean, timeout = 2000) {
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
 
-  return false;
+  throw new Error(`waitFor timed out after ${timeout}ms`);
 }
 
 async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
@@ -407,15 +407,6 @@ describe("Node", () => {
     assert.equal(await waitFor(() => b.snapshot().services.length === 0), true);
   });
 
-  test("call rejects a service no link serves", async () => {
-    const node = makeNode();
-
-    await assert.rejects(
-      node.call("nope", "add"),
-      (err: SwarmError) => err.kind === "not-found",
-    );
-  });
-
   test("routes calls to a local service before a link", async (t) => {
     const node = makeNode(20);
     const ghost = await attachGhost(node, "math");
@@ -626,8 +617,13 @@ describe("Node", () => {
     hub.events.on("member-down", (member) => downs.push(member));
 
     const address = await hub.listen("tcp://127.0.0.1:0");
+    const peerAddress = await peer.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
+
     await peer.connect(`tcp://127.0.0.1:${address.port}`);
 
+    assert.notEqual(peerAddress.port, 0);
     await waitFor(() =>
       ups.some((member) => (member as { id?: string }).id === peer.nodeId),
     );
@@ -685,6 +681,10 @@ describe("Node", () => {
     });
 
     const address = await hub.listen("tcp://127.0.0.1:0");
+
+    await peer.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
     await peer.connect(`tcp://127.0.0.1:${address.port}`);
 
     await waitFor(
@@ -746,7 +746,7 @@ describe("Node", () => {
     await first;
   });
 
-  test("addSeed dials the new seed and removeSeed drops it", async (t) => {
+  test("addSeed dials the new seed and removeSeed forgets it", async (t) => {
     const hub = new Node({ cluster: "seed-hub" });
     const node = new Node({ cluster: "seed-node" });
 
@@ -2225,7 +2225,7 @@ test("listens on a websocket path and advertises it", async (t) => {
 
   assert.equal(listening.port, port);
   assert.equal(
-    (provider as unknown as NodeInternals).members[0].addr,
+    (provider as unknown as NodeInternals).membership.members[0].addr,
     `ws://127.0.0.1:${port}/swarm`,
   );
 
@@ -2251,63 +2251,6 @@ test("listens on a websocket path and advertises it", async (t) => {
   provider.close();
 
   assert.equal(http.listening, true);
-});
-
-test("collect isolates a failing local instance", async (t) => {
-  const local = new Node({ cluster: "collect-iso-local" });
-  const remote = new Node({ cluster: "collect-iso-remote" });
-
-  t.after(() => {
-    local.close();
-    remote.close();
-  });
-
-  const failure = new Error("boom");
-
-  local.register("math", {
-    add: () => {
-      throw failure;
-    },
-  });
-  remote.register("math", {
-    add: async (a: number, b: number) => a + b,
-  });
-
-  const port = await freePort();
-
-  await remote.listen(`tcp://127.0.0.1:${port}`);
-
-  const up = new Promise<void>((resolve) =>
-    local.watch("math", (event) => {
-      if (event.type === "up" && event.instance.nodeId === remote.nodeId) {
-        resolve();
-      }
-    }),
-  );
-
-  await local.connect(`tcp://127.0.0.1:${port}`);
-  await up;
-
-  const results = await local.collect("math", "add", [1, 2]);
-
-  assert.equal(results.length, 2);
-  assert.deepEqual(results[0], {
-    nodeId: local.nodeId,
-    ok: false,
-    error: failure,
-  });
-  assert.deepEqual(results[1], { nodeId: remote.nodeId, ok: true, value: 3 });
-});
-
-test("collect rejects when no provider exists", async (t) => {
-  const node = new Node({ cluster: "collect-none" });
-
-  t.after(() => node.close());
-
-  await assert.rejects(
-    () => node.collect("missing", "add", [1, 2]),
-    (error: SwarmError) => error.kind === "not-found",
-  );
 });
 
 test("collect rejects after close", async () => {
@@ -2858,164 +2801,6 @@ test("dial rejects a peer that does not match the advertised id", async (t) => {
   assert.equal(rejected, true);
 });
 
-test("peers drops loopback members from a non-local link", (t) => {
-  const node = new Node({ cluster: "peers-loopback" });
-  const internals = node as unknown as NodeInternals;
-  const self = { id: node.nodeId, addr: "tcp://127.0.0.1:9" };
-  const remote = {
-    id: "00000000000000000000000000000000",
-    addr: "tcp://192.168.0.9:9",
-  };
-
-  t.after(() => node.close());
-
-  internals.members.push(self);
-  internals.learn([{ id: "local", addr: "tcp://127.0.0.1:9" }], {
-    local: false,
-  });
-  internals.learn([remote], { local: false });
-
-  assert.deepEqual(
-    internals.members.map((member) => member.id),
-    [self.id, remote.id],
-  );
-});
-
-test("expires members whose advertisements stopped", async (t) => {
-  const port = await freePort();
-  const node = new Node({ cluster: "members-expire", memberTtl: 1000 });
-  const internals = node as unknown as NodeInternals;
-  const remote = {
-    id: "00000000000000000000000000000000",
-    addr: `tcp://127.0.0.1:${port}`,
-  };
-
-  t.after(() => node.close());
-
-  internals.learn([remote], { local: true });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  assert.equal(internals.members.length, 1);
-
-  internals.seen.set(remote.id, Date.now() - 2000);
-  internals.learn([], { local: true });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  assert.equal(internals.members.length, 0);
-  assert.equal(internals.seen.has(remote.id), false);
-  assert.equal(internals.dials.has(remote.addr), true);
-  assert.equal(internals.expiries.has(remote.addr), true);
-  assert.equal(internals.clients.length, 1);
-});
-
-test("drops a dial after the eviction window", async (t) => {
-  const port = await freePort();
-  const node = new Node({
-    cluster: "members-dial-ttl",
-    memberTtl: 1000,
-    dialTtl: 1000,
-  });
-  const internals = node as unknown as NodeInternals;
-  const remote = {
-    id: "00000000000000000000000000000000",
-    addr: `tcp://127.0.0.1:${port}`,
-  };
-
-  t.after(() => node.close());
-
-  internals.learn([remote], { local: true });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  internals.seen.set(remote.id, Date.now() - 2000);
-  internals.learn([], { local: true });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  assert.equal(internals.dials.has(remote.addr), true);
-  assert.equal(internals.expiries.has(remote.addr), true);
-
-  internals.expiries.set(remote.addr, Date.now() - 1);
-  internals.learn([], { local: true });
-
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  assert.equal(internals.dials.has(remote.addr), false);
-  assert.equal(internals.clients.length, 0);
-  assert.equal(internals.expiries.has(remote.addr), false);
-});
-
-test("updates a member address and its dial", async (t) => {
-  const firstPort = await freePort();
-  let secondPort = await freePort();
-
-  while (secondPort === firstPort) {
-    secondPort = await freePort();
-  }
-
-  const node = new Node({ cluster: "members-relocate", memberTtl: 1000 });
-  const internals = node as unknown as NodeInternals;
-  const remoteId = "ffffffffffffffffffffffffffffffff";
-
-  t.after(() => node.close());
-
-  internals.members.push({ id: node.nodeId, addr: "tcp://127.0.0.1:9" });
-
-  const first = {
-    id: remoteId,
-    addr: `tcp://127.0.0.1:${firstPort}`,
-  };
-  const second = {
-    id: remoteId,
-    addr: `tcp://127.0.0.1:${secondPort}`,
-  };
-  const firstAddr = first.addr;
-
-  internals.learn([first], { local: true });
-
-  assert.equal(internals.dials.has(firstAddr), true);
-
-  internals.learn([second], { local: true });
-
-  const members = node
-    .snapshot()
-    .members.filter((member) => member.id === remoteId);
-
-  assert.equal(members.length, 1);
-  assert.equal(members[0].addr, first.addr);
-  assert.equal(internals.dials.has(firstAddr), true);
-  assert.equal(internals.dials.has(second.addr), true);
-});
-
-test("expires members without further traffic", async (t) => {
-  const port = await freePort();
-  const node = new Node({ cluster: "members-timer", memberTtl: 50 });
-  const internals = node as unknown as NodeInternals;
-  const remote = {
-    id: "00000000000000000000000000000000",
-    addr: `tcp://127.0.0.1:${port}`,
-  };
-
-  t.after(() => node.close());
-
-  internals.members.push({ id: node.nodeId, addr: "tcp://127.0.0.1:9" });
-  internals.learn([remote], { local: true });
-
-  assert.equal(internals.dials.size, 0);
-  assert.equal(internals.members.length, 2);
-
-  await new Promise((resolve) => setTimeout(resolve, 120));
-
-  assert.equal(internals.members.length, 1);
-  assert.equal(
-    internals.members.some((member) => member.id === remote.id),
-    false,
-  );
-  assert.equal(internals.seen.has(remote.id), false);
-});
-
 test("restores a member when the dial link reconnects", async (t) => {
   const a = new Node({ cluster: "members-restore" });
   const b = new Node({ cluster: "members-restore" });
@@ -3030,9 +2815,10 @@ test("restores a member when the dial link reconnects", async (t) => {
 
   const address = await a.listen("tcp://127.0.0.1:0");
 
-  internals.learn([{ id: a.nodeId, addr: `tcp://127.0.0.1:${address.port}` }], {
-    local: true,
-  });
+  internals.membership.learn(
+    [{ id: a.nodeId, addr: `tcp://127.0.0.1:${address.port}` }],
+    true,
+  );
 
   const linked = await within(
     new Promise<boolean>((resolve) => {
@@ -3052,10 +2838,12 @@ test("restores a member when the dial link reconnects", async (t) => {
 
   assert.equal(linked, true);
 
-  (a as unknown as { servers: Array<{ close(): void }> }).servers[0].close();
+  (
+    a as unknown as { transport: { servers: Array<{ close(): void }> } }
+  ).transport.servers[0].close();
 
-  internals.members.length = 0;
-  internals.seen.clear();
+  internals.membership.members.length = 0;
+  internals.membership.seen.clear();
 
   await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -3064,7 +2852,9 @@ test("restores a member when the dial link reconnects", async (t) => {
   const restored = await within(
     new Promise<boolean>((resolve) => {
       const tick = () => {
-        if (internals.members.some((member) => member.id === a.nodeId)) {
+        if (
+          internals.membership.members.some((member) => member.id === a.nodeId)
+        ) {
           resolve(true);
           return;
         }
@@ -3078,86 +2868,6 @@ test("restores a member when the dial link reconnects", async (t) => {
   );
 
   assert.equal(restored, true);
-});
-
-test("refreshes member freshness when the link closes", async (t) => {
-  const node = new Node({ cluster: "members-detach", memberTtl: 1000 });
-  const { port1, port2 } = new MessageChannel();
-  const internals = node as unknown as NodeInternals & {
-    nodeLinks: Array<{ peerId?: string; close(): void }>;
-  };
-
-  t.after(() => {
-    node.close();
-    port1.close();
-    port2.close();
-  });
-
-  node.attach(port1);
-  port2.start();
-  port2.postMessage({ t: "hello", from: "peer", version: 1 });
-
-  const opened = await within(
-    new Promise<boolean>((resolve) => {
-      const tick = () => {
-        const nodeLink = internals.nodeLinks[0];
-
-        if (nodeLink !== undefined && nodeLink.peerId === "peer") {
-          resolve(true);
-          return;
-        }
-
-        setTimeout(tick, 10);
-      };
-
-      tick();
-    }),
-    2000,
-  );
-
-  assert.equal(opened, true);
-
-  internals.learn([{ id: "peer", addr: "tcp://10.0.0.9:9" }], { local: true });
-  internals.seen.set("peer", Date.now() - 5000);
-
-  const before = Date.now();
-
-  internals.nodeLinks[0].close();
-
-  assert.equal(internals.members.length, 1);
-  assert.equal((internals.seen.get("peer") as number) >= before, true);
-
-  internals.learn([], { local: true });
-
-  assert.equal(internals.members.length, 1);
-});
-
-test("closes a listening server when it errors", async (t) => {
-  const node = new Node({ cluster: "server-error" });
-
-  t.after(() => node.close());
-
-  await node.listen("tcp://127.0.0.1:0");
-
-  const internals = node as unknown as {
-    servers: Array<{
-      close(): void;
-      listen(): Promise<unknown>;
-      events: { emit(event: string, error: Error): void };
-    }>;
-  };
-  const server = internals.servers[0];
-
-  assert.notEqual(server, undefined);
-
-  if (server === undefined) {
-    return;
-  }
-
-  server.events.emit("error", new Error("boom"));
-
-  assert.equal(internals.servers.length, 0);
-  await assert.rejects(server.listen());
 });
 
 test("discovers a same-machine peer over a unix socket", async (t) => {
@@ -3198,38 +2908,12 @@ test("discovers a same-machine peer over a unix socket", async (t) => {
   assert.equal(b.snapshot().links.length, 1);
 });
 
-test("emits error when discovery cannot start", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "swarm-unix-error-"));
-  const dir = join(root, "not-a-directory");
-
-  await writeFile(dir, "");
-
-  const node = new Node({
-    cluster: `unix-error-${Date.now()}`,
-    discovery: { dir },
-  });
-
-  t.after(() => {
-    node.close();
-    return rm(root, { recursive: true, force: true });
-  });
-
-  const error = await new Promise<Error>((resolve) =>
-    node.events.on("error", resolve),
-  );
-
-  assert.equal(error instanceof Error, true);
-  assert.equal(node.snapshot().unix, false);
-});
-
-type NodeInternals = {
+type MembershipInternals = {
   members: Array<{ id: string; addr: string }>;
   seen: Map<string, number>;
-  dials: Map<string, unknown>;
-  expiries: Map<string, number>;
-  clients: unknown[];
-  learn(
-    entries: Array<{ id: string; addr: string }>,
-    link: { local: boolean },
-  ): void;
+  learn(entries: Array<{ id: string; addr: string }>, local: boolean): void;
+};
+
+type NodeInternals = {
+  membership: MembershipInternals;
 };

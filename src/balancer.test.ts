@@ -13,10 +13,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Balancer } from "./balancer.ts";
 import { SwarmError } from "./errors.ts";
-import type { Transport } from "./link.ts";
+import type { LinkTransport } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
-function stub(transport: Transport, ...services: string[]) {
+function stub(transport: LinkTransport, ...services: string[]) {
   return {
     transport,
     latency: undefined as number | undefined,
@@ -26,7 +26,7 @@ function stub(transport: Transport, ...services: string[]) {
 
 function link(peerId: string, call: () => Promise<unknown>) {
   return {
-    transport: "port" as Transport,
+    transport: "port" as LinkTransport,
     latency: undefined as number | undefined,
     peerId,
     has: (service: string) => service === "math",

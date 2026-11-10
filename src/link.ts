@@ -20,11 +20,11 @@ export type LinkEvents = {
   close: () => void;
 };
 
-export type Transport = "port" | "socket" | "websocket";
+export type LinkTransport = "port" | "socket" | "websocket";
 
 export abstract class Link implements Enveloper {
   readonly nodeId: string;
-  abstract readonly transport: Transport;
+  abstract readonly transport: LinkTransport;
   abstract readonly local: boolean;
   readonly events = eventlite<LinkEvents>({
     allowDuplicate: true,

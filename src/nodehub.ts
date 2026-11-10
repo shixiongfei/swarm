@@ -14,6 +14,7 @@ import { SwarmError } from "./errors.ts";
 import { NodeLink } from "./nodelink.ts";
 import { Watcher } from "./watcher.ts";
 import type { Link } from "./link.ts";
+import type { NodeLinkConfig } from "./nodelink.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Observable, WatchHandler } from "./registry.ts";
@@ -24,14 +25,7 @@ export type NodeHubEvents = {
   bye: (nodeLink: NodeLink) => void;
 };
 
-export type NodeHubConfig = {
-  provider: Provider;
-  secret?: string;
-  heartbeatInterval?: number;
-  heartbeatTimeout?: number;
-  handshakeTimeout?: number;
-  maxInflight?: number;
-};
+export type NodeHubConfig = NodeLinkConfig;
 
 export class NodeHub implements Observable {
   readonly events = eventlite<NodeHubEvents>({

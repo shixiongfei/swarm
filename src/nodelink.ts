@@ -31,7 +31,7 @@ const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 const defaultHandshakeTimeout = 15000;
 
-type NodeLinkConfig = {
+export type NodeLinkConfig = {
   provider: Provider;
   secret?: string;
   heartbeatInterval?: number;

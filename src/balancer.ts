@@ -10,13 +10,13 @@
  */
 
 import { SwarmError } from "./errors.ts";
-import type { Transport } from "./link.ts";
+import type { LinkTransport } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 const bucketSize = 10;
 
 export type Scannable = {
-  readonly transport: Transport;
+  readonly transport: LinkTransport;
   readonly latency?: number;
   has(service: string): boolean;
 };

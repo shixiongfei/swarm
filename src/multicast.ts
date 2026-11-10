@@ -12,9 +12,11 @@
 import { createSocket } from "node:dgram";
 import { eventlite } from "eventlite.js";
 import { sign, verify } from "./jwt.ts";
-import { isLoopback } from "./address.ts";
+import { isLoopback, parseUrl } from "./address.ts";
 import type { RemoteInfo, Socket } from "node:dgram";
 import type { PeerEntry } from "./envelope.ts";
+
+type PeerSource = () => PeerEntry[];
 
 export type MulticastOptions = {
   family?: 4 | 6;
@@ -56,7 +58,7 @@ export class Multicast {
   private readonly interval: number;
   private readonly iface: string | undefined;
   private readonly ttl: number;
-  private local: () => PeerEntry[] = () => [];
+  private local: PeerSource = () => [];
   private socket: Socket | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
   private retry: ReturnType<typeof setTimeout> | undefined;
@@ -83,7 +85,7 @@ export class Multicast {
     return this.socket !== undefined;
   }
 
-  async open(local: () => PeerEntry[]) {
+  async open(local: PeerSource) {
     this.local = local;
 
     if (this.closed) {
@@ -292,7 +294,13 @@ export class Multicast {
       }
     }
 
-    const host = hostname(value.addr);
+    let host: string | undefined;
+
+    try {
+      host = parseUrl(value.addr).host;
+    } catch {
+      host = undefined;
+    }
 
     if (
       host === undefined ||
@@ -302,13 +310,5 @@ export class Multicast {
     }
 
     this.events.emit("peers", [{ id: value.from, addr: value.addr }]);
-  }
-}
-
-function hostname(addr: string) {
-  try {
-    return new URL(addr).hostname.replace(/^\[(.*)\]$/, "$1");
-  } catch {
-    return undefined;
   }
 }

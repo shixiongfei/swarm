@@ -12,33 +12,33 @@
 import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
-import { isAdvertisable, isLoopback } from "./address.ts";
-import { Balancer } from "./balancer.ts";
+import { isAdvertisable, normalizePath, parseUrl } from "./address.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
-import { LinkTcp } from "./linktcp.ts";
-import { LinkWs } from "./linkws.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeHub } from "./nodehub.ts";
+import { Dialer } from "./dialer.ts";
+import { Discovery } from "./discovery.ts";
+import { Membership } from "./membership.ts";
+import { PubSub } from "./pubsub.ts";
+import { Router } from "./router.ts";
+import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
-import type { Client, ClientOptions } from "./client.ts";
-import type { WsClientOptions, WsTlsOptions } from "./wsclient.ts";
-import type { Server } from "./server.ts";
-import type { Link, Transport } from "./link.ts";
+import type { NodeMember } from "./membership.ts";
+import type { ListenOptions } from "./transport.ts";
+import type { WsClientOptions } from "./wsclient.ts";
+import type { Link, LinkTransport } from "./link.ts";
 import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
-import type { PeerEntry } from "./envelope.ts";
-import type { Multicast, MulticastOptions } from "./multicast.ts";
-import type { UnixDiscovery } from "./unixdiscovery.ts";
+import type { MulticastOptions } from "./multicast.ts";
+import type { DiscoveryOptions } from "./discovery.ts";
 import type {
   Instance,
   MetaData,
   WatchEvent,
   WatchHandler,
 } from "./registry.ts";
-import type { Server as HttpServer } from "node:http";
-import type { ServerOptions as HttpsServerOptions } from "node:https";
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
@@ -66,31 +66,9 @@ export type NodeConfig = {
   discovery?: boolean | DiscoveryOptions;
 };
 
-export type DiscoveryOptions = {
-  dir?: string;
-  interval?: number;
-};
-
-export type WsListenOptions = {
-  path?: string;
-  server?: HttpServer;
-  tls?: HttpsServerOptions;
-};
-
-export type ListenOptions = {
-  backlog?: number;
-  advertise?: string | URL;
-  ws?: WsListenOptions;
-};
-
-export type NodeMember = {
-  id: string;
-  addr: string;
-};
-
 export type NodeLinkInfo = {
   peerId: string | undefined;
-  transport: Transport;
+  transport: LinkTransport;
   latency: number | undefined;
   local: boolean;
   services: Instance[];
@@ -124,7 +102,6 @@ export type NodeEvents = {
 
 const nodes = new Map<string, { node: Node; options: NodeOptions }>();
 const defaultMaxHops = 8;
-const maxSeenPubs = 1024;
 const closeFlushTimeout = 1000;
 
 export class Node implements Provider {
@@ -140,29 +117,19 @@ export class Node implements Provider {
   private readonly nodeLocal = new NodeLocal(this.nodeId);
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
-  private readonly balancer = new Balancer();
   private readonly watcher = new Watcher();
-  private readonly servers: Server[] = [];
-  private readonly clients: Client[] = [];
-  private readonly members: PeerEntry[] = [];
-  private readonly seen = new Map<string, number>();
-  private readonly dials = new Map<string, Client | undefined>();
+  private readonly transport: Transport;
+  private readonly membership: Membership;
+  private readonly dialer: Dialer;
+  private readonly pubsub: PubSub;
+  private readonly router: Router;
+  private readonly discovery: Discovery;
   private readonly dialed = new Map<NodeLink, string>();
   private readonly adopted = new Set<NodeLink>();
-  private readonly expiries = new Map<string, number>();
-  private readonly seenPubs = new Set<string>();
   private readonly callTimeout: number;
-  private readonly memberTtl: number;
-  private readonly dialTtl: number;
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
-  private readonly multicastConfig: MulticastOptions | undefined;
-  private readonly discoveryConfig: DiscoveryOptions | undefined;
-  private seeds: Array<string | URL>;
-  private multicast: Multicast | undefined;
-  private unixDiscovery: UnixDiscovery | undefined;
   private closed = false;
-  private pruneTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
@@ -173,21 +140,78 @@ export class Node implements Provider {
     this.callTimeout =
       config.callTimeout !== undefined ? config.callTimeout : 5000;
 
-    this.memberTtl = config.memberTtl !== undefined ? config.memberTtl : 60000;
-    this.dialTtl =
+    const memberTtl = config.memberTtl !== undefined ? config.memberTtl : 60000;
+    const dialTtl =
       config.dialTtl !== undefined ? config.dialTtl : 24 * 60 * 60 * 1000;
+
     this.maxHops =
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
     this.maxInflight = config.maxInflight;
 
-    this.seeds = config.seeds !== undefined ? config.seeds : [];
-    this.multicastConfig = config.multicast;
-    this.discoveryConfig =
-      config.discovery === undefined || config.discovery === false
-        ? undefined
-        : config.discovery === true
-          ? {}
-          : config.discovery;
+    this.transport = new Transport({
+      nodeId: this.nodeId,
+      join: (nodeLink, secret) => this.nodeHub.join(nodeLink, secret),
+      attach: (nodeLink, secret, expected, addr, auto) =>
+        this.attachLink(nodeLink, secret, expected, addr, auto),
+      onError: (error) => this.events.emit("error", error),
+    });
+
+    this.dialer = new Dialer({
+      seeds: config.seeds !== undefined ? config.seeds : [],
+      create: (addr, id) => this.transport.createClient(addr, undefined, id),
+      track: (client) => this.transport.track(client),
+      untrack: (client) => this.transport.untrack(client),
+      isClosed: () => this.closed,
+    });
+
+    this.membership = new Membership({
+      id: this.nodeId,
+      memberTtl,
+      dialTtl,
+      linked: () => this.linkedPeers(),
+      dialing: (addr) => this.dialer.has(addr),
+      dial: (addr, id) => void this.dialer.dial(addr, id),
+      drop: (addr) => this.dialer.drop(addr),
+      broadcast: () => this.broadcastPeers(),
+      onUp: (member) =>
+        this.events.emit("member-up", { id: member.id, addr: member.addr }),
+      onDown: (member) =>
+        this.events.emit("member-down", { id: member.id, addr: member.addr }),
+    });
+
+    this.pubsub = new PubSub({
+      nodeId: this.nodeId,
+      maxHops: this.maxHops,
+      links: () => [...this.nodeLinks, ...this.nodeHub.links],
+      local: (topic, data, origin) =>
+        this.nodeLocal.publish(topic, data, origin),
+    });
+
+    this.router = new Router({
+      nodeId: this.nodeId,
+      local: this.nodeLocal,
+      maxHops: this.maxHops,
+      callTimeout: this.callTimeout,
+      links: () => this.nodeLinks,
+      hubLinks: () => this.nodeHub.links,
+      instances: () => this.watcher.instances(),
+    });
+
+    this.discovery = new Discovery({
+      nodeId: this.nodeId,
+      cluster: this.cluster,
+      secret: this.secret,
+      started: this.started,
+      multicast: config.multicast,
+      discovery: config.discovery,
+      learn: (entries, local) => this.membership.learn(entries, local),
+      self: () => this.membership.self(),
+      join: (link) => this.nodeHub.join(link, this.secret),
+      attach: (link, auto) =>
+        this.attachLink(link, this.secret, undefined, undefined, auto),
+      onError: (error) => this.events.emit("error", error),
+      onReady: (directory) => this.events.emit("discovery", directory),
+    });
 
     this.nodeHub = new NodeHub({
       secret: this.secret,
@@ -212,7 +236,7 @@ export class Node implements Provider {
           }
 
           outbound.close();
-          this.dropDial(addr);
+          this.dialer.drop(addr);
         }
       }
 
@@ -220,19 +244,19 @@ export class Node implements Provider {
       nodeLink.events.once("close", () =>
         this.events.emit("link-down", this.linkInfo(nodeLink)),
       );
-      nodeLink.peers(this.shared(nodeLink));
+      nodeLink.peers(this.membership.shared(nodeLink.local));
     });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
-      this.learn(members, nodeLink),
+      this.membership.learn(members, nodeLink.local),
     );
-    this.nodeHub.events.on("bye", (nodeLink) => this.forgetByLink(nodeLink));
+    this.nodeHub.events.on("bye", (nodeLink) =>
+      this.membership.forgetByLink(nodeLink.peerId),
+    );
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
 
-    if (this.discoveryConfig !== undefined) {
-      void this.startUnixDiscovery();
-    }
+    void this.discovery.startUnix();
   }
 
   registrations() {
@@ -267,14 +291,11 @@ export class Node implements Provider {
       cluster: this.cluster,
       closed: this.closed,
       services: this.watcher.instances(),
-      members: this.members.map((member) => ({
-        id: member.id,
-        addr: member.addr,
-      })),
+      members: this.membership.snapshot(),
       links,
-      seeds: this.seeds.map((seed) => String(seed)),
-      multicast: this.multicast !== undefined && this.multicast.active,
-      unix: this.unixDiscovery !== undefined && this.unixDiscovery.active,
+      seeds: this.dialer.list(),
+      multicast: this.discovery.multicastActive,
+      unix: this.discovery.unixActive,
       health,
     };
   }
@@ -342,23 +363,7 @@ export class Node implements Provider {
       );
     }
 
-    const server = await this.createServer(url, options);
-
-    this.servers.push(server);
-
-    try {
-      await server.listen();
-    } catch (err) {
-      const index = this.servers.indexOf(server);
-
-      if (index >= 0) {
-        this.servers.splice(index, 1);
-      }
-
-      server.close();
-
-      throw err;
-    }
+    const server = await this.transport.open(url, options);
 
     if (advertised !== undefined) {
       if (advertised.portOmitted || advertised.port === 0) {
@@ -376,74 +381,32 @@ export class Node implements Provider {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
       };
-      const index = this.members.findIndex(
-        (member) => member.id === this.nodeId,
-      );
-
-      if (index >= 0) {
-        this.members[index] = self;
-      } else {
-        this.members.push(self);
-      }
-
-      this.broadcastPeers();
+      this.membership.upsertSelf(self);
     }
 
-    this.discover();
+    this.dialer.discover();
 
-    await this.startMulticast();
+    await this.discovery.startMulticast();
 
     return { host: server.host, port: server.port };
   }
 
   async connect(url: string | URL, options?: WsClientOptions) {
     this.checkOpen();
-
-    const client = await this.createClient(url, options);
-
-    this.clients.push(client);
-
-    try {
-      await client.connect();
-    } catch (err) {
-      if (options !== undefined && options.reconnect === false) {
-        const index = this.clients.indexOf(client);
-
-        if (index >= 0) {
-          this.clients.splice(index, 1);
-        }
-
-        client.close();
-      }
-
-      throw err;
-    }
+    await this.transport.connect(url, options);
 
     return this;
   }
 
   addSeed(seed: string | URL) {
     this.checkOpen();
-
-    if (this.seeds.some((existing) => String(existing) === String(seed))) {
-      return this;
-    }
-
-    this.seeds.push(seed);
-    void this.dial(String(seed));
+    this.dialer.add(seed);
 
     return this;
   }
 
   removeSeed(seed: string | URL) {
-    const target = String(seed);
-    const index = this.seeds.findIndex(
-      (existing) => String(existing) === target,
-    );
-
-    if (index >= 0) {
-      this.seeds.splice(index, 1);
-    }
+    this.dialer.remove(seed);
 
     return this;
   }
@@ -517,88 +480,16 @@ export class Node implements Provider {
     target?: string,
     signal?: AbortSignal,
   ) {
-    if (target !== undefined && target === this.nodeId) {
-      return this.withCancel(
-        this.nodeLocal.invoke(service, method, args, timeout),
-        signal,
-      );
-    }
-
-    if (target === undefined && this.nodeLocal.has(service)) {
-      try {
-        return this.withCancel(
-          this.nodeLocal.invoke(service, method, args, timeout),
-          signal,
-        );
-      } catch (err) {
-        if (!(err instanceof SwarmError) || err.kind !== "not-found") {
-          throw err;
-        }
-      }
-    }
-
-    const remaining = ttl === undefined ? this.maxHops : ttl;
-
-    if (remaining <= 0) {
-      throw new SwarmError("not-found", `service not found: ${service}`);
-    }
-
-    const links =
-      source === undefined
-        ? this.nodeLinks
-        : this.nodeLinks.filter((link) => link !== source);
-
-    const hubLinks =
-      source === undefined
-        ? this.nodeHub.links
-        : this.nodeHub.links.filter((link) => link !== source);
-
-    const routed =
-      target === undefined
-        ? [links, hubLinks]
-        : [
-            links.filter((link) => link.has(service, target)),
-            hubLinks.filter((link) => link.has(service, target)),
-          ];
-
-    return this.balancer.invoke(
+    return this.router.invoke(
       service,
       method,
       args,
-      timeout !== undefined ? timeout : this.callTimeout,
-      remaining - 1,
+      timeout,
+      ttl,
+      source,
       target,
       signal,
-      ...routed,
     );
-  }
-
-  private withCancel<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (signal === undefined) {
-      return promise;
-    }
-
-    if (signal.aborted) {
-      return Promise.reject(new SwarmError("cancelled", "call was cancelled"));
-    }
-
-    return new Promise((resolve, reject) => {
-      const onAbort = () =>
-        reject(new SwarmError("cancelled", "call was cancelled"));
-
-      signal.addEventListener("abort", onAbort, { once: true });
-
-      promise.then(
-        (value) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(value);
-        },
-        (error) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(error);
-        },
-      );
-    });
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -636,52 +527,7 @@ export class Node implements Provider {
     ttl?: number,
   ) {
     this.checkOpen();
-
-    const source = origin !== undefined ? origin : this.nodeId;
-    const pubId = id !== undefined ? id : randomId();
-    const remaining = ttl !== undefined ? ttl : this.maxHops;
-
-    if (this.seenPubs.has(pubId)) {
-      return;
-    }
-
-    this.seenPubs.add(pubId);
-
-    if (this.seenPubs.size > maxSeenPubs) {
-      const oldest = this.seenPubs.values().next().value;
-
-      if (oldest !== undefined) {
-        this.seenPubs.delete(oldest);
-      }
-    }
-
-    if (remaining > 0) {
-      try {
-        for (const nodeLink of this.nodeLinks) {
-          if (from !== undefined && nodeLink.peerId === from) {
-            continue;
-          }
-
-          nodeLink.publish(topic, data, source, pubId, remaining - 1);
-        }
-
-        for (const nodeLink of this.nodeHub.links) {
-          if (from !== undefined && nodeLink.peerId === from) {
-            continue;
-          }
-
-          nodeLink.publish(topic, data, source, pubId, remaining - 1);
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === "DataCloneError") {
-          throw new SwarmError("failed", "data is not cloneable");
-        }
-
-        throw err;
-      }
-    }
-
-    this.nodeLocal.publish(topic, data, source);
+    this.pubsub.publish(topic, data, origin, from, id, ttl);
   }
 
   close() {
@@ -690,21 +536,8 @@ export class Node implements Provider {
     }
 
     this.closed = true;
-    this.members.length = 0;
-
-    if (this.pruneTimer !== undefined) {
-      clearTimeout(this.pruneTimer);
-      this.pruneTimer = undefined;
-    }
-
-    if (this.multicast !== undefined) {
-      this.multicast.close();
-    }
-
-    if (this.unixDiscovery !== undefined) {
-      this.unixDiscovery.close();
-      this.unixDiscovery = undefined;
-    }
+    this.membership.close();
+    this.discovery.close();
 
     const links = [...this.nodeLinks, ...this.nodeHub.links];
 
@@ -715,9 +548,8 @@ export class Node implements Provider {
     this.nodeLinks.length = 0;
     this.nodeHub.close();
 
-    this.dials.clear();
-    this.expiries.clear();
-    this.seenPubs.clear();
+    this.dialer.close();
+    this.pubsub.close();
 
     const entry = nodes.get(this.cluster);
 
@@ -747,17 +579,7 @@ export class Node implements Provider {
         nodeLink.close();
       }
 
-      for (const client of this.clients) {
-        client.close();
-      }
-
-      this.clients.length = 0;
-
-      for (const server of this.servers) {
-        server.close();
-      }
-
-      this.servers.length = 0;
+      this.transport.dispose();
     };
 
     if (links.length === 0) {
@@ -781,41 +603,7 @@ export class Node implements Provider {
   ) {
     this.checkOpen();
 
-    const timeout =
-      options.timeout === undefined ? this.callTimeout : options.timeout;
-    const instances = this.watcher
-      .instances()
-      .filter((instance) => instance.service === service);
-
-    if (instances.length === 0) {
-      throw new SwarmError("not-found", `service ${service} is not available`);
-    }
-
-    return Promise.all(
-      instances.map((instance) => {
-        const promise =
-          instance.nodeId === this.nodeId
-            ? Promise.resolve().then(() =>
-                this.nodeLocal.invoke(service, method, args, timeout),
-              )
-            : Promise.resolve().then(() =>
-                this.invoke(
-                  service,
-                  method,
-                  args,
-                  timeout,
-                  this.maxHops,
-                  undefined,
-                  instance.nodeId,
-                ),
-              );
-
-        return promise.then(
-          (value) => ({ nodeId: instance.nodeId, ok: true as const, value }),
-          (error) => ({ nodeId: instance.nodeId, ok: false as const, error }),
-        );
-      }),
-    );
+    return this.router.collect(service, method, args, options);
   }
 
   private relay(event: WatchEvent) {
@@ -850,119 +638,6 @@ export class Node implements Provider {
     }
   }
 
-  private closeServer(server: Server) {
-    const index = this.servers.indexOf(server);
-
-    if (index >= 0) {
-      this.servers.splice(index, 1);
-    }
-
-    server.close();
-  }
-
-  private async createServer(
-    url: string | URL,
-    options: ListenOptions | undefined,
-  ): Promise<Server> {
-    const { protocol, secure, host, port, secret, path } = parseUrl(url);
-    const ws = options !== undefined ? options.ws : undefined;
-    const backlog = options !== undefined ? options.backlog : undefined;
-    const tls = ws !== undefined ? ws.tls : undefined;
-    const server = ws !== undefined ? ws.server : undefined;
-    const listenPath =
-      ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
-
-    if (secure && server === undefined && tls === undefined) {
-      throw new SwarmError("rejected", "wss listen requires tls options");
-    }
-
-    if (protocol === "tcp:") {
-      if (ws !== undefined) {
-        throw new SwarmError("rejected", "tcp listen does not support http");
-      }
-
-      const { TcpServer } = await import("./tcpserver.ts");
-      const tcpServer = new TcpServer(host, port, backlog);
-
-      tcpServer.events.on("online", (socket) => {
-        this.nodeHub.join(new LinkTcp(socket, this.nodeId), secret);
-      });
-      tcpServer.events.on("error", (error) => {
-        this.events.emit("error", error);
-        this.closeServer(tcpServer);
-      });
-
-      return tcpServer;
-    }
-
-    const { WsServer } = await import("./wsserver.ts");
-    const wsServer = new WsServer(host, port, {
-      backlog,
-      path: listenPath,
-      server,
-      tls,
-    });
-
-    wsServer.events.on("online", (socket, remoteAddress) => {
-      this.nodeHub.join(
-        new LinkWs(
-          socket as unknown as WebSocket,
-          this.nodeId,
-          isLoopback(remoteAddress),
-        ),
-        secret,
-      );
-    });
-    wsServer.events.on("error", (error) => {
-      this.events.emit("error", error);
-      this.closeServer(wsServer);
-    });
-
-    return wsServer;
-  }
-
-  private async createClient(
-    url: string | URL,
-    options: WsClientOptions | undefined,
-    expected?: string,
-  ): Promise<Client> {
-    const { protocol, host, port, secret: urlSecret } = parseUrl(url);
-    const secret =
-      options !== undefined && options.secret !== undefined
-        ? options.secret
-        : urlSecret;
-
-    if (protocol === "tcp:") {
-      const { TcpClient } = await import("./tcpclient.ts");
-      const client = new TcpClient(host, port, options);
-
-      client.events.on("online", (socket) => {
-        this.attachLink(
-          new LinkTcp(socket, this.nodeId),
-          secret,
-          expected,
-          String(url),
-        );
-      });
-
-      return client;
-    }
-
-    const { WsClient } = await import("./wsclient.ts");
-    const client = new WsClient(url, options);
-
-    client.events.on("online", (socket) => {
-      this.attachLink(
-        new LinkWs(socket, this.nodeId, isLoopback(host)),
-        secret,
-        expected,
-        String(url),
-      );
-    });
-
-    return client;
-  }
-
   private attachLink(
     link: Link,
     secret?: string,
@@ -988,7 +663,7 @@ export class Node implements Provider {
         nodeLink.close();
 
         if (addr !== undefined) {
-          this.forget(expected, addr);
+          this.membership.forget(expected, addr);
         }
 
         return;
@@ -1006,26 +681,18 @@ export class Node implements Provider {
       this.adopted.add(nodeLink);
       this.events.emit("link-up", this.linkInfo(nodeLink));
 
-      if (addr !== undefined) {
-        this.expiries.delete(addr);
+      if (this.membership.attach(expected, addr)) {
+        return;
       }
 
-      if (expected !== undefined && addr !== undefined) {
-        this.seen.set(expected, Date.now());
-
-        if (!this.members.some((member) => member.id === expected)) {
-          const member = { id: expected, addr };
-          this.members.push(member);
-          this.broadcastPeers();
-          this.events.emit("member-up", member);
-          return;
-        }
-      }
-
-      nodeLink.peers(this.shared(nodeLink));
+      nodeLink.peers(this.membership.shared(nodeLink.local));
     });
-    nodeLink.events.on("peers", (members) => this.learn(members, nodeLink));
-    nodeLink.events.on("bye", () => this.forgetByLink(nodeLink));
+    nodeLink.events.on("peers", (members) =>
+      this.membership.learn(members, nodeLink.local),
+    );
+    nodeLink.events.on("bye", () =>
+      this.membership.forgetByLink(nodeLink.peerId),
+    );
     nodeLink.events.on("close", () => this.detach(nodeLink));
 
     try {
@@ -1057,7 +724,7 @@ export class Node implements Provider {
     if (outbound === undefined) {
       if (addr !== undefined && this.nodeId > peer && inbound) {
         nodeLink.close();
-        this.dropDial(addr);
+        this.dialer.drop(addr);
 
         return false;
       }
@@ -1070,7 +737,7 @@ export class Node implements Provider {
 
       if (dialed !== undefined) {
         outbound.close();
-        this.dropDial(dialed);
+        this.dialer.drop(dialed);
       }
 
       return true;
@@ -1079,7 +746,7 @@ export class Node implements Provider {
     nodeLink.close();
 
     if (addr !== undefined) {
-      this.dropDial(addr);
+      this.dialer.drop(addr);
     }
 
     return false;
@@ -1088,11 +755,7 @@ export class Node implements Provider {
   leave(nodeId: string) {
     this.checkOpen();
 
-    for (const member of this.members.filter(
-      (member) => member.id === nodeId,
-    )) {
-      this.forget(member.id, member.addr);
-    }
+    this.membership.leave(nodeId);
 
     for (const nodeLink of this.nodeLinks) {
       if (nodeLink.peerId === nodeId) {
@@ -1107,20 +770,6 @@ export class Node implements Provider {
     }
 
     return this;
-  }
-
-  private forgetByLink(nodeLink: NodeLink) {
-    const peer = nodeLink.peerId;
-
-    if (peer === undefined) {
-      return;
-    }
-
-    const member = this.members.find((member) => member.id === peer);
-
-    if (member !== undefined) {
-      this.forget(member.id, member.addr);
-    }
   }
 
   private detach(nodeLink: NodeLink) {
@@ -1138,119 +787,7 @@ export class Node implements Provider {
     }
 
     this.watcher.removeSource(nodeLink);
-
-    const peer = nodeLink.peerId;
-
-    if (
-      peer !== undefined &&
-      this.members.some((member) => member.id === peer)
-    ) {
-      this.seen.set(peer, Date.now());
-    }
-
-    this.schedulePrune(Date.now(), this.linkedPeers());
-  }
-
-  private learn(entries: PeerEntry[], nodeLink?: NodeLink) {
-    const now = Date.now();
-    const local = nodeLink === undefined ? true : nodeLink.local;
-    const advertised = this.members.some((member) => member.id === this.nodeId);
-    let changed = false;
-
-    for (const entry of entries) {
-      if (entry.id === this.nodeId) {
-        continue;
-      }
-
-      let host: string;
-
-      try {
-        host = parseUrl(entry.addr).host;
-      } catch {
-        continue;
-      }
-
-      if (!isAdvertisable(host) || (!local && isLoopback(host))) {
-        continue;
-      }
-
-      this.seen.set(entry.id, now);
-      this.expiries.delete(entry.addr);
-
-      const existing = this.members.find((member) => member.id === entry.id);
-
-      if (existing !== undefined) {
-        if (existing.addr !== entry.addr) {
-          const linked =
-            this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
-            this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
-
-          if (!linked && !this.dials.has(entry.addr)) {
-            void this.dial(entry.addr, entry.id);
-          }
-        }
-
-        continue;
-      }
-
-      this.members.push(entry);
-      changed = true;
-      this.events.emit("member-up", { id: entry.id, addr: entry.addr });
-
-      const linked =
-        this.nodeLinks.some((nodeLink) => nodeLink.peerId === entry.id) ||
-        this.nodeHub.links.some((nodeLink) => nodeLink.peerId === entry.id);
-
-      if ((!advertised || this.nodeId < entry.id) && !linked) {
-        void this.dial(entry.addr, entry.id);
-      }
-    }
-
-    this.schedulePrune(now, this.linkedPeers());
-
-    if (changed) {
-      this.broadcastPeers();
-    }
-  }
-
-  private prune(now: number) {
-    const linked = this.linkedPeers();
-
-    let changed = false;
-
-    for (let index = this.members.length - 1; index >= 0; index -= 1) {
-      const member = this.members[index];
-
-      if (member.id === this.nodeId || linked.has(member.id)) {
-        continue;
-      }
-
-      const seen = this.seen.get(member.id);
-
-      if (seen === undefined || seen + this.memberTtl > now) {
-        continue;
-      }
-
-      this.members.splice(index, 1);
-      this.seen.delete(member.id);
-      this.events.emit("member-down", { id: member.id, addr: member.addr });
-
-      if (this.dials.has(member.addr)) {
-        this.expiries.set(member.addr, now + this.dialTtl);
-      }
-
-      changed = true;
-    }
-
-    for (const [addr, expires] of this.expiries) {
-      if (expires <= now) {
-        this.dropDial(addr);
-      }
-    }
-
-    this.schedulePrune(now, linked);
-
-    return changed;
+    this.membership.linkDown(nodeLink.peerId);
   }
 
   private linkedPeers() {
@@ -1271,335 +808,19 @@ export class Node implements Provider {
     return linked;
   }
 
-  private schedulePrune(now: number, linked: Set<string>) {
-    if (this.closed) {
-      return;
-    }
-
-    if (this.pruneTimer !== undefined) {
-      clearTimeout(this.pruneTimer);
-      this.pruneTimer = undefined;
-    }
-
-    let next: number | undefined;
-
-    for (const member of this.members) {
-      if (member.id === this.nodeId || linked.has(member.id)) {
-        continue;
-      }
-
-      const seen = this.seen.get(member.id);
-
-      if (seen === undefined) {
-        continue;
-      }
-
-      const deadline = seen + this.memberTtl;
-
-      if (next === undefined || deadline < next) {
-        next = deadline;
-      }
-    }
-
-    for (const deadline of this.expiries.values()) {
-      if (next === undefined || deadline < next) {
-        next = deadline;
-      }
-    }
-
-    if (next === undefined) {
-      return;
-    }
-
-    this.pruneTimer = setTimeout(
-      () => {
-        this.pruneTimer = undefined;
-
-        if (this.prune(Date.now())) {
-          this.broadcastPeers();
-        }
-      },
-      Math.max(0, next - now),
-    );
-  }
-
-  private forget(id: string, addr: string) {
-    const index = this.members.findIndex((member) => member.id === id);
-
-    if (index >= 0) {
-      const [member] = this.members.splice(index, 1);
-      this.seen.delete(id);
-      this.broadcastPeers();
-      this.events.emit("member-down", { id: member.id, addr: member.addr });
-    }
-
-    this.dropDial(addr);
-  }
-
-  private dropDial(addr: string) {
-    const client = this.dials.get(addr);
-
-    this.dials.delete(addr);
-    this.expiries.delete(addr);
-
-    if (client === undefined) {
-      return;
-    }
-
-    const index = this.clients.indexOf(client);
-
-    if (index >= 0) {
-      this.clients.splice(index, 1);
-    }
-
-    client.close();
-  }
-
-  private shared(nodeLink: NodeLink) {
-    if (nodeLink.local) {
-      return this.members;
-    }
-
-    return this.members.filter(
-      (member) => !isLoopback(parseUrl(member.addr).host),
-    );
-  }
-
   private broadcastPeers() {
     for (const nodeLink of this.nodeLinks) {
       if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.shared(nodeLink));
+        nodeLink.peers(this.membership.shared(nodeLink.local));
       }
     }
 
     for (const nodeLink of this.nodeHub.links) {
       if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.shared(nodeLink));
+        nodeLink.peers(this.membership.shared(nodeLink.local));
       }
     }
   }
-
-  private discover() {
-    for (const seed of this.seeds) {
-      void this.dial(String(seed));
-    }
-  }
-
-  private async startMulticast() {
-    if (this.multicast !== undefined || this.multicastConfig === undefined) {
-      return;
-    }
-
-    const options = this.multicastConfig;
-
-    try {
-      const { Multicast } = await import("./multicast.ts");
-
-      if (this.multicast !== undefined) {
-        return;
-      }
-
-      const multicast = new Multicast({
-        cluster: this.cluster,
-        nodeId: this.nodeId,
-        secret: this.secret,
-        started: this.started,
-        family: options.family,
-        group: options.group,
-        port: options.port,
-        interval: options.interval,
-        interface: options.interface,
-        ttl: options.ttl,
-      });
-
-      multicast.events.on("peers", (entries) => this.learn(entries));
-
-      this.multicast = multicast;
-
-      await multicast.open(() =>
-        this.members.filter((member) => member.id === this.nodeId),
-      );
-    } catch {
-      this.multicast = undefined;
-      // multicast is best-effort; seeds and explicit links still work
-    }
-  }
-
-  private async startUnixDiscovery() {
-    const options = this.discoveryConfig;
-
-    if (
-      this.unixDiscovery !== undefined ||
-      options === undefined ||
-      this.closed
-    ) {
-      return;
-    }
-
-    let discovery: UnixDiscovery | undefined;
-
-    try {
-      const { UnixDiscovery } = await import("./unixdiscovery.ts");
-
-      if (this.unixDiscovery !== undefined || this.closed) {
-        return;
-      }
-
-      discovery = new UnixDiscovery({
-        nodeId: this.nodeId,
-        cluster: this.cluster,
-        secret: this.secret,
-        dir: options.dir,
-        interval: options.interval,
-      });
-
-      discovery.events.on("accept", (socket) => {
-        this.nodeHub.join(new LinkTcp(socket, this.nodeId, true), this.secret);
-      });
-      discovery.events.on("connect", (socket) => {
-        this.attachLink(
-          new LinkTcp(socket, this.nodeId, true),
-          this.secret,
-          undefined,
-          undefined,
-          true,
-        );
-      });
-      discovery.events.on("error", (error) => this.events.emit("error", error));
-
-      this.unixDiscovery = discovery;
-
-      await discovery.open();
-
-      if (this.unixDiscovery === discovery && !this.closed) {
-        this.events.emit("discovery", discovery.dir);
-      }
-    } catch (err) {
-      if (discovery !== undefined) {
-        discovery.close();
-      }
-
-      if (this.unixDiscovery === discovery) {
-        this.unixDiscovery = undefined;
-      }
-
-      if (!this.closed) {
-        this.events.emit(
-          "error",
-          err instanceof Error ? err : new Error("unix discovery failed"),
-        );
-      }
-    }
-  }
-
-  private async dial(addr: string, id?: string) {
-    if (this.dials.has(addr)) {
-      return;
-    }
-
-    this.dials.set(addr, undefined);
-
-    let client: Client;
-
-    try {
-      client = await this.createClient(addr, undefined, id);
-    } catch {
-      this.dials.delete(addr);
-      return;
-    }
-
-    if (this.closed || !this.dials.has(addr)) {
-      client.close();
-      return;
-    }
-
-    this.dials.set(addr, client);
-    this.clients.push(client);
-
-    try {
-      await client.connect();
-    } catch {
-      // the client retries on its own
-    }
-  }
-}
-
-function parseUrl(url: string | URL): {
-  protocol: "tcp:" | "ws:";
-  secure: boolean;
-  host: string;
-  port: number;
-  portOmitted: boolean;
-  path: string;
-  secret: string | undefined;
-} {
-  let parsed: URL;
-
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new SwarmError("rejected", "invalid url");
-  }
-
-  if (
-    (parsed.protocol !== "tcp:" &&
-      parsed.protocol !== "ws:" &&
-      parsed.protocol !== "wss:") ||
-    parsed.hostname === "" ||
-    (parsed.protocol === "tcp:" && parsed.port === "")
-  ) {
-    throw new SwarmError(
-      "rejected",
-      `invalid url: ${parsed.protocol}//${parsed.host}`,
-    );
-  }
-
-  const portOmitted = parsed.port === "";
-  const port = portOmitted
-    ? parsed.protocol === "wss:"
-      ? 443
-      : 80
-    : Number(parsed.port);
-
-  if (!Number.isInteger(port) || port > 65535) {
-    throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);
-  }
-
-  const path = normalizePath(parsed.pathname);
-
-  if (parsed.protocol === "tcp:" && path !== "/") {
-    throw new SwarmError("rejected", "tcp url does not support a path");
-  }
-
-  let secret: string | undefined;
-
-  if (parsed.password !== "") {
-    try {
-      secret = decodeURIComponent(parsed.password);
-    } catch {
-      throw new SwarmError("rejected", "invalid secret");
-    }
-  }
-
-  return {
-    host: parsed.hostname.replace(/^\[(.*)\]$/, "$1"),
-    port,
-    portOmitted,
-    path,
-    secret,
-    protocol: parsed.protocol === "tcp:" ? "tcp:" : "ws:",
-    secure: parsed.protocol === "wss:",
-  };
-}
-
-function normalizePath(path: string | undefined) {
-  if (path === undefined || path === "") {
-    return "/";
-  }
-
-  const value = path.startsWith("/") ? path : `/${path}`;
-
-  return value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
 export type NodeOptions = Partial<NodeConfig>;
@@ -1633,7 +854,3 @@ export function createNode(options: NodeOptions = {}) {
 
   return node;
 }
-
-export type { ClientOptions, MulticastOptions, WsClientOptions, WsTlsOptions };
-export type { Methods, TopicHandler };
-export type { Instance, MetaData, WatchHandler, WatchEvent };
