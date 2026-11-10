@@ -2393,6 +2393,81 @@ test("peers converge through a shared seed", async (t) => {
   assert.equal(await left.call("math", "add", [1, 2]), 3);
 });
 
+test("keeps one link when both peers seed each other", async (t) => {
+  const leftPort = await freePort();
+  const rightPort = await freePort();
+  const left = new Node({ cluster: "dedupe-left" });
+  const right = new Node({ cluster: "dedupe-right" });
+
+  t.after(() => {
+    left.close();
+    right.close();
+  });
+
+  let ups = 0;
+  let downs = 0;
+
+  left.events.on("link-up", () => ups++);
+  left.events.on("link-down", () => downs++);
+
+  await left.listen(`tcp://0.0.0.0:${leftPort}`, {
+    advertise: `tcp://127.0.0.1:${leftPort}`,
+  });
+  await right.listen(`tcp://0.0.0.0:${rightPort}`, {
+    advertise: `tcp://127.0.0.1:${rightPort}`,
+  });
+
+  left.addSeed(`tcp://127.0.0.1:${rightPort}`);
+  right.addSeed(`tcp://127.0.0.1:${leftPort}`);
+
+  assert.equal(
+    await waitFor(
+      () =>
+        left.snapshot().links.length === 1 &&
+        right.snapshot().links.length === 1,
+    ),
+    true,
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  assert.equal(left.snapshot().links.length, 1);
+  assert.equal(right.snapshot().links.length, 1);
+  assert.equal(ups - downs, left.snapshot().links.length);
+});
+
+test("keeps one link when unix discovery and a seed overlap", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "swarm-dedupe-unix-"));
+  const cluster = `dedupe-unix-${Date.now()}`;
+  const port = await freePort();
+  const a = new Node({ cluster, discovery: { dir, interval: 20 } });
+  const b = new Node({ cluster, discovery: { dir, interval: 20 } });
+
+  t.after(() => {
+    a.close();
+    b.close();
+    return rm(dir, { recursive: true, force: true });
+  });
+
+  await a.listen(`tcp://0.0.0.0:${port}`, {
+    advertise: `tcp://127.0.0.1:${port}`,
+  });
+
+  b.addSeed(`tcp://127.0.0.1:${port}`);
+
+  assert.equal(
+    await waitFor(
+      () => a.snapshot().links.length === 1 && b.snapshot().links.length === 1,
+    ),
+    true,
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  assert.equal(a.snapshot().links.length, 1);
+  assert.equal(b.snapshot().links.length, 1);
+});
+
 test("discovers a peer over multicast without seeds", async (t) => {
   const providerPort = await freePort();
   const multicastPort = await freeUdpPort();

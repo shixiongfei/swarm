@@ -15,10 +15,10 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eventlite } from "eventlite.js";
-import { randomId } from "./random.ts";
 import type { Socket } from "node:net";
 
 export type UnixDiscoveryConfig = {
+  nodeId: string;
   cluster: string;
   secret?: string;
   dir?: string;
@@ -32,6 +32,7 @@ export type UnixDiscoveryEvents = {
 };
 
 const defaultInterval = 3000;
+const keyLength = 16;
 const dirMode = 0o700;
 const socketMode = 0o600;
 const suffix = ".sock";
@@ -44,7 +45,7 @@ export class UnixDiscovery {
   readonly dir: string;
 
   private readonly ownsDir: boolean;
-  private readonly token = randomId().slice(0, 12);
+  private readonly key: string;
   private readonly interval: number;
   private readonly server = createServer((socket) => this.onAccept(socket));
   private readonly dials = new Map<string, Socket>();
@@ -58,6 +59,7 @@ export class UnixDiscovery {
         ? config.dir
         : discoveryDir(config.cluster, config.secret);
     this.ownsDir = config.dir === undefined;
+    this.key = config.nodeId.slice(0, keyLength);
     this.interval =
       config.interval !== undefined ? config.interval : defaultInterval;
   }
@@ -73,7 +75,7 @@ export class UnixDiscovery {
 
     await mkdir(this.dir, { recursive: true, mode: dirMode });
 
-    const path = join(this.dir, `${this.token}${suffix}`);
+    const path = join(this.dir, `${this.key}${suffix}`);
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error);
@@ -163,12 +165,11 @@ export class UnixDiscovery {
     }
 
     for (const name of names) {
-      if (!name.endsWith(suffix) || name === `${this.token}${suffix}`) {
+      if (!name.endsWith(suffix)) {
         continue;
       }
 
-      // only the larger token dials, so a pair of nodes links exactly once
-      if (name.slice(0, -suffix.length) >= this.token) {
+      if (this.key >= name.slice(0, -suffix.length)) {
         continue;
       }
 

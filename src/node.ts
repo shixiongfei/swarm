@@ -147,6 +147,8 @@ export class Node implements Provider {
   private readonly members: PeerEntry[] = [];
   private readonly seen = new Map<string, number>();
   private readonly dials = new Map<string, Client | undefined>();
+  private readonly dialed = new Map<NodeLink, string>();
+  private readonly adopted = new Set<NodeLink>();
   private readonly expiries = new Map<string, number>();
   private readonly seenPubs = new Set<string>();
   private readonly callTimeout: number;
@@ -197,6 +199,23 @@ export class Node implements Provider {
     });
 
     this.nodeHub.events.on("open", (nodeLink) => {
+      const peer = nodeLink.peerId;
+
+      if (peer !== undefined && this.nodeId > peer) {
+        for (const outbound of this.nodeLinks.filter(
+          (existing) => existing.peerId === peer,
+        )) {
+          const addr = this.dialed.get(outbound);
+
+          if (addr === undefined) {
+            continue;
+          }
+
+          outbound.close();
+          this.dropDial(addr);
+        }
+      }
+
       this.events.emit("link-up", this.linkInfo(nodeLink));
       nodeLink.events.once("close", () =>
         this.events.emit("link-down", this.linkInfo(nodeLink)),
@@ -949,12 +968,17 @@ export class Node implements Provider {
     secret?: string,
     expected?: string,
     addr?: string,
+    auto?: boolean,
   ) {
     const nodeLink = new NodeLink(link, {
       provider: this,
       secret: secret !== undefined ? secret : this.secret,
       maxInflight: this.maxInflight,
     });
+
+    if (addr !== undefined) {
+      this.dialed.set(nodeLink, addr);
+    }
 
     this.nodeLinks.push(nodeLink);
     this.watcher.addSource(nodeLink);
@@ -970,18 +994,16 @@ export class Node implements Provider {
         return;
       }
 
-      if (expected !== undefined) {
-        const duplicate =
-          this.nodeLinks.some(
-            (existing) => existing !== nodeLink && existing.peerId === peer,
-          ) || this.nodeHub.links.some((existing) => existing.peerId === peer);
-
-        if (duplicate) {
-          nodeLink.close();
-          return;
-        }
+      if (this.closed) {
+        nodeLink.close();
+        return;
       }
 
+      if (!this.keepOutbound(nodeLink, peer, addr, auto)) {
+        return;
+      }
+
+      this.adopted.add(nodeLink);
       this.events.emit("link-up", this.linkInfo(nodeLink));
 
       if (addr !== undefined) {
@@ -1013,6 +1035,54 @@ export class Node implements Provider {
       nodeLink.close();
       throw err;
     }
+  }
+
+  private keepOutbound(
+    nodeLink: NodeLink,
+    peer: string,
+    addr?: string,
+    auto?: boolean,
+  ) {
+    if (addr === undefined && auto !== true) {
+      return true;
+    }
+
+    const outbound = this.nodeLinks.find(
+      (existing) => existing !== nodeLink && existing.peerId === peer,
+    );
+    const inbound = this.nodeHub.links.some(
+      (existing) => existing.peerId === peer,
+    );
+
+    if (outbound === undefined) {
+      if (addr !== undefined && this.nodeId > peer && inbound) {
+        nodeLink.close();
+        this.dropDial(addr);
+
+        return false;
+      }
+
+      return true;
+    }
+
+    if (auto === true) {
+      const dialed = this.dialed.get(outbound);
+
+      if (dialed !== undefined) {
+        outbound.close();
+        this.dropDial(dialed);
+      }
+
+      return true;
+    }
+
+    nodeLink.close();
+
+    if (addr !== undefined) {
+      this.dropDial(addr);
+    }
+
+    return false;
   }
 
   leave(nodeId: string) {
@@ -1054,11 +1124,17 @@ export class Node implements Provider {
   }
 
   private detach(nodeLink: NodeLink) {
+    this.dialed.delete(nodeLink);
+
+    const adopted = this.adopted.delete(nodeLink);
     const index = this.nodeLinks.indexOf(nodeLink);
 
     if (index >= 0) {
       this.nodeLinks.splice(index, 1);
-      this.events.emit("link-down", this.linkInfo(nodeLink));
+
+      if (adopted) {
+        this.events.emit("link-down", this.linkInfo(nodeLink));
+      }
     }
 
     this.watcher.removeSource(nodeLink);
@@ -1370,6 +1446,7 @@ export class Node implements Provider {
       }
 
       discovery = new UnixDiscovery({
+        nodeId: this.nodeId,
         cluster: this.cluster,
         secret: this.secret,
         dir: options.dir,
@@ -1380,7 +1457,13 @@ export class Node implements Provider {
         this.nodeHub.join(new LinkTcp(socket, this.nodeId, true), this.secret);
       });
       discovery.events.on("connect", (socket) => {
-        this.attachLink(new LinkTcp(socket, this.nodeId, true), this.secret);
+        this.attachLink(
+          new LinkTcp(socket, this.nodeId, true),
+          this.secret,
+          undefined,
+          undefined,
+          true,
+        );
       });
       discovery.events.on("error", (error) => this.events.emit("error", error));
 

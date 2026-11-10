@@ -54,8 +54,18 @@ async function waitFor(check: () => Promise<boolean>, timeout = 2000) {
 
 test("links a pair of nodes exactly once", async (t) => {
   const dir = await tempDir();
-  const a = new UnixDiscovery({ cluster: "pair", dir, interval: 20 });
-  const b = new UnixDiscovery({ cluster: "pair", dir, interval: 20 });
+  const a = new UnixDiscovery({
+    nodeId: "0".repeat(16),
+    cluster: "pair",
+    dir,
+    interval: 20,
+  });
+  const b = new UnixDiscovery({
+    nodeId: "1".repeat(16),
+    cluster: "pair",
+    dir,
+    interval: 20,
+  });
   const sockets: Socket[] = [];
 
   let accepts = 0;
@@ -97,6 +107,7 @@ test("removes its socket file on close but keeps a given directory", async (t) =
   const root = await tempDir();
   const dir = join(root, "cluster");
   const discovery = new UnixDiscovery({
+    nodeId: "0".repeat(16),
     cluster: "close",
     dir,
     interval: 1000,
@@ -123,8 +134,13 @@ test("removes its socket file on close but keeps a given directory", async (t) =
 
 test("removes a stale socket left by a dead peer", async (t) => {
   const dir = await tempDir();
-  const stale = join(dir, "000000000000.sock");
-  const discovery = new UnixDiscovery({ cluster: "stale", dir, interval: 20 });
+  const stale = join(dir, `${"f".repeat(16)}.sock`);
+  const discovery = new UnixDiscovery({
+    nodeId: "0".repeat(16),
+    cluster: "stale",
+    dir,
+    interval: 20,
+  });
 
   t.after(() => {
     discovery.close();
@@ -142,6 +158,7 @@ test("removes a stale socket left by a dead peer", async (t) => {
 
 test("derives a private directory from the cluster", async (t) => {
   const discovery = new UnixDiscovery({
+    nodeId: "0".repeat(16),
     cluster: `dir-${Date.now()}`,
     interval: 1000,
   });
