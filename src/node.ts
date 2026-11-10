@@ -30,6 +30,7 @@ import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Multicast, MulticastOptions } from "./multicast.ts";
+import type { UnixDiscovery } from "./unixdiscovery.ts";
 import type {
   Instance,
   MetaData,
@@ -62,6 +63,12 @@ export type NodeConfig = {
   maxInflight?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
+  discovery?: boolean | DiscoveryOptions;
+};
+
+export type DiscoveryOptions = {
+  dir?: string;
+  interval?: number;
 };
 
 export type WsListenOptions = {
@@ -102,6 +109,7 @@ export type NodeSnapshot = {
   links: NodeLinkInfo[];
   seeds: string[];
   multicast: boolean;
+  unix: boolean;
   health: NodeHealth;
 };
 
@@ -110,6 +118,7 @@ export type NodeEvents = {
   "member-down": (member: NodeMember) => void;
   "link-up": (link: NodeLinkInfo) => void;
   "link-down": (link: NodeLinkInfo) => void;
+  discovery: (directory: string) => void;
   error: (error: Error) => void;
 };
 
@@ -146,8 +155,10 @@ export class Node implements Provider {
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
   private readonly multicastConfig: MulticastOptions | undefined;
+  private readonly discoveryConfig: DiscoveryOptions | undefined;
   private seeds: Array<string | URL>;
   private multicast: Multicast | undefined;
+  private unixDiscovery: UnixDiscovery | undefined;
   private closed = false;
   private pruneTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -169,6 +180,12 @@ export class Node implements Provider {
 
     this.seeds = config.seeds !== undefined ? config.seeds : [];
     this.multicastConfig = config.multicast;
+    this.discoveryConfig =
+      config.discovery === undefined || config.discovery === false
+        ? undefined
+        : config.discovery === true
+          ? {}
+          : config.discovery;
 
     this.nodeHub = new NodeHub({
       secret: this.secret,
@@ -193,6 +210,10 @@ export class Node implements Provider {
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
+
+    if (this.discoveryConfig !== undefined) {
+      void this.startUnixDiscovery();
+    }
   }
 
   registrations() {
@@ -234,6 +255,7 @@ export class Node implements Provider {
       links,
       seeds: this.seeds.map((seed) => String(seed)),
       multicast: this.multicast !== undefined && this.multicast.active,
+      unix: this.unixDiscovery !== undefined && this.unixDiscovery.active,
       health,
     };
   }
@@ -658,6 +680,11 @@ export class Node implements Provider {
 
     if (this.multicast !== undefined) {
       this.multicast.close();
+    }
+
+    if (this.unixDiscovery !== undefined) {
+      this.unixDiscovery.close();
+      this.unixDiscovery = undefined;
     }
 
     const links = [...this.nodeLinks, ...this.nodeHub.links];
@@ -1319,6 +1346,66 @@ export class Node implements Provider {
     } catch {
       this.multicast = undefined;
       // multicast is best-effort; seeds and explicit links still work
+    }
+  }
+
+  private async startUnixDiscovery() {
+    const options = this.discoveryConfig;
+
+    if (
+      this.unixDiscovery !== undefined ||
+      options === undefined ||
+      this.closed
+    ) {
+      return;
+    }
+
+    let discovery: UnixDiscovery | undefined;
+
+    try {
+      const { UnixDiscovery } = await import("./unixdiscovery.ts");
+
+      if (this.unixDiscovery !== undefined || this.closed) {
+        return;
+      }
+
+      discovery = new UnixDiscovery({
+        cluster: this.cluster,
+        secret: this.secret,
+        dir: options.dir,
+        interval: options.interval,
+      });
+
+      discovery.events.on("accept", (socket) => {
+        this.nodeHub.join(new LinkTcp(socket, this.nodeId, true), this.secret);
+      });
+      discovery.events.on("connect", (socket) => {
+        this.attachLink(new LinkTcp(socket, this.nodeId, true), this.secret);
+      });
+      discovery.events.on("error", (error) => this.events.emit("error", error));
+
+      this.unixDiscovery = discovery;
+
+      await discovery.open();
+
+      if (this.unixDiscovery === discovery && !this.closed) {
+        this.events.emit("discovery", discovery.dir);
+      }
+    } catch (err) {
+      if (discovery !== undefined) {
+        discovery.close();
+      }
+
+      if (this.unixDiscovery === discovery) {
+        this.unixDiscovery = undefined;
+      }
+
+      if (!this.closed) {
+        this.events.emit(
+          "error",
+          err instanceof Error ? err : new Error("unix discovery failed"),
+        );
+      }
     }
   }
 

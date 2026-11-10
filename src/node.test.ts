@@ -11,6 +11,9 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
@@ -552,6 +555,7 @@ describe("Node", () => {
       "ws://127.0.0.1:5678/",
     ]);
     assert.equal(snap.multicast, false);
+    assert.equal(snap.unix, false);
     assert.equal(snap.health, "isolated");
   });
 
@@ -3079,6 +3083,68 @@ test("closes a listening server when it errors", async (t) => {
 
   assert.equal(internals.servers.length, 0);
   await assert.rejects(server.listen());
+});
+
+test("discovers a same-machine peer over a unix socket", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "swarm-unix-node-"));
+  const cluster = `unix-node-${Date.now()}`;
+  const a = new Node({ cluster, discovery: { dir, interval: 20 } });
+  const b = new Node({ cluster, discovery: { dir, interval: 20 } });
+
+  t.after(() => {
+    a.close();
+    b.close();
+    return rm(dir, { recursive: true, force: true });
+  });
+
+  const started = [
+    new Promise<void>((resolve) => a.events.on("discovery", () => resolve())),
+    new Promise<void>((resolve) => b.events.on("discovery", () => resolve())),
+  ];
+
+  b.register("math", { add: (x: number, y: number) => x + y });
+
+  await Promise.all(started);
+
+  assert.equal(a.snapshot().unix, true);
+  assert.equal(b.snapshot().unix, true);
+  assert.equal(await waitFor(() => a.snapshot().links.length === 1), true);
+  assert.equal(await waitFor(() => b.snapshot().links.length === 1), true);
+  assert.equal(
+    await waitFor(() => a.snapshot().links[0]?.services.length === 1),
+    true,
+  );
+
+  assert.equal(await a.call("math", "add", [1, 2]), 3);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(a.snapshot().links.length, 1);
+  assert.equal(b.snapshot().links.length, 1);
+});
+
+test("emits error when discovery cannot start", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "swarm-unix-error-"));
+  const dir = join(root, "not-a-directory");
+
+  await writeFile(dir, "");
+
+  const node = new Node({
+    cluster: `unix-error-${Date.now()}`,
+    discovery: { dir },
+  });
+
+  t.after(() => {
+    node.close();
+    return rm(root, { recursive: true, force: true });
+  });
+
+  const error = await new Promise<Error>((resolve) =>
+    node.events.on("error", resolve),
+  );
+
+  assert.equal(error instanceof Error, true);
+  assert.equal(node.snapshot().unix, false);
 });
 
 type NodeInternals = {

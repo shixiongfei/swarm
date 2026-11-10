@@ -77,11 +77,11 @@ export class LinkTcp extends Link {
     this.settle();
   };
 
-  constructor(socket: Socket, nodeId: string) {
+  constructor(socket: Socket, nodeId: string, local?: boolean) {
     super(nodeId);
 
     this.socket = socket;
-    this.local = isLoopback(socket.remoteAddress);
+    this.local = local !== undefined ? local : isLoopback(socket.remoteAddress);
 
     socket.setNoDelay(true);
     socket.on("data", this.onData);
