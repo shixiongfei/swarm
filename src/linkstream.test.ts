@@ -1,5 +1,5 @@
 /*
- * linktcp.test.ts
+ * linkstream.test.ts
  *
  * Copyright (c) 2026 Xiongfei Shi
  *
@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { connect, createServer } from "node:net";
-import { LinkTcp } from "./linktcp.ts";
+import { LinkStream } from "./linkstream.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
@@ -66,8 +66,8 @@ function createPair() {
 
 test("sends envelopes over a socket", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkTcp(socket, "client-node");
-  const remote = new LinkTcp(peer, "peer-node");
+  const client = new LinkStream(socket, "client-node");
+  const remote = new LinkStream(peer, "peer-node");
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -123,7 +123,7 @@ test("sends envelopes over a socket", async (t) => {
 
 test("decodes a frame split across chunks", async (t) => {
   const { server, socket, peer } = await createPair();
-  const remote = new LinkTcp(peer, "peer-node");
+  const remote = new LinkStream(peer, "peer-node");
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -162,7 +162,7 @@ test("decodes a frame split across chunks", async (t) => {
 
 test("decodes a whole frame followed by a partial frame", async (t) => {
   const { server, socket, peer } = await createPair();
-  const remote = new LinkTcp(peer, "peer-node");
+  const remote = new LinkStream(peer, "peer-node");
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -213,7 +213,7 @@ test("decodes a whole frame followed by a partial frame", async (t) => {
 
 test("closes when a frame header exceeds the envelope limit", async (t) => {
   const { server, socket, peer } = await createPair();
-  const remote = new LinkTcp(peer, "peer-node");
+  const remote = new LinkStream(peer, "peer-node");
   let closes = 0;
 
   remote.events.on("close", () => {
@@ -236,7 +236,7 @@ test("closes when a frame header exceeds the envelope limit", async (t) => {
 
 test("emits close once when the peer closes", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkTcp(socket, "client-node");
+  const client = new LinkStream(socket, "client-node");
   let closes = 0;
 
   client.events.on("close", () => {
@@ -259,7 +259,7 @@ test("emits close once when the peer closes", async (t) => {
 
 test("ignores a send after close", async (t) => {
   const { server, socket, peer } = await createPair();
-  const client = new LinkTcp(socket, "client-node");
+  const client = new LinkStream(socket, "client-node");
 
   t.after(() => {
     peer.destroy();
@@ -283,7 +283,7 @@ test("ignores a send after close", async (t) => {
 
 test("decodes a small frame after a large payload", async (t) => {
   const { server, socket, peer } = await createPair();
-  const remote = new LinkTcp(peer, "peer-node");
+  const remote = new LinkStream(peer, "peer-node");
   const received: Envelope[] = [];
 
   remote.events.on("envelope", (message) => received.push(message));
@@ -338,7 +338,7 @@ test("flush waits for a congested socket to drain", async (t) => {
     destroy() {},
   } as unknown as Socket;
 
-  const link = new LinkTcp(socket, "client-node");
+  const link = new LinkStream(socket, "client-node");
 
   t.after(() => link.close());
 

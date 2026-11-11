@@ -11,7 +11,7 @@
 
 import { SwarmError } from "./errors.ts";
 import { isLoopback, normalizePath, parseUrl } from "./address.ts";
-import { LinkTcp } from "./linktcp.ts";
+import { LinkStream } from "./linkstream.ts";
 import { LinkWs } from "./linkws.ts";
 import type { Client } from "./client.ts";
 import type { WsClientOptions } from "./wsclient.ts";
@@ -114,7 +114,7 @@ export class Transport {
 
       client.events.on("online", (socket) => {
         this.attach(
-          new LinkTcp(socket, this.nodeId),
+          new LinkStream(socket, this.nodeId),
           secret,
           expected,
           String(url),
@@ -190,7 +190,7 @@ export class Transport {
       const tcpServer = new TcpServer(host, port, backlog);
 
       tcpServer.events.on("online", (socket) => {
-        this.join(new LinkTcp(socket, this.nodeId), secret);
+        this.join(new LinkStream(socket, this.nodeId), secret);
       });
       tcpServer.events.on("error", (error) => {
         this.onError(error);

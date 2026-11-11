@@ -580,6 +580,8 @@ export class Node implements Provider {
       }
 
       this.transport.dispose();
+      this.dialed.clear();
+      this.adopted.clear();
     };
 
     if (links.length === 0) {

@@ -122,6 +122,29 @@ describe("Discovery", () => {
     assert.equal(discovery.unixActive, false);
   });
 
+  test("does not start multicast after close", async () => {
+    const errors: Error[] = [];
+    const discovery = new Discovery({
+      nodeId: "self",
+      cluster: `discovery-${randomUUID()}`,
+      started: Date.now(),
+      multicast: { port: 0 },
+      learn: () => {},
+      self: () => [],
+      join: () => {},
+      attach: () => {},
+      onError: (error) => errors.push(error),
+      onReady: () => {},
+    });
+
+    discovery.close();
+
+    await discovery.startMulticast();
+
+    assert.deepEqual(errors, []);
+    assert.equal(discovery.multicastActive, false);
+  });
+
   test("does not start after close", async (t) => {
     const root = await tempDir();
     const { discovery, ready } = makeDiscovery({ dir: root });

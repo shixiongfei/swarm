@@ -9,7 +9,7 @@
  * https://github.com/shixiongfei/swarm
  */
 
-import { LinkTcp } from "./linktcp.ts";
+import { LinkStream } from "./linkstream.ts";
 import type { Link } from "./link.ts";
 import type { PeerEntry } from "./envelope.ts";
 import type { Multicast, MulticastOptions } from "./multicast.ts";
@@ -103,7 +103,7 @@ export class Discovery {
     try {
       const { Multicast } = await import("./multicast.ts");
 
-      if (this.multicast !== undefined) {
+      if (this.multicast !== undefined || this.closed) {
         return;
       }
 
@@ -160,10 +160,10 @@ export class Discovery {
       });
 
       discovery.events.on("accept", (socket) => {
-        this.join(new LinkTcp(socket, this.nodeId, true));
+        this.join(new LinkStream(socket, this.nodeId, true));
       });
       discovery.events.on("connect", (socket) => {
-        this.attach(new LinkTcp(socket, this.nodeId, true), true);
+        this.attach(new LinkStream(socket, this.nodeId, true), true);
       });
       discovery.events.on("error", (error) => this.onError(error));
 

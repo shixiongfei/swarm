@@ -1,5 +1,5 @@
 /*
- * linktcp.ts
+ * linkstream.ts
  *
  * Copyright (c) 2026 Xiongfei Shi
  *
@@ -22,7 +22,7 @@ const shrinkBufferSize = 64 * 1024;
 const maxBufferSize = headerSize + maxEnvelopeSize;
 const maxQueueSize = maxEnvelopeSize * 2;
 
-export class LinkTcp extends Link {
+export class LinkStream extends Link {
   readonly transport = "socket";
   readonly local: boolean;
   private readonly socket: Socket;

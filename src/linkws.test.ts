@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WebSocket as WsWebSocket, WebSocketServer } from "ws";
 import { LinkWs } from "./linkws.ts";
+import { encode, maxEnvelopeSize } from "./codec.ts";
 import type { AddressInfo } from "node:net";
 import type { Envelope } from "./envelope.ts";
 import type { SwarmError } from "./errors.ts";
@@ -51,6 +52,50 @@ function createPair() {
       });
     });
   });
+}
+
+function fakeSocket() {
+  const handlers = new Map<string, Set<(event: unknown) => void>>();
+  const socket = {
+    binaryType: "blob",
+    bufferedAmount: 0,
+    sent: [] as Uint8Array[],
+    closed: false,
+    addEventListener(type: string, handler: (event: unknown) => void) {
+      const set = handlers.get(type) ?? new Set();
+
+      set.add(handler);
+      handlers.set(type, set);
+    },
+    removeEventListener(type: string, handler: (event: unknown) => void) {
+      handlers.get(type)?.delete(handler);
+    },
+    send(payload: Uint8Array) {
+      socket.sent.push(payload);
+    },
+    close() {
+      socket.closed = true;
+    },
+    emit(type: string, event?: unknown) {
+      for (const handler of [...(handlers.get(type) ?? [])]) {
+        handler(event);
+      }
+    },
+  };
+
+  return socket;
+}
+
+function pubEnvelope(data: unknown): Envelope {
+  return {
+    t: "pub",
+    id: "pub-1",
+    ttl: 8,
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data,
+  };
 }
 
 test("sends envelopes over a socket", async (t) => {
@@ -200,4 +245,102 @@ test("ignores a send after close", async (t) => {
       data: 1,
     });
   });
+});
+
+test("merges fragmented frames", () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+  const received: Envelope[] = [];
+  const bytes = encode(pubEnvelope(1));
+
+  link.events.on("envelope", (message) => received.push(message));
+
+  socket.emit("message", { data: [bytes.slice(0, 2), bytes.slice(2)] });
+
+  assert.deepEqual(received, [pubEnvelope(1)]);
+});
+
+test("ignores text and malformed frames", () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+  const received: Envelope[] = [];
+
+  link.events.on("envelope", (message) => received.push(message));
+
+  socket.emit("message", { data: "text" });
+  socket.emit("message", { data: new Uint8Array([0xc1]) });
+  socket.emit("message", {});
+
+  assert.deepEqual(received, []);
+});
+
+test("ignores frames once closed", () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+  const received: Envelope[] = [];
+
+  link.events.on("envelope", (message) => received.push(message));
+
+  link.close();
+  socket.emit("message", { data: encode(pubEnvelope(1)) });
+
+  assert.deepEqual(received, []);
+});
+
+test("closes the link when the socket errors", () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+  let closes = 0;
+
+  link.events.on("close", () => {
+    closes += 1;
+  });
+
+  socket.emit("error");
+
+  assert.equal(closes, 1);
+  assert.equal(socket.closed, true);
+
+  socket.emit("error");
+
+  assert.equal(closes, 1);
+});
+
+test("flush waits for buffered data to drain", async () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+  const started = Date.now();
+
+  socket.bufferedAmount = 10;
+
+  const flushed = link.flush();
+
+  setTimeout(() => {
+    socket.bufferedAmount = 0;
+  }, 15);
+
+  await flushed;
+
+  assert.equal(Date.now() - started >= 10, true);
+});
+
+test("flush resolves immediately after close", async () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+
+  link.close();
+
+  assert.equal(await link.flush(), undefined);
+});
+
+test("throws when the envelope is too large", () => {
+  const socket = fakeSocket();
+  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
+
+  assert.throws(
+    () => link.send(pubEnvelope("x".repeat(maxEnvelopeSize))),
+    (err: SwarmError) =>
+      err.kind === "failed" && err.message === "envelope is too large",
+  );
+  assert.equal(socket.sent.length, 0);
 });
