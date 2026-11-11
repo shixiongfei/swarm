@@ -16,6 +16,7 @@ import { SwarmError } from "./errors.ts";
 type Entry = {
   resolve(value: unknown): void;
   reject(error: SwarmError): void;
+  cancel?: () => void;
 };
 
 export class PendingCalls {
@@ -35,7 +36,9 @@ export class PendingCalls {
     const id = randomId();
 
     const reply = new Promise<unknown>((resolve, reject) => {
-      this.entries.set(id, { resolve, reject });
+      const entry: Entry = { resolve, reject };
+
+      this.entries.set(id, entry);
 
       if (signal !== undefined && signal.aborted) {
         this.entries.delete(id);
@@ -52,47 +55,45 @@ export class PendingCalls {
       }
 
       if (signal !== undefined) {
-        signal.addEventListener(
-          "abort",
-          () => {
-            const entry = this.entries.get(id);
+        const onAbort = () => {
+          const current = this.entries.get(id);
 
-            if (entry === undefined) {
-              return;
-            }
+          if (current === undefined) {
+            return;
+          }
 
-            this.entries.delete(id);
-            entry.reject(new SwarmError("cancelled", "call was cancelled"));
-          },
-          { once: true },
-        );
+          this.entries.delete(id);
+          current.reject(new SwarmError("cancelled", "call was cancelled"));
+        };
+
+        signal.addEventListener("abort", onAbort, { once: true });
+
+        entry.cancel = () => signal.removeEventListener("abort", onAbort);
       }
     });
 
     return withTimeout(reply, timeout, timeoutError, () => {
-      this.entries.delete(id);
+      this.take(id);
     });
   }
 
   settle(id: string, value: unknown) {
-    const entry = this.entries.get(id);
+    const entry = this.take(id);
 
     if (entry === undefined) {
       return;
     }
 
-    this.entries.delete(id);
     entry.resolve(value);
   }
 
   reject(id: string, error: SwarmError) {
-    const entry = this.entries.get(id);
+    const entry = this.take(id);
 
     if (entry === undefined) {
       return;
     }
 
-    this.entries.delete(id);
     entry.reject(error);
   }
 
@@ -104,9 +105,29 @@ export class PendingCalls {
     const failure = error();
 
     for (const entry of this.entries.values()) {
+      if (entry.cancel !== undefined) {
+        entry.cancel();
+      }
+
       entry.reject(failure);
     }
 
     this.entries.clear();
+  }
+
+  private take(id: string) {
+    const entry = this.entries.get(id);
+
+    if (entry === undefined) {
+      return undefined;
+    }
+
+    this.entries.delete(id);
+
+    if (entry.cancel !== undefined) {
+      entry.cancel();
+    }
+
+    return entry;
   }
 }

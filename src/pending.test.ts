@@ -10,6 +10,7 @@
  */
 
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { describe, test } from "node:test";
 import { PendingCalls } from "./pending.ts";
 import { SwarmError } from "./errors.ts";
@@ -156,5 +157,86 @@ describe("PendingCalls", () => {
     assert.equal(pending.size, 0);
 
     assert.doesNotThrow(() => pending.clear(() => failure));
+  });
+
+  test("removes the abort listener when the call settles", async () => {
+    const { pending, ids, send, timeoutError, sendError } = makePending();
+    const controller = new AbortController();
+    const reply = pending.call(
+      send,
+      1000,
+      timeoutError,
+      sendError,
+      controller.signal,
+    );
+
+    assert.equal(getEventListeners(controller.signal, "abort").length, 1);
+
+    pending.settle(ids[0], 1);
+    await reply;
+
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+
+  test("removes the abort listener when the call is rejected", async () => {
+    const { pending, ids, send, timeoutError, sendError } = makePending();
+    const controller = new AbortController();
+    const reply = pending.call(
+      send,
+      1000,
+      timeoutError,
+      sendError,
+      controller.signal,
+    );
+
+    pending.reject(ids[0], new SwarmError("failed", "boom"));
+
+    await assert.rejects(reply, (err: SwarmErrorType) => err.kind === "failed");
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+
+  test("removes the abort listener on timeout", async () => {
+    const { pending, send, timeoutError, sendError } = makePending();
+    const controller = new AbortController();
+    const reply = pending.call(
+      send,
+      10,
+      timeoutError,
+      sendError,
+      controller.signal,
+    );
+
+    await assert.rejects(
+      reply,
+      (err: SwarmErrorType) => err.kind === "timeout",
+    );
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+
+  test("removes the abort listener on clear", async () => {
+    const { pending, send, timeoutError, sendError } = makePending();
+    const controller = new AbortController();
+    const first = pending.call(
+      send,
+      1000,
+      timeoutError,
+      sendError,
+      controller.signal,
+    );
+    const second = pending.call(
+      send,
+      1000,
+      timeoutError,
+      sendError,
+      controller.signal,
+    );
+
+    assert.equal(getEventListeners(controller.signal, "abort").length, 2);
+
+    pending.clear(() => new SwarmError("failed", "node is closed"));
+
+    await assert.rejects(first);
+    await assert.rejects(second);
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
   });
 });
