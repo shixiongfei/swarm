@@ -19,6 +19,7 @@ import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
+import type { NodeLinkDown } from "./node.ts";
 import type { AddressInfo } from "node:net";
 import type { SwarmError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
@@ -599,6 +600,33 @@ describe("Node", () => {
     port2.close();
 
     await waitFor(() => downs.length === 1);
+
+    assert.equal((downs[0] as NodeLinkDown).reason, "error");
+  });
+
+  test("emits link-down with a bye reason when the peer closes", async (t) => {
+    const hub = new Node({ cluster: "bye-reason" });
+    const peer = new Node({ cluster: "bye-reason-peer" });
+    const port = await freePort();
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    await hub.listen(`tcp://127.0.0.1:${port}`);
+
+    const reason = new Promise<string>((resolve) =>
+      hub.events.on("link-down", (link) => resolve(link.reason)),
+    );
+
+    await peer.connect(`tcp://127.0.0.1:${port}`);
+
+    assert.equal(await waitFor(() => hub.snapshot().links.length === 1), true);
+
+    peer.close();
+
+    assert.equal(await within(reason, 2000), "bye");
   });
 
   test("emits member-up and member-down events", async (t) => {
@@ -2349,9 +2377,14 @@ test("keeps one link when both peers seed each other", async (t) => {
 
   let ups = 0;
   let downs = 0;
+  const reasons: string[] = [];
 
   left.events.on("link-up", () => ups++);
-  left.events.on("link-down", () => downs++);
+  left.events.on("link-down", (link) => {
+    downs++;
+    reasons.push(link.reason);
+  });
+  right.events.on("link-down", (link) => reasons.push(link.reason));
 
   await left.listen(`tcp://0.0.0.0:${leftPort}`, {
     advertise: `tcp://127.0.0.1:${leftPort}`,
@@ -2377,6 +2410,11 @@ test("keeps one link when both peers seed each other", async (t) => {
   assert.equal(left.snapshot().links.length, 1);
   assert.equal(right.snapshot().links.length, 1);
   assert.equal(ups - downs, left.snapshot().links.length);
+  assert.equal(reasons.length > 0, true);
+  assert.equal(
+    reasons.every((reason) => reason === "dedupe" || reason === "error"),
+    true,
+  );
 });
 
 test("keeps one link when unix discovery and a seed overlap", async (t) => {

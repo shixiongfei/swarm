@@ -14,6 +14,7 @@ export * from "./node.ts";
 export type { DiscoveryOptions } from "./discovery.ts";
 export type { ListenOptions, WsListenOptions } from "./transport.ts";
 export type { WsClientOptions, WsTlsOptions } from "./wsclient.ts";
+export type { LinkCloseReason } from "./nodelink.ts";
 export type { MulticastOptions } from "./multicast.ts";
 export type { ClientOptions } from "./client.ts";
 export type { NodeMember } from "./membership.ts";

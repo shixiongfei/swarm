@@ -31,6 +31,8 @@ const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 const defaultHandshakeTimeout = 15000;
 
+export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
+
 export type NodeLinkConfig = {
   provider: Provider;
   secret?: string;
@@ -59,6 +61,7 @@ export class NodeLink implements Observable {
   private readonly disposes: Array<() => void>;
   private peer?: string;
   private closed = false;
+  private reason: LinkCloseReason = "close";
   private lastSeen = Date.now();
   private heartbeat?: ReturnType<typeof setInterval>;
   private handshake?: ReturnType<typeof setTimeout>;
@@ -215,7 +218,7 @@ export class NodeLink implements Observable {
       case "bye":
         if (this.peer !== undefined && message.from === this.peer) {
           this.events.emit("bye");
-          this.close();
+          this.close("bye");
         }
         return;
     }
@@ -242,7 +245,7 @@ export class NodeLink implements Observable {
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
       link.events.on("close", () => {
-        this.dispose("link is closed");
+        this.dispose("link is closed", "error");
       }),
     ];
 
@@ -250,7 +253,7 @@ export class NodeLink implements Observable {
       this.handshake = undefined;
 
       if (this.peer === undefined) {
-        this.dispose("link handshake is timed out");
+        this.dispose("link handshake is timed out", "timeout");
         this.link.close();
       }
     }, this.handshakeTimeout);
@@ -258,6 +261,10 @@ export class NodeLink implements Observable {
 
   get peerId() {
     return this.peer;
+  }
+
+  get closeReason() {
+    return this.reason;
   }
 
   get latency() {
@@ -392,8 +399,8 @@ export class NodeLink implements Observable {
     return this.link.flush();
   }
 
-  close() {
-    this.dispose("node is closed");
+  close(reason: LinkCloseReason = "close") {
+    this.dispose("node is closed", reason);
     this.link.close();
   }
 
@@ -424,7 +431,7 @@ export class NodeLink implements Observable {
 
   private beat() {
     if (this.lastSeen + this.heartbeatTimeout < Date.now()) {
-      this.dispose("link is timed out");
+      this.dispose("link is timed out", "timeout");
       this.link.close();
       return;
     }
@@ -471,6 +478,7 @@ export class NodeLink implements Observable {
 
     this.dispose(
       `protocol version ${version} is incompatible with ${protocolVersion}`,
+      "error",
     );
     this.link.close();
 
@@ -486,7 +494,7 @@ export class NodeLink implements Observable {
       return false;
     }
 
-    this.dispose("link is closed");
+    this.dispose("link is closed", "error");
     this.link.close();
 
     return true;
@@ -508,7 +516,7 @@ export class NodeLink implements Observable {
         return true;
       }
 
-      this.dispose("link is closed");
+      this.dispose("link is closed", "error");
       this.link.close();
 
       return false;
@@ -519,12 +527,13 @@ export class NodeLink implements Observable {
     return true;
   }
 
-  private dispose(message: string) {
+  private dispose(message: string, reason: LinkCloseReason = "close") {
     if (this.closed) {
       return;
     }
 
     this.closed = true;
+    this.reason = reason;
 
     if (this.handshake !== undefined) {
       clearTimeout(this.handshake);

@@ -25,6 +25,7 @@ import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
+import type { LinkCloseReason } from "./nodelink.ts";
 import type { NodeMember } from "./membership.ts";
 import type { ListenOptions } from "./transport.ts";
 import type { WsClientOptions } from "./wsclient.ts";
@@ -91,11 +92,15 @@ export type NodeSnapshot = {
   health: NodeHealth;
 };
 
+export type NodeLinkDown = NodeLinkInfo & {
+  reason: LinkCloseReason;
+};
+
 export type NodeEvents = {
   "member-up": (member: NodeMember) => void;
   "member-down": (member: NodeMember) => void;
   "link-up": (link: NodeLinkInfo) => void;
-  "link-down": (link: NodeLinkInfo) => void;
+  "link-down": (link: NodeLinkDown) => void;
   discovery: (directory: string) => void;
   error: (error: Error) => void;
 };
@@ -235,14 +240,14 @@ export class Node implements Provider {
             continue;
           }
 
-          outbound.close();
+          outbound.close("dedupe");
           this.dialer.drop(addr);
         }
       }
 
       this.events.emit("link-up", this.linkInfo(nodeLink));
       nodeLink.events.once("close", () =>
-        this.events.emit("link-down", this.linkInfo(nodeLink)),
+        this.events.emit("link-down", this.linkDownInfo(nodeLink)),
       );
       nodeLink.peers(this.membership.shared(nodeLink.local));
     });
@@ -273,6 +278,12 @@ export class Node implements Provider {
       setup: nodeLink.setup,
       queue: nodeLink.queue,
     };
+  }
+
+  private linkDownInfo(nodeLink: NodeLink): NodeLinkDown {
+    return Object.assign(this.linkInfo(nodeLink), {
+      reason: nodeLink.closeReason,
+    });
   }
 
   snapshot(): NodeSnapshot {
@@ -662,7 +673,7 @@ export class Node implements Provider {
 
     nodeLink.events.on("open", (peer) => {
       if (expected !== undefined && peer !== expected) {
-        nodeLink.close();
+        nodeLink.close("error");
 
         if (addr !== undefined) {
           this.membership.forget(expected, addr);
@@ -725,7 +736,7 @@ export class Node implements Provider {
 
     if (outbound === undefined) {
       if (addr !== undefined && this.nodeId > peer && inbound) {
-        nodeLink.close();
+        nodeLink.close("dedupe");
         this.dialer.drop(addr);
 
         return false;
@@ -738,14 +749,14 @@ export class Node implements Provider {
       const dialed = this.dialed.get(outbound);
 
       if (dialed !== undefined) {
-        outbound.close();
+        outbound.close("dedupe");
         this.dialer.drop(dialed);
       }
 
       return true;
     }
 
-    nodeLink.close();
+    nodeLink.close("dedupe");
 
     if (addr !== undefined) {
       this.dialer.drop(addr);
@@ -784,7 +795,7 @@ export class Node implements Provider {
       this.nodeLinks.splice(index, 1);
 
       if (adopted) {
-        this.events.emit("link-down", this.linkInfo(nodeLink));
+        this.events.emit("link-down", this.linkDownInfo(nodeLink));
       }
     }
 
