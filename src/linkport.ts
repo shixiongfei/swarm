@@ -46,7 +46,11 @@ export class LinkPort extends Link {
     };
 
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.t === "close") {
+      if (
+        event.data !== null &&
+        event.data !== undefined &&
+        event.data.t === "close"
+      ) {
         onClose();
         return;
       }

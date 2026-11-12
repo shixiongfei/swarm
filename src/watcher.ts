@@ -183,7 +183,8 @@ export class Watcher implements Observable {
     }
 
     const bucket = this.observed.get(instance.service);
-    const observed = bucket?.get(instance.nodeId);
+    const observed =
+      bucket === undefined ? undefined : bucket.get(instance.nodeId);
 
     if (bucket === undefined || observed === undefined) {
       return;

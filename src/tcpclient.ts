@@ -25,7 +25,7 @@ export class TcpClient extends Client<Socket> {
   }
 
   get connected() {
-    return this.socket?.readyState === "open";
+    return this.socket !== undefined && this.socket.readyState === "open";
   }
 
   protected open() {

@@ -99,7 +99,7 @@ export type NodeEvents = {
   error: (error: Error) => void;
 };
 
-const nodes = new Map<string, { node: Node; options: NodeOptions }>();
+const nodes = new Map<string, Node>();
 const defaultMaxHops = 8;
 
 export class Node implements Provider {
@@ -225,14 +225,7 @@ export class Node implements Provider {
         for (const outbound of this.nodeLinks.filter(
           (existing) => existing.peerId === peer,
         )) {
-          const addr = this.dialed.get(outbound);
-
-          if (addr === undefined) {
-            continue;
-          }
-
-          outbound.close("dedupe");
-          this.dialer.drop(addr);
+          this.dropDialed(outbound);
         }
       }
 
@@ -540,9 +533,7 @@ export class Node implements Provider {
 
     this.pubsub.close();
 
-    const entry = nodes.get(this.cluster);
-
-    if (entry !== undefined && entry.node === this) {
+    if (nodes.get(this.cluster) === this) {
       nodes.delete(this.cluster);
     }
 
@@ -668,6 +659,27 @@ export class Node implements Provider {
     }
   }
 
+  private dropDialed(nodeLink: NodeLink) {
+    const addr = this.dialed.get(nodeLink);
+
+    if (addr === undefined) {
+      return;
+    }
+
+    nodeLink.close("dedupe");
+    this.dialer.drop(addr);
+  }
+
+  private dropOutbound(nodeLink: NodeLink) {
+    const addr = this.dialed.get(nodeLink);
+
+    nodeLink.close("dedupe");
+
+    if (addr !== undefined) {
+      this.dialer.drop(addr);
+    }
+  }
+
   private keepOutbound(
     nodeLink: NodeLink,
     peer: string,
@@ -681,37 +693,28 @@ export class Node implements Provider {
     const outbound = this.nodeLinks.find(
       (existing) => existing !== nodeLink && existing.peerId === peer,
     );
-    const inbound = this.nodeHub.links.some(
-      (existing) => existing.peerId === peer,
-    );
 
     if (outbound === undefined) {
-      if (addr !== undefined && this.nodeId > peer && inbound) {
-        nodeLink.close("dedupe");
-        this.dialer.drop(addr);
+      const inbound = this.nodeHub.links.some(
+        (existing) => existing.peerId === peer,
+      );
 
-        return false;
+      if (addr === undefined || this.nodeId <= peer || !inbound) {
+        return true;
       }
 
-      return true;
+      this.dropOutbound(nodeLink);
+
+      return false;
     }
 
     if (auto === true) {
-      const dialed = this.dialed.get(outbound);
-
-      if (dialed !== undefined) {
-        outbound.close("dedupe");
-        this.dialer.drop(dialed);
-      }
+      this.dropDialed(outbound);
 
       return true;
     }
 
-    nodeLink.close("dedupe");
-
-    if (addr !== undefined) {
-      this.dialer.drop(addr);
-    }
+    this.dropOutbound(nodeLink);
 
     return false;
   }
@@ -794,27 +797,12 @@ export function createNode(options: NodeOptions = {}) {
   const existing = nodes.get(cluster);
 
   if (existing !== undefined) {
-    for (const key of Object.keys(options) as Array<keyof NodeOptions>) {
-      const value = options[key];
-
-      if (
-        value !== undefined &&
-        JSON.stringify(value) !== JSON.stringify(existing.options[key])
-      ) {
-        throw new SwarmError(
-          "rejected",
-          `cluster ${cluster} was created with a different ${key}`,
-        );
-      }
-    }
-
-    return existing.node;
+    return existing;
   }
 
-  const copied = { ...options, cluster };
-  const node = new Node(copied);
+  const node = new Node(Object.assign({}, options, { cluster }));
 
-  nodes.set(cluster, { node, options: copied });
+  nodes.set(cluster, node);
 
   return node;
 }
