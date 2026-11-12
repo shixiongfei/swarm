@@ -14,6 +14,7 @@ import { describe, test } from "node:test";
 import { Worker } from "node:worker_threads";
 import type { Transferable } from "node:worker_threads";
 import { Node } from "./node.ts";
+import { waitFor } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 import type { WatchEvent } from "./registry.ts";
 
@@ -97,18 +98,6 @@ function collect(worker: Worker, kind: string, values: unknown[]) {
       values.push(value.value);
     }
   });
-}
-
-async function waitFor(check: () => boolean) {
-  const deadline = Date.now() + 2000;
-
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
 }
 
 describe("NodeHub", () => {

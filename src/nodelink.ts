@@ -49,7 +49,6 @@ export class NodeLink implements Observable {
   });
   readonly secret?: string;
 
-  private readonly createdAt = Date.now();
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
   private readonly provider: Provider;
@@ -67,7 +66,6 @@ export class NodeLink implements Observable {
   private handshake?: ReturnType<typeof setTimeout>;
   private pingAt?: number;
   private rtt?: number;
-  private openedAt?: number;
 
   private readonly onEnvelope = (message: Envelope) => {
     this.lastSeen = Date.now();
@@ -279,16 +277,6 @@ export class NodeLink implements Observable {
     return this.link.local;
   }
 
-  get setup() {
-    return this.openedAt !== undefined
-      ? this.openedAt - this.createdAt
-      : undefined;
-  }
-
-  get queue() {
-    return this.pending.size;
-  }
-
   hello() {
     this.link.hello(this.token());
   }
@@ -395,10 +383,6 @@ export class NodeLink implements Observable {
     }
   }
 
-  flush() {
-    return this.link.flush();
-  }
-
   close(reason: LinkCloseReason = "close") {
     this.dispose("node is closed", reason);
     this.link.close();
@@ -419,7 +403,6 @@ export class NodeLink implements Observable {
     }
 
     this.lastSeen = Date.now();
-    this.openedAt = Date.now();
 
     if (this.heartbeat === undefined) {
       this.heartbeat = setInterval(() => this.beat(), this.heartbeatInterval);

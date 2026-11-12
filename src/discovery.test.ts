@@ -25,7 +25,6 @@ function makeDiscovery(discovery?: boolean | DiscoveryOptions) {
   const instance = new Discovery({
     nodeId: "self",
     cluster: `discovery-${randomUUID()}`,
-    started: Date.now(),
     discovery,
     learn: () => {},
     self: () => [],
@@ -127,7 +126,6 @@ describe("Discovery", () => {
     const discovery = new Discovery({
       nodeId: "self",
       cluster: `discovery-${randomUUID()}`,
-      started: Date.now(),
       multicast: { port: 0 },
       learn: () => {},
       self: () => [],

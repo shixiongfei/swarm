@@ -86,6 +86,10 @@ export class TcpServer extends Server<Socket> {
   }
 
   protected destroy(socket: Socket) {
+    if (socket.writableEnded) {
+      return;
+    }
+
     socket.destroy();
   }
 

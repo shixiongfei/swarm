@@ -13,9 +13,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:net";
 import { Transport } from "./transport.ts";
+import { freePort } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Link } from "./link.ts";
-import type { AddressInfo } from "node:net";
 
 type Attach = {
   link: Link;
@@ -39,18 +39,6 @@ function makeTransport() {
   });
 
   return { transport, joins, attaches, errors };
-}
-
-async function freePort() {
-  const server = createServer();
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-
-  const port = (server.address() as AddressInfo).port;
-
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-
-  return port;
 }
 
 function closeLinks(...arrays: Link[][]) {

@@ -14,13 +14,11 @@ import { describe, test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSocket } from "node:dgram";
-import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
+import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import type { NodeLinkDown } from "./node.ts";
-import type { AddressInfo } from "node:net";
 import type { SwarmError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
@@ -76,58 +74,6 @@ mJTnKt8LKtGnmhK7vIGP5kth9i5duTSYnhdEA/AG9D0D3+NnsVH58Pj09mTg
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
-}
-
-async function freePort() {
-  const server = createServer();
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-
-  const port = (server.address() as AddressInfo).port;
-
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-
-  return port;
-}
-
-async function freeUdpPort() {
-  const socket = createSocket({ type: "udp4", reuseAddr: true });
-
-  await new Promise<void>((resolve) => socket.bind(0, "0.0.0.0", resolve));
-
-  const port = (socket.address() as AddressInfo).port;
-
-  await new Promise<void>((resolve) => socket.close(resolve));
-
-  return port;
-}
-
-async function within<T>(promise: Promise<T>, ms: number) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), ms);
-  });
-  const value = await Promise.race([promise, timeout]);
-
-  if (timer !== undefined) {
-    clearTimeout(timer);
-  }
-
-  return value;
-}
-
-async function waitFor(check: () => boolean, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    if (check()) {
-      return true;
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-
-  throw new Error(`waitFor timed out after ${timeout}ms`);
 }
 
 async function connectPair(protocol: "tcp" | "ws", hub: Node, peer: Node) {
@@ -516,23 +462,21 @@ describe("Node", () => {
     );
   });
 
-  test("snapshot reports closed and empty after close", () => {
+  test("snapshot reports empty after close", () => {
     const node = makeNode();
     node.register("math", { add: () => 0 });
 
-    assert.equal(node.snapshot().closed, false);
     assert.equal(node.snapshot().services.length, 1);
 
     node.close();
 
     const snap = node.snapshot();
-    assert.equal(snap.closed, true);
     assert.deepEqual(snap.services, []);
     assert.deepEqual(snap.members, []);
     assert.deepEqual(snap.links, []);
   });
 
-  test("snapshot exposes seeds, multicast state, and health", (t) => {
+  test("snapshot exposes seeds and discovery state", (t) => {
     const node = new Node({
       cluster: "obs-snapshot",
       seeds: ["tcp://127.0.0.1:1234", new URL("ws://127.0.0.1:5678")],
@@ -548,10 +492,9 @@ describe("Node", () => {
     ]);
     assert.equal(snap.multicast, false);
     assert.equal(snap.unix, false);
-    assert.equal(snap.health, "isolated");
   });
 
-  test("snapshot link info includes setup duration and queue depth", async (t) => {
+  test("snapshot reports connected links", async (t) => {
     const hub = new Node({ cluster: "obs-link-info" });
     const peer = new Node({ cluster: "obs-link-peer" });
 
@@ -566,14 +509,14 @@ describe("Node", () => {
     await waitFor(
       () =>
         hub.snapshot().links.length === 1 &&
-        hub.snapshot().links[0].setup !== undefined,
+        hub.snapshot().links[0].peerId !== undefined,
     );
 
     const link = hub.snapshot().links[0];
 
-    assert.equal(typeof link.setup, "number");
-    assert.equal(link.setup !== undefined && link.setup >= 0, true);
-    assert.equal(link.queue, 0);
+    assert.equal(link.peerId, peer.nodeId);
+    assert.equal(link.transport, "socket");
+    assert.deepEqual(link.services, []);
   });
 
   test("emits link-up and link-down events", async (t) => {
@@ -2148,7 +2091,7 @@ test("calls and collects a node behind an intermediate node", async (t) => {
   assert.equal(await a.callTo(c.nodeId, "math", "add", [1, 2]), 3);
   assert.equal(await a.callTo(a.nodeId, "math", "add", [1, 2]), 2);
 
-  const results = await a.collect("math", "add", [1, 2]);
+  const results = await a.callAll("math", "add", [1, 2]);
   const local = results.find((result) => result.nodeId === a.nodeId);
   const remote = results.find((result) => result.nodeId === c.nodeId);
 
@@ -2187,7 +2130,7 @@ test("rejects a call to a node that serves nothing", async (t) => {
   );
 });
 
-test("collect invokes local and remote instances and dedupes by peer", async (t) => {
+test("callAll invokes local and remote instances and dedupes by peer", async (t) => {
   const local = new Node({ cluster: "collect-local" });
   const remote = new Node({ cluster: "collect-remote" });
 
@@ -2221,7 +2164,7 @@ test("collect invokes local and remote instances and dedupes by peer", async (t)
   await local.connect(`ws://127.0.0.1:${wsPort}`);
   await up;
 
-  const results = await local.collect("math", "add", [1, 2]);
+  const results = await local.callAll("math", "add", [1, 2]);
 
   assert.equal(results.length, 2);
   assert.deepEqual(results[0], { nodeId: local.nodeId, ok: true, value: 3 });
@@ -2281,13 +2224,13 @@ test("listens on a websocket path and advertises it", async (t) => {
   assert.equal(http.listening, true);
 });
 
-test("collect rejects after close", async () => {
+test("callAll rejects after close", async () => {
   const node = new Node({ cluster: "collect-closed" });
 
   node.close();
 
   await assert.rejects(
-    () => node.collect("math", "add", [1, 2]),
+    () => node.callAll("math", "add", [1, 2]),
     (error: SwarmError) => error.kind === "rejected",
   );
 });

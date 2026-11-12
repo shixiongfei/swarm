@@ -34,10 +34,6 @@ export abstract class Link implements Enveloper {
   abstract send(message: Envelope): void;
   abstract close(): void;
 
-  flush() {
-    return Promise.resolve();
-  }
-
   constructor(nodeId: string) {
     this.nodeId = nodeId;
   }

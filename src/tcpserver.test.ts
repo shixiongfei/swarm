@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { connect } from "node:net";
 import { SwarmError } from "./errors.ts";
 import { TcpServer } from "./tcpserver.ts";
+import { waitFor } from "./testutil.ts";
 import type { Socket } from "node:net";
 
 const host = "127.0.0.1";
@@ -25,18 +26,6 @@ function openSocket(port: number) {
     socket.once("connect", () => resolve(socket));
     socket.once("error", reject);
   });
-}
-
-async function waitFor(check: () => boolean, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
 }
 
 test("accept emits online and tracks the connection", async () => {

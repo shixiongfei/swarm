@@ -11,14 +11,13 @@
 
 import { createServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { SwarmError } from "./errors.ts";
 import { maxEnvelopeSize } from "./codec.ts";
 import { Server } from "./server.ts";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { ServerOptions as HttpsServerOptions } from "node:https";
 import type { Duplex } from "node:stream";
-import type { WebSocket } from "ws";
 
 export type WsServerOptions = {
   backlog?: number;
@@ -147,6 +146,10 @@ export class WsServer extends Server<WebSocket> {
   }
 
   protected destroy(socket: WebSocket) {
+    if (socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
     socket.terminate();
   }
 

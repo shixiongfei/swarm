@@ -24,7 +24,6 @@ export type DiscoveryHostOptions = {
   nodeId: string;
   cluster: string;
   secret?: string;
-  started: number;
   multicast?: MulticastOptions;
   discovery?: boolean | DiscoveryOptions;
   learn: (entries: PeerEntry[], local: boolean) => void;
@@ -39,7 +38,6 @@ export class Discovery {
   private readonly nodeId: string;
   private readonly cluster: string;
   private readonly secret: string | undefined;
-  private readonly started: number;
   private readonly multicastConfig: MulticastOptions | undefined;
   private readonly config: DiscoveryOptions | undefined;
   private readonly learn: DiscoveryHostOptions["learn"];
@@ -56,7 +54,6 @@ export class Discovery {
     this.nodeId = options.nodeId;
     this.cluster = options.cluster;
     this.secret = options.secret;
-    this.started = options.started;
     this.multicastConfig = options.multicast;
     this.config =
       options.discovery === undefined || options.discovery === false
@@ -111,7 +108,6 @@ export class Discovery {
         cluster: this.cluster,
         nodeId: this.nodeId,
         secret: this.secret,
-        started: this.started,
         family: options.family,
         group: options.group,
         port: options.port,

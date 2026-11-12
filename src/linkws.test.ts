@@ -14,23 +14,12 @@ import { test } from "node:test";
 import { WebSocket as WsWebSocket, WebSocketServer } from "ws";
 import { LinkWs } from "./linkws.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
+import { waitFor } from "./testutil.ts";
 import type { AddressInfo } from "node:net";
 import type { Envelope } from "./envelope.ts";
 import type { SwarmError } from "./errors.ts";
 
 const host = "127.0.0.1";
-
-async function waitFor(check: () => boolean, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 function createPair() {
   return new Promise<{
@@ -304,33 +293,6 @@ test("closes the link when the socket errors", () => {
   socket.emit("error");
 
   assert.equal(closes, 1);
-});
-
-test("flush waits for buffered data to drain", async () => {
-  const socket = fakeSocket();
-  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
-  const started = Date.now();
-
-  socket.bufferedAmount = 10;
-
-  const flushed = link.flush();
-
-  setTimeout(() => {
-    socket.bufferedAmount = 0;
-  }, 15);
-
-  await flushed;
-
-  assert.equal(Date.now() - started >= 10, true);
-});
-
-test("flush resolves immediately after close", async () => {
-  const socket = fakeSocket();
-  const link = new LinkWs(socket as unknown as WebSocket, "client-node", true);
-
-  link.close();
-
-  assert.equal(await link.flush(), undefined);
 });
 
 test("throws when the envelope is too large", () => {

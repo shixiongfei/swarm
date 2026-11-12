@@ -21,6 +21,7 @@ const minBufferSize = 16;
 const shrinkBufferSize = 64 * 1024;
 const maxBufferSize = headerSize + maxEnvelopeSize;
 const maxQueueSize = maxEnvelopeSize * 2;
+const closeDrainTimeout = 100;
 
 export class LinkStream extends Link {
   readonly transport = "socket";
@@ -33,7 +34,6 @@ export class LinkStream extends Link {
   private writable = true;
   private queued = 0;
   private readonly queue: Uint8Array[] = [];
-  private readonly flushes: Array<() => void> = [];
 
   private readonly onData = (chunk: Uint8Array) => {
     if (this.closed) {
@@ -73,8 +73,6 @@ export class LinkStream extends Link {
       this.queued -= frame.byteLength;
       this.writable = this.socket.write(frame) !== false;
     }
-
-    this.settle();
   };
 
   constructor(socket: Socket, nodeId: string, local?: boolean) {
@@ -119,18 +117,6 @@ export class LinkStream extends Link {
     this.writable = this.socket.write(frame) !== false;
   }
 
-  flush() {
-    if (this.closed) {
-      return Promise.resolve();
-    }
-
-    if (this.writable && this.queue.length === 0) {
-      return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => this.flushes.push(resolve));
-  }
-
   close() {
     if (this.closed) {
       return;
@@ -140,20 +126,35 @@ export class LinkStream extends Link {
     this.buffer = new Uint8Array(0);
     this.head = 0;
     this.tail = 0;
-    this.queue.length = 0;
-    this.queued = 0;
-
-    const flushes = this.flushes.splice(0);
-
-    for (const resolve of flushes) {
-      resolve();
-    }
 
     this.socket.off("data", this.onData);
     this.socket.off("error", this.onError);
     this.socket.off("close", this.onClose);
     this.socket.off("drain", this.onDrain);
-    this.socket.destroy();
+
+    if (this.socket.destroyed) {
+      this.queue.length = 0;
+      this.queued = 0;
+      return;
+    }
+
+    this.socket.once("error", () => this.socket.destroy());
+
+    while (this.queue.length > 0) {
+      const frame = this.queue.shift();
+
+      if (frame !== undefined) {
+        this.socket.write(frame);
+      }
+    }
+
+    this.queued = 0;
+
+    this.socket.end();
+
+    const timer = setTimeout(() => this.socket.destroy(), closeDrainTimeout);
+
+    this.socket.once("close", () => clearTimeout(timer));
   }
 
   private append(chunk: Uint8Array) {
@@ -258,17 +259,5 @@ export class LinkStream extends Link {
   private abort() {
     this.close();
     this.events.emit("close");
-  }
-
-  private settle() {
-    if (this.queue.length > 0 || !this.writable) {
-      return;
-    }
-
-    const flushes = this.flushes.splice(0);
-
-    for (const resolve of flushes) {
-      resolve();
-    }
   }
 }

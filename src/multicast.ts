@@ -30,7 +30,6 @@ export type MulticastOptions = {
 export type MulticastConfig = MulticastOptions & {
   cluster: string;
   nodeId: string;
-  started: number;
   secret?: string;
 };
 
@@ -50,7 +49,6 @@ export class Multicast {
 
   private readonly cluster: string;
   private readonly nodeId: string;
-  private readonly started: number;
   private readonly secret: string | undefined;
   private readonly family: 4 | 6;
   private readonly group: string;
@@ -67,7 +65,6 @@ export class Multicast {
   constructor(config: MulticastConfig) {
     this.cluster = config.cluster;
     this.nodeId = config.nodeId;
-    this.started = config.started;
     this.secret = config.secret;
     this.family = config.family !== undefined ? config.family : 4;
 
@@ -153,7 +150,6 @@ export class Multicast {
         cluster: this.cluster,
         from: entry.id,
         addr: entry.addr,
-        started: this.started,
       };
 
       this.socket.send(
@@ -162,7 +158,6 @@ export class Multicast {
           cluster: claims.cluster,
           from: claims.from,
           addr: claims.addr,
-          started: claims.started,
           secret: secret !== undefined,
           sig: secret !== undefined ? sign(secret, claims) : undefined,
         }),
@@ -257,7 +252,6 @@ export class Multicast {
       cluster?: unknown;
       from?: unknown;
       addr?: unknown;
-      started?: unknown;
       secret?: unknown;
       sig?: unknown;
     };
@@ -267,7 +261,6 @@ export class Multicast {
       typeof value.cluster !== "string" ||
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
-      typeof value.started !== "number" ||
       typeof value.secret !== "boolean" ||
       value.from === this.nodeId ||
       value.cluster !== this.cluster ||
@@ -287,8 +280,7 @@ export class Multicast {
         claims === undefined ||
         claims.cluster !== value.cluster ||
         claims.from !== value.from ||
-        claims.addr !== value.addr ||
-        claims.started !== value.started
+        claims.addr !== value.addr
       ) {
         return;
       }

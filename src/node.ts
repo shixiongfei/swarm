@@ -73,23 +73,17 @@ export type NodeLinkInfo = {
   latency: number | undefined;
   local: boolean;
   services: Instance[];
-  setup: number | undefined;
-  queue: number;
 };
-
-export type NodeHealth = "healthy" | "isolated" | "down";
 
 export type NodeSnapshot = {
   nodeId: string;
   cluster: string;
-  closed: boolean;
   services: Instance[];
   members: NodeMember[];
   links: NodeLinkInfo[];
   seeds: string[];
   multicast: boolean;
   unix: boolean;
-  health: NodeHealth;
 };
 
 export type NodeLinkDown = NodeLinkInfo & {
@@ -107,11 +101,9 @@ export type NodeEvents = {
 
 const nodes = new Map<string, { node: Node; options: NodeOptions }>();
 const defaultMaxHops = 8;
-const closeFlushTimeout = 1000;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
-  readonly started = Date.now();
   readonly cluster: string;
   readonly secret?: string;
   readonly events = eventlite<NodeEvents>({
@@ -206,7 +198,6 @@ export class Node implements Provider {
       nodeId: this.nodeId,
       cluster: this.cluster,
       secret: this.secret,
-      started: this.started,
       multicast: config.multicast,
       discovery: config.discovery,
       learn: (entries, local) => this.membership.learn(entries, local),
@@ -275,8 +266,6 @@ export class Node implements Provider {
       latency: nodeLink.latency,
       local: nodeLink.local,
       services: nodeLink.instances(),
-      setup: nodeLink.setup,
-      queue: nodeLink.queue,
     };
   }
 
@@ -287,27 +276,17 @@ export class Node implements Provider {
   }
 
   snapshot(): NodeSnapshot {
-    const links = [...this.nodeLinks, ...this.nodeHub.links].map((nodeLink) =>
-      this.linkInfo(nodeLink),
-    );
-
-    const health: NodeHealth = this.closed
-      ? "down"
-      : links.length > 0
-        ? "healthy"
-        : "isolated";
-
     return {
       nodeId: this.nodeId,
       cluster: this.cluster,
-      closed: this.closed,
       services: this.watcher.instances(),
       members: this.membership.snapshot(),
-      links,
+      links: [...this.nodeLinks, ...this.nodeHub.links].map((nodeLink) =>
+        this.linkInfo(nodeLink),
+      ),
       seeds: this.dialer.list(),
       multicast: this.discovery.multicastActive,
       unix: this.discovery.unixActive,
-      health,
     };
   }
 
@@ -559,7 +538,6 @@ export class Node implements Provider {
     this.nodeLinks.length = 0;
     this.nodeHub.close();
 
-    this.dialer.close();
     this.pubsub.close();
 
     const entry = nodes.get(this.cluster);
@@ -571,44 +549,17 @@ export class Node implements Provider {
     this.nodeLocal.close();
     this.watcher.close();
 
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const dispose = () => {
-      if (disposed) {
-        return;
-      }
-
-      disposed = true;
-
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
-
-      for (const nodeLink of links) {
-        nodeLink.close();
-      }
-
-      this.transport.dispose();
-      this.dialed.clear();
-      this.adopted.clear();
-    };
-
-    if (links.length === 0) {
-      dispose();
-      return;
+    for (const nodeLink of links) {
+      nodeLink.close();
     }
 
-    timer = setTimeout(dispose, closeFlushTimeout);
-
-    Promise.all(links.map((nodeLink) => nodeLink.flush())).then(
-      dispose,
-      dispose,
-    );
+    this.dialer.close();
+    this.transport.dispose();
+    this.dialed.clear();
+    this.adopted.clear();
   }
 
-  async collect(
+  async callAll(
     service: string,
     method: string,
     args: unknown[] = [],
@@ -616,7 +567,7 @@ export class Node implements Provider {
   ) {
     this.checkOpen();
 
-    return this.router.collect(service, method, args, options);
+    return this.router.callAll(service, method, args, options);
   }
 
   private relay(event: WatchEvent) {

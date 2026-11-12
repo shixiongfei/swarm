@@ -173,7 +173,7 @@ describe("Router", () => {
     assert.equal(b.calls[0].target, "b");
   });
 
-  test("collects local and remote instances and isolates failures", async () => {
+  test("callAll invokes local and remote instances and isolates failures", async () => {
     const local = new NodeLocal("self");
     const failure = new Error("boom");
 
@@ -196,7 +196,7 @@ describe("Router", () => {
       ],
     });
 
-    const results = await router.collect("math", "add", [1, 2]);
+    const results = await router.callAll("math", "add", [1, 2]);
 
     assert.deepEqual(results, [
       { nodeId: "self", ok: false, error: failure },
@@ -204,11 +204,11 @@ describe("Router", () => {
     ]);
   });
 
-  test("collect throws not-found when no instance serves the service", () => {
+  test("callAll throws not-found when no instance serves the service", () => {
     const { router } = makeRouter({});
 
     assert.throws(
-      () => router.collect("missing", "add", []),
+      () => router.callAll("missing", "add", []),
       (err: SwarmError) => err.kind === "not-found",
     );
   });

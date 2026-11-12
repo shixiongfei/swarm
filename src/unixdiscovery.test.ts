@@ -15,6 +15,7 @@ import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnixDiscovery } from "./unixdiscovery.ts";
+import { waitFor } from "./testutil.ts";
 import type { Socket } from "node:net";
 
 async function tempDir() {
@@ -36,20 +37,6 @@ async function isEmpty(dir: string) {
   } catch {
     return true;
   }
-}
-
-async function waitFor(check: () => Promise<boolean>, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    if (await check()) {
-      return;
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-
-  throw new Error("timed out");
 }
 
 test("links a pair of nodes exactly once", async (t) => {

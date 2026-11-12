@@ -14,42 +14,13 @@ import { describe, test } from "node:test";
 import { createSocket } from "node:dgram";
 import { Multicast } from "./multicast.ts";
 import { sign } from "./jwt.ts";
+import { freeUdpPort, within } from "./testutil.ts";
 import type { PeerEntry } from "./envelope.ts";
-
-async function freePort(family: 4 | 6 = 4) {
-  const socket = createSocket({
-    type: family === 6 ? "udp6" : "udp4",
-    reuseAddr: true,
-  });
-
-  await new Promise<void>((resolve) => socket.bind(0, resolve));
-
-  const port = socket.address().port;
-
-  await new Promise<void>((resolve) => socket.close(resolve));
-
-  return port;
-}
-
-async function within<T>(promise: Promise<T>, ms: number) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), ms);
-  });
-  const value = await Promise.race([promise, timeout]);
-
-  if (timer !== undefined) {
-    clearTimeout(timer);
-  }
-
-  return value;
-}
 
 describe("Multicast", () => {
   test("exchanges announcements within a cluster", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const options = {
-      started: 1,
       port,
       interval: 50,
       interface: "127.0.0.1",
@@ -90,11 +61,10 @@ describe("Multicast", () => {
   });
 
   test("ignores foreign and malformed announcements", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
-      started: 1,
       port,
       interval: 50,
       interface: "127.0.0.1",
@@ -127,7 +97,6 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "probe",
         addr: "tcp://127.0.0.1:1",
-        started: 1,
         secret: false,
       }),
       port,
@@ -149,7 +118,6 @@ describe("Multicast", () => {
         cluster: "other",
         from: "x",
         addr: "tcp://127.0.0.1:1",
-        started: 1,
         secret: false,
       }),
       port,
@@ -169,7 +137,6 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "x",
         addr: "tcp://127.0.0.1:1",
-        started: 1,
         secret: false,
       }),
       port,
@@ -182,12 +149,11 @@ describe("Multicast", () => {
   });
 
   test("enforces the cluster secret", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
       secret: "s3cret",
-      started: 1,
       port,
       interval: 50,
       interface: "127.0.0.1",
@@ -214,7 +180,6 @@ describe("Multicast", () => {
       cluster: "multicast",
       from: "x",
       addr: "tcp://127.0.0.1:1",
-      started: 1,
     };
     const send = (addr: string, secret: string | undefined) =>
       sender.send(
@@ -223,7 +188,6 @@ describe("Multicast", () => {
           cluster: claims.cluster,
           from: claims.from,
           addr,
-          started: claims.started,
           secret: secret !== undefined,
           sig: secret !== undefined ? sign(secret, claims) : undefined,
         }),
@@ -258,11 +222,10 @@ describe("Multicast", () => {
   });
 
   test("rejects a signed announcement when it has no secret", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
-      started: 1,
       port,
       interval: 50,
       interface: "127.0.0.1",
@@ -289,7 +252,6 @@ describe("Multicast", () => {
       cluster: "multicast",
       from: "x",
       addr: "tcp://127.0.0.1:1",
-      started: 1,
     };
     const send = (secret: boolean, sig?: string) =>
       sender.send(
@@ -298,7 +260,6 @@ describe("Multicast", () => {
           cluster: claims.cluster,
           from: claims.from,
           addr: claims.addr,
-          started: claims.started,
           secret,
           sig,
         }),
@@ -331,9 +292,8 @@ describe("Multicast", () => {
   });
 
   test("exchanges announcements over IPv6", async (t) => {
-    const port = await freePort(6);
+    const port = await freeUdpPort(6);
     const options = {
-      started: 1,
       family: 6 as const,
       port,
       interval: 50,
@@ -374,11 +334,10 @@ describe("Multicast", () => {
   });
 
   test("close is idempotent", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
-      started: 1,
       port,
       interface: "127.0.0.1",
     });
@@ -398,11 +357,10 @@ describe("Multicast", () => {
   });
 
   test("recovers after a socket error", async (t) => {
-    const port = await freePort();
+    const port = await freeUdpPort();
     const multicast = new Multicast({
       cluster: "multicast-recover",
       nodeId: "a",
-      started: 1,
       port,
       interval: 50,
       interface: "127.0.0.1",

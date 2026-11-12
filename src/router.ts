@@ -140,7 +140,7 @@ export class Router {
     });
   }
 
-  collect(
+  callAll(
     service: string,
     method: string,
     args: unknown[] = [],

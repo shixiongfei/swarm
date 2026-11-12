@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { connect, createServer } from "node:net";
 import { LinkStream } from "./linkstream.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
+import { waitFor } from "./testutil.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
@@ -27,18 +28,6 @@ function frame(envelope: Envelope) {
   bytes.set(payload, 4);
 
   return bytes;
-}
-
-async function waitFor(check: () => boolean, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
 }
 
 function createPair() {
@@ -321,21 +310,27 @@ test("decodes a small frame after a large payload", async (t) => {
   assert.deepEqual(received, [large, small]);
 });
 
-test("flush waits for a congested socket to drain", async (t) => {
-  let writable = false;
-  const handlers = new Map<string, () => void>();
+test("close drains queued frames and ends the socket", async (t) => {
+  const written: Uint8Array[] = [];
+  let ended = 0;
+  let destroyed = 0;
 
   const socket = {
     remoteAddress: "127.0.0.1",
     setNoDelay() {},
-    on(event: string, handler: () => void) {
-      handlers.set(event, handler);
-    },
+    on() {},
+    once() {},
     off() {},
-    write() {
-      return writable;
+    write(frame: Uint8Array) {
+      written.push(frame);
+      return false;
     },
-    destroy() {},
+    end() {
+      ended += 1;
+    },
+    destroy() {
+      destroyed += 1;
+    },
   } as unknown as Socket;
 
   const link = new LinkStream(socket, "client-node");
@@ -343,22 +338,17 @@ test("flush waits for a congested socket to drain", async (t) => {
   t.after(() => link.close());
 
   link.send({ t: "bye", from: "client-node" });
+  link.send({ t: "pong", from: "client-node" });
 
-  const flushed = link.flush();
-  let settled = false;
+  assert.equal(written.length, 1);
 
-  void flushed.then(() => {
-    settled = true;
-  });
+  link.close();
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+  assert.equal(written.length, 2);
+  assert.equal(ended, 1);
+  assert.equal(destroyed, 0);
 
-  assert.equal(settled, false);
+  await new Promise<void>((resolve) => setTimeout(resolve, 150));
 
-  writable = true;
-  handlers.get("drain")?.();
-
-  await flushed;
-
-  assert.equal(settled, true);
+  assert.equal(destroyed, 1);
 });

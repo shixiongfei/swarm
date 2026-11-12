@@ -14,21 +14,10 @@ import { test } from "node:test";
 import { SwarmError } from "./errors.ts";
 import { WsClient } from "./wsclient.ts";
 import { WsServer } from "./wsserver.ts";
+import { waitFor } from "./testutil.ts";
 import type { WebSocket as ServerSocket } from "ws";
 
 const host = "127.0.0.1";
-
-async function waitFor(check: () => boolean, timeout = 2000) {
-  const deadline = Date.now() + timeout;
-
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error("timed out");
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 test("connect emits online and close emits offline", async () => {
   const server = new WsServer(host, 0);
