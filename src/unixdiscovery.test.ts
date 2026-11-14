@@ -44,12 +44,14 @@ test("links a pair of nodes exactly once", async (t) => {
   const a = new UnixDiscovery({
     nodeId: "0".repeat(16),
     cluster: "pair",
+    secret: "",
     dir,
     interval: 20,
   });
   const b = new UnixDiscovery({
     nodeId: "1".repeat(16),
     cluster: "pair",
+    secret: "",
     dir,
     interval: 20,
   });
@@ -96,6 +98,7 @@ test("removes its socket file on close but keeps a given directory", async (t) =
   const discovery = new UnixDiscovery({
     nodeId: "0".repeat(16),
     cluster: "close",
+    secret: "",
     dir,
     interval: 1000,
   });
@@ -125,6 +128,7 @@ test("removes a stale socket left by a dead peer", async (t) => {
   const discovery = new UnixDiscovery({
     nodeId: "0".repeat(16),
     cluster: "stale",
+    secret: "",
     dir,
     interval: 20,
   });
@@ -147,6 +151,7 @@ test("derives a private directory from the cluster", async (t) => {
   const discovery = new UnixDiscovery({
     nodeId: "0".repeat(16),
     cluster: `dir-${Date.now()}`,
+    secret: "",
     interval: 1000,
   });
 

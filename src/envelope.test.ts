@@ -24,7 +24,6 @@ describe("parseEnvelope", () => {
         startup: 1,
         token: "token-value",
       },
-      { t: "accept", from: "node-a", version: 1, startup: 1 },
       {
         t: "accept",
         from: "node-a",
@@ -91,8 +90,10 @@ describe("parseEnvelope", () => {
       { t: "hello", from: "node-a", version: 0 },
       { t: "hello", from: "node-a", version: 1.5 },
       { t: "hello", from: "node-a", version: "1" },
+      { t: "hello", from: "node-a", version: 1, startup: 1 },
       { t: "accept" },
       { t: "accept", from: "node-a" },
+      { t: "accept", from: "node-a", version: 1, startup: 1 },
       { t: "accept", from: "node-a", version: 1, token: 1 },
       { t: "up", from: "node-a" },
       { t: "up", from: 1, service: "math" },

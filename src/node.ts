@@ -107,7 +107,7 @@ export class Node implements Provider {
   readonly nodeId = randomId();
   readonly startup = Date.now();
   readonly cluster: string;
-  readonly secret?: string;
+  readonly secret: string;
   readonly events = eventlite<NodeEvents>({
     allowDuplicate: true,
     isolate: true,
@@ -132,7 +132,7 @@ export class Node implements Provider {
 
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
-    this.secret = config.secret;
+    this.secret = config.secret !== undefined ? config.secret : "";
 
     this.watcher.addSource(this.nodeLocal);
 

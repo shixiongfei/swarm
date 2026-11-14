@@ -53,7 +53,7 @@ test("parseUrl normalizes tcp, ws, and wss urls", () => {
     port: 9000,
     portOmitted: false,
     path: "/",
-    secret: undefined,
+    secret: "",
   });
 
   assert.deepEqual(parseUrl("ws://example.com/ws"), {
@@ -63,7 +63,7 @@ test("parseUrl normalizes tcp, ws, and wss urls", () => {
     port: 80,
     portOmitted: true,
     path: "/ws",
-    secret: undefined,
+    secret: "",
   });
 
   assert.deepEqual(parseUrl("wss://[::1]:9443/a/b/"), {
@@ -73,7 +73,7 @@ test("parseUrl normalizes tcp, ws, and wss urls", () => {
     port: 9443,
     portOmitted: false,
     path: "/a/b",
-    secret: undefined,
+    secret: "",
   });
 
   assert.equal(parseUrl("tcp://user:p%40ss@127.0.0.1:9000").secret, "p@ss");

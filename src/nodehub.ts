@@ -33,7 +33,7 @@ export class NodeHub implements Observable {
     isolate: true,
   });
 
-  private readonly secret?: string;
+  private readonly secret: string;
   private readonly provider: Provider;
   private readonly startup: number;
   private readonly heartbeatInterval?: number;

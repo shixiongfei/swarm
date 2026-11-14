@@ -30,13 +30,14 @@ type NodeLinkEvents = {
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 const defaultHandshakeTimeout = 15000;
+const maxInboundTimeout = 60000;
 
 export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
 
 export type NodeLinkConfig = {
   provider: Provider;
   startup: number;
-  secret?: string;
+  secret: string;
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
@@ -48,7 +49,7 @@ export class NodeLink implements Observable {
     allowDuplicate: true,
     isolate: true,
   });
-  readonly secret?: string;
+  readonly secret: string;
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
@@ -80,12 +81,6 @@ export class NodeLink implements Observable {
         }
 
         this.peerStartup = message.startup;
-
-        if (this.secret === undefined) {
-          this.open(message.from, true);
-          return;
-        }
-
         this.authenticate(message.from, message.token, true);
         return;
 
@@ -95,12 +90,6 @@ export class NodeLink implements Observable {
         }
 
         this.peerStartup = message.startup;
-
-        if (this.secret === undefined) {
-          this.open(message.from, false);
-          return;
-        }
-
         this.authenticate(message.from, message.token, false);
         return;
 
@@ -116,7 +105,7 @@ export class NodeLink implements Observable {
         }
         return;
 
-      case "call":
+      case "call": {
         if (
           this.peer === undefined ||
           message.from !== this.peer ||
@@ -125,13 +114,18 @@ export class NodeLink implements Observable {
           return;
         }
 
+        const timeout =
+          message.timeout === undefined
+            ? undefined
+            : Math.min(message.timeout, maxInboundTimeout);
+
         Promise.resolve()
           .then(() =>
             this.provider.invoke(
               message.service,
               message.method,
               message.args,
-              message.timeout,
+              timeout,
               message.ttl,
               this,
               message.target,
@@ -152,6 +146,7 @@ export class NodeLink implements Observable {
             (error: unknown) => this.link.fail(message.id, message.from, error),
           );
         return;
+      }
 
       case "reply":
         if (
@@ -396,13 +391,13 @@ export class NodeLink implements Observable {
     this.link.close();
   }
 
-  private open(from: string, reply: boolean, token?: string) {
+  private open(from: string, reply: boolean) {
     if (this.closed || !this.connect(from)) {
       return;
     }
 
     if (reply) {
-      this.link.accept(this.startup, token);
+      this.link.accept(this.startup, this.token());
     }
 
     if (this.handshake !== undefined) {
@@ -444,22 +439,16 @@ export class NodeLink implements Observable {
     }
   }
 
-  private authenticate(
-    from: string,
-    token: string | undefined,
-    reply: boolean,
-  ) {
+  private authenticate(from: string, token: string, reply: boolean) {
     if (this.closed || this.reject(from, token)) {
       return;
     }
 
-    this.open(from, reply, reply ? this.token() : undefined);
+    this.open(from, reply);
   }
 
   private token() {
-    return this.secret === undefined
-      ? undefined
-      : signToken(this.secret, this.link.nodeId);
+    return signToken(this.secret, this.link.nodeId);
   }
 
   private negotiate(version: number) {
@@ -476,11 +465,7 @@ export class NodeLink implements Observable {
     return false;
   }
 
-  private reject(from: string, token: string | undefined) {
-    if (this.secret === undefined) {
-      return false;
-    }
-
+  private reject(from: string, token: string) {
     if (verifyToken(token, this.secret, from)) {
       return false;
     }

@@ -20,7 +20,7 @@ import type { Socket } from "node:net";
 export type UnixDiscoveryConfig = {
   nodeId: string;
   cluster: string;
-  secret?: string;
+  secret: string;
   dir?: string;
   interval?: number;
 };
@@ -221,9 +221,9 @@ export class UnixDiscovery {
   }
 }
 
-function discoveryDir(cluster: string, secret?: string) {
+function discoveryDir(cluster: string, secret: string) {
   const hash = createHash("sha256")
-    .update(`${cluster}\u0000${secret !== undefined ? secret : ""}`)
+    .update(`${cluster}\u0000${secret}`)
     .digest("hex")
     .slice(0, 12);
 

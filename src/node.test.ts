@@ -18,6 +18,7 @@ import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
 import { protocolVersion } from "./envelope.ts";
+import { signToken } from "./token.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import type { NodeLinkDown } from "./node.ts";
 import type { SwarmError } from "./errors.ts";
@@ -100,6 +101,7 @@ async function attachGhost(node: Node, service: string) {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
   port2.postMessage({ t: "up", from: "ghost", service });
 
@@ -123,6 +125,19 @@ describe("Node", () => {
 
     assert.equal(node.register("math", { add: () => 0 }), node);
     assert.equal(node.unregister("math"), node);
+  });
+
+  test("secret defaults to an empty string", (t) => {
+    const node = makeNode();
+    const secured = new Node({ cluster: "test", secret: "s3cret" });
+
+    t.after(() => {
+      node.close();
+      secured.close();
+    });
+
+    assert.equal(node.secret, "");
+    assert.equal(secured.secret, "s3cret");
   });
 
   test("call passes an empty argument list by default", async () => {
@@ -548,6 +563,7 @@ describe("Node", () => {
       from: "ghost",
       version: protocolVersion,
       startup: 1,
+      token: signToken("", "ghost"),
     });
 
     await waitFor(() => ups.length === 1);
@@ -2499,6 +2515,7 @@ test("listen advertises the configured address", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
 
   assert.deepEqual(await learned, [
@@ -2571,6 +2588,7 @@ test("listen fills the bound port when advertise uses port 0", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
 
   assert.deepEqual(await learned, [
@@ -2625,6 +2643,7 @@ test("listen fills the bound port when advertise omits the port", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
 
   assert.deepEqual(await learned, [
@@ -2665,6 +2684,7 @@ test("listen does not advertise without options", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
 
   assert.deepEqual(await learned, []);
@@ -2710,6 +2730,7 @@ test("peers ignores invalid or wildcard entries", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
   port2.postMessage({
     t: "peers",
@@ -2800,6 +2821,7 @@ test("rejects a forwarded call whose hop budget is exhausted", async (t) => {
     from: "peer",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "peer"),
   });
   port2.postMessage({ t: "up", from: "peer", service: "math" });
   await up;
@@ -2846,6 +2868,7 @@ test("dial rejects a peer that does not match the advertised id", async (t) => {
     from: "ghost",
     version: protocolVersion,
     startup: 1,
+    token: signToken("", "ghost"),
   });
   port2.postMessage({
     t: "peers",

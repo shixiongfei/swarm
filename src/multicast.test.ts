@@ -24,6 +24,7 @@ describe("Multicast", () => {
       port,
       interval: 50,
       interface: "127.0.0.1",
+      secret: "",
     };
 
     const a = new Multicast({ cluster: "multicast", nodeId: "a", ...options });
@@ -67,6 +68,7 @@ describe("Multicast", () => {
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
+      secret: "",
       port,
       interval: 50,
       interface: "127.0.0.1",
@@ -100,7 +102,12 @@ describe("Multicast", () => {
         from: "probe",
         addr: "tcp://127.0.0.1:1",
         startup: 1,
-        secret: false,
+        sig: sign("", {
+          cluster: "multicast",
+          from: "probe",
+          addr: "tcp://127.0.0.1:1",
+          startup: 1,
+        }),
       }),
       port,
       "239.83.104.105",
@@ -122,7 +129,12 @@ describe("Multicast", () => {
         from: "x",
         addr: "tcp://127.0.0.1:1",
         startup: 1,
-        secret: false,
+        sig: sign("", {
+          cluster: "other",
+          from: "x",
+          addr: "tcp://127.0.0.1:1",
+          startup: 1,
+        }),
       }),
       port,
       "239.83.104.105",
@@ -135,7 +147,11 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "no-startup",
         addr: "tcp://127.0.0.1:1",
-        secret: false,
+        sig: sign("", {
+          cluster: "multicast",
+          from: "no-startup",
+          addr: "tcp://127.0.0.1:1",
+        }),
       }),
       port,
       "239.83.104.105",
@@ -154,7 +170,12 @@ describe("Multicast", () => {
         from: "x",
         addr: "tcp://127.0.0.1:1",
         startup: 1,
-        secret: false,
+        sig: sign("", {
+          cluster: "multicast",
+          from: "x",
+          addr: "tcp://127.0.0.1:1",
+          startup: 1,
+        }),
       }),
       port,
       "239.83.104.105",
@@ -199,7 +220,7 @@ describe("Multicast", () => {
       addr: "tcp://127.0.0.1:1",
       startup: 1,
     };
-    const send = (addr: string, secret: string | undefined) =>
+    const send = (addr: string, secret: string) =>
       sender.send(
         JSON.stringify({
           t: "advertise",
@@ -207,8 +228,7 @@ describe("Multicast", () => {
           from: claims.from,
           addr,
           startup: claims.startup,
-          secret: secret !== undefined,
-          sig: secret !== undefined ? sign(secret, claims) : undefined,
+          sig: sign(secret, claims),
         }),
         port,
         "239.83.104.105",
@@ -235,79 +255,18 @@ describe("Multicast", () => {
 
     send("tcp://127.0.0.1:2", "s3cret");
     send(claims.addr, "other");
-    send(claims.addr, undefined);
 
-    assert.equal(await within(rejected, 300), undefined);
-  });
-
-  test("rejects a signed announcement when it has no secret", async (t) => {
-    const port = await freeUdpPort();
-    const multicast = new Multicast({
-      cluster: "multicast",
-      nodeId: "a",
+    sender.send(
+      JSON.stringify({
+        t: "advertise",
+        cluster: claims.cluster,
+        from: claims.from,
+        addr: claims.addr,
+        startup: claims.startup,
+      }),
       port,
-      interval: 50,
-      interface: "127.0.0.1",
-    });
-    const sender = createSocket("udp4");
-
-    t.after(() => {
-      multicast.close();
-      sender.close();
-    });
-
-    await new Promise<void>((resolve) => sender.bind(0, "0.0.0.0", resolve));
-
-    sender.setMulticastInterface("127.0.0.1");
-
-    try {
-      await multicast.open(() => []);
-    } catch {
-      t.skip("multicast is not available");
-      return;
-    }
-
-    const claims = {
-      cluster: "multicast",
-      from: "x",
-      addr: "tcp://127.0.0.1:1",
-      startup: 1,
-    };
-    const send = (secret: boolean, sig?: string) =>
-      sender.send(
-        JSON.stringify({
-          t: "advertise",
-          cluster: claims.cluster,
-          from: claims.from,
-          addr: claims.addr,
-          startup: claims.startup,
-          secret,
-          sig,
-        }),
-        port,
-        "239.83.104.105",
-      );
-
-    const accepted = new Promise<PeerEntry[]>((resolve) =>
-      multicast.events.on("peers", resolve),
+      "239.83.104.105",
     );
-
-    send(false);
-
-    const entries = await within(accepted, 500);
-
-    if (entries === undefined) {
-      t.skip("multicast packets are not delivered");
-      return;
-    }
-
-    assert.deepEqual(entries, [{ id: "x", addr: claims.addr, startup: 1 }]);
-
-    const rejected = new Promise<PeerEntry[]>((resolve) =>
-      multicast.events.on("peers", resolve),
-    );
-
-    send(true, sign("s3cret", claims));
 
     assert.equal(await within(rejected, 300), undefined);
   });
@@ -318,6 +277,7 @@ describe("Multicast", () => {
       family: 6 as const,
       port,
       interval: 50,
+      secret: "",
     };
 
     const a = new Multicast({ cluster: "multicast", nodeId: "a", ...options });
@@ -359,6 +319,7 @@ describe("Multicast", () => {
     const multicast = new Multicast({
       cluster: "multicast",
       nodeId: "a",
+      secret: "",
       port,
       interface: "127.0.0.1",
     });
@@ -382,6 +343,7 @@ describe("Multicast", () => {
     const multicast = new Multicast({
       cluster: "multicast-recover",
       nodeId: "a",
+      secret: "",
       port,
       interval: 50,
       interface: "127.0.0.1",

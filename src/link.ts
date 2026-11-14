@@ -38,26 +38,15 @@ export abstract class Link implements Enveloper {
     this.nodeId = nodeId;
   }
 
-  hello(startup: number, token?: string) {
+  hello(startup: number, token: string) {
     this.handshake("hello", startup, token);
   }
 
-  accept(startup: number, token?: string) {
+  accept(startup: number, token: string) {
     this.handshake("accept", startup, token);
   }
 
-  private handshake(t: "hello" | "accept", startup: number, token?: string) {
-    if (token === undefined) {
-      this.send({
-        t,
-        from: this.nodeId,
-        version: protocolVersion,
-        startup,
-      } as Envelope);
-
-      return;
-    }
-
+  private handshake(t: "hello" | "accept", startup: number, token: string) {
     this.send({
       t,
       from: this.nodeId,

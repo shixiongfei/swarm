@@ -29,10 +29,10 @@ export type ListenOptions = {
 
 export type TransportOptions = {
   nodeId: string;
-  join: (nodeLink: Link, secret?: string) => void;
+  join: (nodeLink: Link, secret: string) => void;
   attach: (
     nodeLink: Link,
-    secret?: string,
+    secret: string,
     expected?: string,
     addr?: string,
     auto?: boolean,

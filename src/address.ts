@@ -18,7 +18,7 @@ export type ParsedUrl = {
   port: number;
   portOmitted: boolean;
   path: string;
-  secret: string | undefined;
+  secret: string;
 };
 
 export function parseUrl(url: string | URL): ParsedUrl {
@@ -60,7 +60,7 @@ export function parseUrl(url: string | URL): ParsedUrl {
     throw new SwarmError("rejected", "tcp url does not support a path");
   }
 
-  let secret: string | undefined;
+  let secret = "";
 
   if (parsed.password !== "") {
     try {

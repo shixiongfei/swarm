@@ -30,7 +30,7 @@ export type MulticastOptions = {
 export type MulticastConfig = MulticastOptions & {
   cluster: string;
   nodeId: string;
-  secret?: string;
+  secret: string;
 };
 
 export type MulticastEvents = {
@@ -49,7 +49,7 @@ export class Multicast {
 
   private readonly cluster: string;
   private readonly nodeId: string;
-  private readonly secret: string | undefined;
+  private readonly secret: string;
   private readonly family: 4 | 6;
   private readonly group: string;
   private readonly port: number;
@@ -143,8 +143,6 @@ export class Multicast {
       return;
     }
 
-    const secret = this.secret;
-
     for (const entry of entries) {
       const claims = {
         cluster: this.cluster,
@@ -160,8 +158,7 @@ export class Multicast {
           from: claims.from,
           addr: claims.addr,
           startup: claims.startup,
-          secret: secret !== undefined,
-          sig: secret !== undefined ? sign(secret, claims) : undefined,
+          sig: sign(this.secret, claims),
         }),
         this.port,
         this.group,
@@ -255,7 +252,6 @@ export class Multicast {
       from?: unknown;
       addr?: unknown;
       startup?: unknown;
-      secret?: unknown;
       sig?: unknown;
     };
 
@@ -265,30 +261,23 @@ export class Multicast {
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
       typeof value.startup !== "number" ||
-      typeof value.secret !== "boolean" ||
+      typeof value.sig !== "string" ||
       value.from === this.nodeId ||
-      value.cluster !== this.cluster ||
-      value.secret !== (this.secret !== undefined)
+      value.cluster !== this.cluster
     ) {
       return;
     }
 
-    if (this.secret !== undefined) {
-      if (typeof value.sig !== "string") {
-        return;
-      }
+    const claims = verify(this.secret, value.sig);
 
-      const claims = verify(this.secret, value.sig);
-
-      if (
-        claims === undefined ||
-        claims.cluster !== value.cluster ||
-        claims.from !== value.from ||
-        claims.addr !== value.addr ||
-        claims.startup !== value.startup
-      ) {
-        return;
-      }
+    if (
+      claims === undefined ||
+      claims.cluster !== value.cluster ||
+      claims.from !== value.from ||
+      claims.addr !== value.addr ||
+      claims.startup !== value.startup
+    ) {
+      return;
     }
 
     let host: string | undefined;
