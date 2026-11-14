@@ -21,13 +21,15 @@ describe("parseEnvelope", () => {
         t: "hello",
         from: "node-a",
         version: 1,
+        startup: 1,
         token: "token-value",
       },
-      { t: "accept", from: "node-a", version: 1 },
+      { t: "accept", from: "node-a", version: 1, startup: 1 },
       {
         t: "accept",
         from: "node-a",
         version: 1,
+        startup: 1,
         token: "token-value",
       },
       { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
@@ -62,7 +64,7 @@ describe("parseEnvelope", () => {
       {
         t: "peers",
         from: "node-a",
-        members: [{ id: "node-b", addr: "tcp://127.0.0.1:9000" }],
+        members: [{ id: "node-b", addr: "tcp://127.0.0.1:9000", startup: 1 }],
       },
       { t: "bye", from: "node-a" },
     ];

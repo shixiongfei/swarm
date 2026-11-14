@@ -43,8 +43,8 @@ describe("Multicast", () => {
     );
 
     try {
-      await a.open(() => [{ id: "a", addr: "tcp://127.0.0.1:1" }]);
-      await b.open(() => [{ id: "b", addr: "tcp://127.0.0.1:2" }]);
+      await a.open(() => [{ id: "a", addr: "tcp://127.0.0.1:1", startup: 1 }]);
+      await b.open(() => [{ id: "b", addr: "tcp://127.0.0.1:2", startup: 2 }]);
     } catch {
       t.skip("multicast is not available");
       return;
@@ -57,7 +57,9 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "b", addr: "tcp://127.0.0.1:2" }]);
+    assert.deepEqual(entries, [
+      { id: "b", addr: "tcp://127.0.0.1:2", startup: 2 },
+    ]);
   });
 
   test("ignores foreign and malformed announcements", async (t) => {
@@ -97,6 +99,7 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "probe",
         addr: "tcp://127.0.0.1:1",
+        startup: 1,
         secret: false,
       }),
       port,
@@ -118,12 +121,25 @@ describe("Multicast", () => {
         cluster: "other",
         from: "x",
         addr: "tcp://127.0.0.1:1",
+        startup: 1,
         secret: false,
       }),
       port,
       "239.83.104.105",
     );
     sender.send("not json", port, "239.83.104.105");
+
+    sender.send(
+      JSON.stringify({
+        t: "advertise",
+        cluster: "multicast",
+        from: "no-startup",
+        addr: "tcp://127.0.0.1:1",
+        secret: false,
+      }),
+      port,
+      "239.83.104.105",
+    );
 
     assert.equal(await within(leaked, 300), undefined);
 
@@ -137,6 +153,7 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "x",
         addr: "tcp://127.0.0.1:1",
+        startup: 1,
         secret: false,
       }),
       port,
@@ -144,7 +161,7 @@ describe("Multicast", () => {
     );
 
     assert.deepEqual(await within(received, 500), [
-      { id: "x", addr: "tcp://127.0.0.1:1" },
+      { id: "x", addr: "tcp://127.0.0.1:1", startup: 1 },
     ]);
   });
 
@@ -180,6 +197,7 @@ describe("Multicast", () => {
       cluster: "multicast",
       from: "x",
       addr: "tcp://127.0.0.1:1",
+      startup: 1,
     };
     const send = (addr: string, secret: string | undefined) =>
       sender.send(
@@ -188,6 +206,7 @@ describe("Multicast", () => {
           cluster: claims.cluster,
           from: claims.from,
           addr,
+          startup: claims.startup,
           secret: secret !== undefined,
           sig: secret !== undefined ? sign(secret, claims) : undefined,
         }),
@@ -208,7 +227,7 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "x", addr: claims.addr }]);
+    assert.deepEqual(entries, [{ id: "x", addr: claims.addr, startup: 1 }]);
 
     const rejected = new Promise<PeerEntry[]>((resolve) =>
       multicast.events.on("peers", resolve),
@@ -252,6 +271,7 @@ describe("Multicast", () => {
       cluster: "multicast",
       from: "x",
       addr: "tcp://127.0.0.1:1",
+      startup: 1,
     };
     const send = (secret: boolean, sig?: string) =>
       sender.send(
@@ -260,6 +280,7 @@ describe("Multicast", () => {
           cluster: claims.cluster,
           from: claims.from,
           addr: claims.addr,
+          startup: claims.startup,
           secret,
           sig,
         }),
@@ -280,7 +301,7 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "x", addr: claims.addr }]);
+    assert.deepEqual(entries, [{ id: "x", addr: claims.addr, startup: 1 }]);
 
     const rejected = new Promise<PeerEntry[]>((resolve) =>
       multicast.events.on("peers", resolve),
@@ -316,8 +337,8 @@ describe("Multicast", () => {
     );
 
     try {
-      await a.open(() => [{ id: "a", addr: "tcp://[::1]:1" }]);
-      await b.open(() => [{ id: "b", addr: "tcp://[::1]:2" }]);
+      await a.open(() => [{ id: "a", addr: "tcp://[::1]:1", startup: 1 }]);
+      await b.open(() => [{ id: "b", addr: "tcp://[::1]:2", startup: 2 }]);
     } catch {
       t.skip("IPv6 multicast is not available");
       return;

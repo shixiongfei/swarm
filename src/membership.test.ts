@@ -58,19 +58,23 @@ function makeMembership(overrides: Partial<MembershipOptions> = {}) {
   };
 }
 
-const remote = { id: "peer", addr: "tcp://10.0.0.9:9" };
+const remote = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 };
 
 test("learn skips its own id and loopback hosts from a remote link", (t) => {
   const { membership } = makeMembership();
 
   t.after(() => membership.close());
 
-  membership.members.push({ id: "self", addr: "tcp://127.0.0.1:9" });
+  membership.members.push({
+    id: "self",
+    addr: "tcp://127.0.0.1:9",
+    startup: 1,
+  });
 
   membership.learn(
     [
-      { id: "self", addr: "tcp://10.0.0.9:9" },
-      { id: "local", addr: "tcp://127.0.0.1:9" },
+      { id: "self", addr: "tcp://10.0.0.9:9", startup: 1 },
+      { id: "local", addr: "tcp://127.0.0.1:9", startup: 1 },
     ],
     false,
   );
@@ -109,10 +113,12 @@ test("learn keeps one member and dials the new address on relocation", (t) => {
   const first = "tcp://10.0.0.9:9";
   const second = "tcp://10.0.0.9:10";
 
-  membership.learn([{ id: remote.id, addr: first }], true);
-  membership.learn([{ id: remote.id, addr: second }], true);
+  membership.learn([{ id: remote.id, addr: first, startup: 1 }], true);
+  membership.learn([{ id: remote.id, addr: second, startup: 1 }], true);
 
-  assert.deepEqual(membership.snapshot(), [{ id: remote.id, addr: first }]);
+  assert.deepEqual(membership.snapshot(), [
+    { id: remote.id, addr: first, startup: 1 },
+  ]);
   assert.deepEqual(dials, [
     { addr: first, id: remote.id },
     { addr: second, id: remote.id },
@@ -182,8 +188,11 @@ test("attach adds a member once and ignores an unknown peer", (t) => {
   t.after(() => membership.close());
 
   assert.equal(membership.attach(undefined, remote.addr), false);
-  assert.equal(membership.attach(remote.id, remote.addr), true);
-  assert.equal(membership.attach(remote.id, remote.addr), false);
+  assert.equal(membership.attach(remote.id, remote.addr, remote.startup), true);
+  assert.equal(
+    membership.attach(remote.id, remote.addr, remote.startup),
+    false,
+  );
 
   assert.deepEqual(membership.snapshot(), [remote]);
   assert.deepEqual(up, [remote]);
@@ -194,7 +203,7 @@ test("forgetByLink drops the member and its dial", (t) => {
 
   t.after(() => membership.close());
 
-  membership.attach(remote.id, remote.addr);
+  membership.attach(remote.id, remote.addr, remote.startup);
   membership.forgetByLink(remote.id);
 
   assert.deepEqual(membership.snapshot(), []);
@@ -207,7 +216,7 @@ test("leave forgets a known member and ignores an unknown one", (t) => {
 
   t.after(() => membership.close());
 
-  membership.attach(remote.id, remote.addr);
+  membership.attach(remote.id, remote.addr, remote.startup);
   membership.leave("missing");
   membership.leave(remote.id);
 
@@ -220,13 +229,13 @@ test("upsertSelf replaces the member in place and keeps one entry", (t) => {
 
   t.after(() => membership.close());
 
-  const self = { id: "self", addr: "tcp://10.0.0.1:1" };
+  const self = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1 };
 
   membership.upsertSelf(self);
-  membership.upsertSelf({ id: "self", addr: "tcp://10.0.0.1:2" });
+  membership.upsertSelf({ id: "self", addr: "tcp://10.0.0.1:2", startup: 1 });
 
   assert.deepEqual(membership.self(), [
-    { id: "self", addr: "tcp://10.0.0.1:2" },
+    { id: "self", addr: "tcp://10.0.0.1:2", startup: 1 },
   ]);
   assert.equal(broadcasts(), 2);
 });
@@ -236,7 +245,7 @@ test("shared hides loopback members from a remote link", (t) => {
 
   t.after(() => membership.close());
 
-  const local = { id: "local", addr: "tcp://127.0.0.1:9" };
+  const local = { id: "local", addr: "tcp://127.0.0.1:9", startup: 1 };
 
   membership.learn([local, remote], true);
 
@@ -265,7 +274,10 @@ test("learn skips entries whose address cannot be parsed", (t) => {
 
   t.after(() => membership.close());
 
-  membership.learn([{ id: "bad", addr: "not a url" }, remote], true);
+  membership.learn(
+    [{ id: "bad", addr: "not a url", startup: 1 }, remote],
+    true,
+  );
 
   assert.deepEqual(membership.snapshot(), [remote]);
   assert.deepEqual(dials, [{ addr: remote.addr, id: remote.id }]);
@@ -288,13 +300,19 @@ test("learn dials a new member only when its own id wins the tie-break", (t) => 
 
   t.after(() => membership.close());
 
-  membership.members.push({ id: "self", addr: "tcp://10.0.0.1:1" });
+  membership.members.push({ id: "self", addr: "tcp://10.0.0.1:1", startup: 1 });
 
-  membership.learn([{ id: "peer", addr: "tcp://10.0.0.9:9" }], true);
+  membership.learn(
+    [{ id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 }],
+    true,
+  );
 
   assert.deepEqual(dials, []);
 
-  membership.learn([{ id: "zpeer", addr: "tcp://10.0.0.10:9" }], true);
+  membership.learn(
+    [{ id: "zpeer", addr: "tcp://10.0.0.10:9", startup: 1 }],
+    true,
+  );
 
   assert.deepEqual(dials, [{ addr: "tcp://10.0.0.10:9", id: "zpeer" }]);
 });

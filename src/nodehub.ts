@@ -35,6 +35,7 @@ export class NodeHub implements Observable {
 
   private readonly secret?: string;
   private readonly provider: Provider;
+  private readonly startup: number;
   private readonly heartbeatInterval?: number;
   private readonly heartbeatTimeout?: number;
   private readonly handshakeTimeout?: number;
@@ -45,6 +46,7 @@ export class NodeHub implements Observable {
 
   constructor(config: NodeHubConfig) {
     this.provider = config.provider;
+    this.startup = config.startup;
     this.secret = config.secret;
     this.heartbeatInterval = config.heartbeatInterval;
     this.heartbeatTimeout = config.heartbeatTimeout;
@@ -55,6 +57,7 @@ export class NodeHub implements Observable {
   join(link: Link, secret?: string) {
     const nodeLink = new NodeLink(link, {
       provider: this.provider,
+      startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,

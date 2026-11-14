@@ -13,13 +13,25 @@ import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
-export const protocolVersion = 1;
+export const protocolVersion = 2;
 
-export type PeerEntry = { id: string; addr: string };
+export type PeerEntry = { id: string; addr: string; startup: number };
 
 export type Envelope =
-  | { t: "hello"; from: string; version: number; token?: string }
-  | { t: "accept"; from: string; version: number; token?: string }
+  | {
+      t: "hello";
+      from: string;
+      version: number;
+      startup: number;
+      token?: string;
+    }
+  | {
+      t: "accept";
+      from: string;
+      version: number;
+      startup: number;
+      token?: string;
+    }
   | { t: "up"; from: string; service: string; meta?: MetaData }
   | { t: "down"; from: string; service: string }
   | {
@@ -78,6 +90,7 @@ function isHandshake(
     typeof message.from !== "string" ||
     (message.token !== undefined && typeof message.token !== "string") ||
     typeof message.version !== "number" ||
+    typeof message.startup !== "number" ||
     !Number.isInteger(message.version) ||
     message.version < 1
   ) {
@@ -183,7 +196,11 @@ function isPeerEntry(entry: unknown): boolean {
 
   const peer = entry as PeerEntry;
 
-  return typeof peer.id === "string" && typeof peer.addr === "string";
+  return (
+    typeof peer.id === "string" &&
+    typeof peer.addr === "string" &&
+    typeof peer.startup === "number"
+  );
 }
 
 function isPeers(

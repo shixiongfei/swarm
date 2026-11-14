@@ -113,12 +113,12 @@ export class Membership {
     }
   }
 
-  attach(peer?: string, addr?: string) {
+  attach(peer?: string, addr?: string, startup?: number) {
     if (addr !== undefined) {
       this.expiries.delete(addr);
     }
 
-    if (peer === undefined || addr === undefined) {
+    if (peer === undefined || addr === undefined || startup === undefined) {
       return false;
     }
 
@@ -128,7 +128,7 @@ export class Membership {
       return false;
     }
 
-    const member = { id: peer, addr };
+    const member = { id: peer, addr, startup };
 
     this.members.push(member);
     this.broadcast();
@@ -213,6 +213,7 @@ export class Membership {
     return this.members.map((member) => ({
       id: member.id,
       addr: member.addr,
+      startup: member.startup,
     }));
   }
 

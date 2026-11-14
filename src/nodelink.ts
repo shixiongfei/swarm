@@ -35,6 +35,7 @@ export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
 
 export type NodeLinkConfig = {
   provider: Provider;
+  startup: number;
   secret?: string;
   heartbeatInterval?: number;
   heartbeatTimeout?: number;
@@ -52,6 +53,7 @@ export class NodeLink implements Observable {
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
   private readonly provider: Provider;
+  private readonly startup: number;
   private readonly link: Link;
   private readonly heartbeatInterval: number;
   private readonly heartbeatTimeout: number;
@@ -59,6 +61,7 @@ export class NodeLink implements Observable {
   private readonly maxInflight: number | undefined;
   private readonly disposes: Array<() => void>;
   private peer?: string;
+  peerStartup?: number;
   private closed = false;
   private reason: LinkCloseReason = "close";
   private lastSeen = Date.now();
@@ -76,6 +79,8 @@ export class NodeLink implements Observable {
           return;
         }
 
+        this.peerStartup = message.startup;
+
         if (this.secret === undefined) {
           this.open(message.from, true);
           return;
@@ -88,6 +93,8 @@ export class NodeLink implements Observable {
         if (!this.negotiate(message.version)) {
           return;
         }
+
+        this.peerStartup = message.startup;
 
         if (this.secret === undefined) {
           this.open(message.from, false);
@@ -225,6 +232,7 @@ export class NodeLink implements Observable {
   constructor(link: Link, config: NodeLinkConfig) {
     this.link = link;
     this.provider = config.provider;
+    this.startup = config.startup;
     this.secret = config.secret;
     this.heartbeatInterval =
       config.heartbeatInterval !== undefined
@@ -278,7 +286,7 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.link.hello(this.token());
+    this.link.hello(this.startup, this.token());
   }
 
   register(instance: Instance) {
@@ -394,7 +402,7 @@ export class NodeLink implements Observable {
     }
 
     if (reply) {
-      this.link.accept(token);
+      this.link.accept(this.startup, token);
     }
 
     if (this.handshake !== undefined) {

@@ -21,9 +21,10 @@ const envelopes: Envelope[] = [
     t: "hello",
     from: "node-a",
     version: 1,
+    startup: 1,
     token: "token-value",
   },
-  { t: "accept", from: "node-b", version: 1 },
+  { t: "accept", from: "node-b", version: 1, startup: 1 },
   { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
   { t: "down", from: "node-a", service: "math" },
   {

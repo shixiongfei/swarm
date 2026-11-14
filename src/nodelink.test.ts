@@ -54,6 +54,7 @@ describe("NodeLink", () => {
     const events: string[] = [];
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     link.events.on("bye", () => events.push("bye"));
@@ -66,7 +67,12 @@ describe("NodeLink", () => {
 
     link.hello();
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer-node", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     while (link.peerId === undefined) {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -88,6 +94,7 @@ describe("NodeLink", () => {
 
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     link.events.on("close", () => {
@@ -111,6 +118,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     t.after(() => {
@@ -295,7 +303,12 @@ describe("NodeLink", () => {
     node.attach(port1);
     port2.start();
 
-    port2.postMessage({ t: "hello", from: "first", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "first",
+      version: protocolVersion,
+      startup: 1,
+    });
     port2.postMessage({ t: "up", from: "first", service: "math" });
 
     await up("math");
@@ -304,7 +317,12 @@ describe("NodeLink", () => {
       port2.addEventListener("close", () => resolve()),
     );
 
-    port2.postMessage({ t: "hello", from: "second", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "second",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     await closed;
 
@@ -365,7 +383,8 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "hello",
       from: "peer-node",
-      version: 1,
+      version: protocolVersion,
+      startup: 1,
       token: await signToken("wrong-secret", "peer-node"),
     });
 
@@ -396,7 +415,8 @@ describe("NodeLink", () => {
     port2.postMessage({
       t: "accept",
       from: "peer-node",
-      version: 1,
+      version: protocolVersion,
+      startup: 1,
     });
 
     await closed;
@@ -448,7 +468,12 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "peer",
+      version: protocolVersion,
+      startup: 1,
+    });
     port2.postMessage({ t: "up", from: "origin", service: "fake" });
 
     const event = await up;
@@ -490,7 +515,12 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "peer",
+      version: protocolVersion,
+      startup: 1,
+    });
     port2.postMessage({
       t: "pub",
       id: "pub-1",
@@ -548,7 +578,12 @@ describe("NodeLink", () => {
 
     node.attach(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "peer",
+      version: protocolVersion,
+      startup: 1,
+    });
     port2.postMessage({ t: "up", from: "peer", service: "remote" });
 
     await up;
@@ -591,6 +626,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     t.after(() => {
@@ -613,7 +649,12 @@ describe("NodeLink", () => {
     });
 
     port2.start();
-    port2.postMessage({ t: "hello", from: "peer-node", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+    });
     port2.postMessage({ t: "up", from: "peer-node", service: "math" });
 
     assert.deepEqual((await up).instance, {
@@ -654,6 +695,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     t.after(() => {
@@ -674,6 +716,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      startup: 1,
     });
 
     t.after(() => {
@@ -698,7 +741,7 @@ describe("NodeLink", () => {
 
     const local = new NodeLocal("local-node");
     const stub = new StubLink();
-    const link = new NodeLink(stub, { provider: local });
+    const link = new NodeLink(stub, { provider: local, startup: 1 });
 
     t.after(() => {
       link.close();
@@ -718,14 +761,19 @@ describe("NodeLink", () => {
 
     const local = new NodeLocal("local-node");
     const stub = new StubLink();
-    const link = new NodeLink(stub, { provider: local });
+    const link = new NodeLink(stub, { provider: local, startup: 1 });
 
     t.after(() => {
       link.close();
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
+    stub.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     stub.failNextSend = true;
 
@@ -746,14 +794,19 @@ describe("NodeLink", () => {
 
     const local = new NodeLocal("local-node");
     const stub = new StubLink();
-    const link = new NodeLink(stub, { provider: local });
+    const link = new NodeLink(stub, { provider: local, startup: 1 });
 
     t.after(() => {
       link.close();
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
+    stub.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     mock.timers.tick(15000);
     mock.timers.tick(15000);
@@ -771,6 +824,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      startup: 1,
       heartbeatInterval: 1000,
       heartbeatTimeout: 2000,
     });
@@ -780,7 +834,12 @@ describe("NodeLink", () => {
       local.close();
     });
 
-    stub.events.emit("envelope", { t: "hello", from: "peer-node", version: 1 });
+    stub.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     mock.timers.tick(3000);
 
@@ -790,7 +849,7 @@ describe("NodeLink", () => {
   test("closes a link whose protocol version differs", (t) => {
     const local = new NodeLocal("local-node");
     const stub = new StubLink();
-    const link = new NodeLink(stub, { provider: local });
+    const link = new NodeLink(stub, { provider: local, startup: 1 });
 
     t.after(() => {
       link.close();
@@ -801,6 +860,7 @@ describe("NodeLink", () => {
       t: "hello",
       from: "peer-node",
       version: protocolVersion + 1,
+      startup: 1,
     });
 
     assert.equal(link.peerId, undefined);

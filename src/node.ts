@@ -77,6 +77,7 @@ export type NodeLinkInfo = {
 
 export type NodeSnapshot = {
   nodeId: string;
+  startup: number;
   cluster: string;
   services: Instance[];
   members: NodeMember[];
@@ -104,6 +105,7 @@ const defaultMaxHops = 8;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
+  readonly startup = Date.now();
   readonly cluster: string;
   readonly secret?: string;
   readonly events = eventlite<NodeEvents>({
@@ -170,10 +172,8 @@ export class Node implements Provider {
       dial: (addr, id) => void this.dialer.dial(addr, id),
       drop: (addr) => this.dialer.drop(addr),
       broadcast: () => this.broadcastPeers(),
-      onUp: (member) =>
-        this.events.emit("member-up", { id: member.id, addr: member.addr }),
-      onDown: (member) =>
-        this.events.emit("member-down", { id: member.id, addr: member.addr }),
+      onUp: (member) => this.events.emit("member-up", member),
+      onDown: (member) => this.events.emit("member-down", member),
     });
 
     this.pubsub = new PubSub({
@@ -212,6 +212,7 @@ export class Node implements Provider {
     this.nodeHub = new NodeHub({
       secret: this.secret,
       provider: this,
+      startup: this.startup,
       heartbeatInterval: config.heartbeatInterval,
       heartbeatTimeout: config.heartbeatTimeout,
       handshakeTimeout: config.handshakeTimeout,
@@ -271,6 +272,7 @@ export class Node implements Provider {
   snapshot(): NodeSnapshot {
     return {
       nodeId: this.nodeId,
+      startup: this.startup,
       cluster: this.cluster,
       services: this.watcher.instances(),
       members: this.membership.snapshot(),
@@ -363,6 +365,7 @@ export class Node implements Provider {
       const self = {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
+        startup: this.startup,
       };
       this.membership.upsertSelf(self);
     }
@@ -602,6 +605,7 @@ export class Node implements Provider {
   ) {
     const nodeLink = new NodeLink(link, {
       provider: this,
+      startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
       maxInflight: this.maxInflight,
     });
@@ -636,7 +640,7 @@ export class Node implements Provider {
       this.adopted.add(nodeLink);
       this.events.emit("link-up", this.linkInfo(nodeLink));
 
-      if (this.membership.attach(expected, addr)) {
+      if (this.membership.attach(expected, addr, nodeLink.peerStartup)) {
         return;
       }
 

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
+import { protocolVersion } from "./envelope.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import type { NodeLinkDown } from "./node.ts";
 import type { SwarmError } from "./errors.ts";
@@ -94,7 +95,12 @@ async function attachGhost(node: Node, service: string) {
 
   node.attach(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
   port2.postMessage({ t: "up", from: "ghost", service });
 
   await ready;
@@ -492,6 +498,7 @@ describe("Node", () => {
     ]);
     assert.equal(snap.multicast, false);
     assert.equal(snap.unix, false);
+    assert.equal(snap.startup, node.startup);
   });
 
   test("snapshot reports connected links", async (t) => {
@@ -536,7 +543,12 @@ describe("Node", () => {
 
     node.join(port1);
     port2.start();
-    port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+    port2.postMessage({
+      t: "hello",
+      from: "ghost",
+      version: protocolVersion,
+      startup: 1,
+    });
 
     await waitFor(() => ups.length === 1);
 
@@ -662,6 +674,15 @@ describe("Node", () => {
       () =>
         hub.snapshot().members.some((m) => m.id === peer.nodeId) &&
         hub.snapshot().links.length > 0,
+    );
+
+    const member = hub
+      .snapshot()
+      .members.find((item) => item.id === peer.nodeId);
+
+    assert.equal(
+      member !== undefined ? member.startup : undefined,
+      peer.startup,
     );
 
     hub.leave(peer.nodeId);
@@ -2449,28 +2470,43 @@ test("listen advertises the configured address", async (t) => {
     advertise: `tcp://127.0.0.1:${port}`,
   });
 
-  const learned = new Promise<Array<{ id: string; addr: string }>>(
-    (resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
+  const learned = new Promise<
+    Array<{ id: string; addr: string; startup: number }>
+  >((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; members?: unknown };
 
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(message.members as Array<{ id: string; addr: string }>);
-        }
-      });
-    },
-  );
+      if (
+        message.t === "peers" &&
+        Array.isArray(message.members) &&
+        message.members.length > 0
+      ) {
+        resolve(
+          message.members as Array<{
+            id: string;
+            addr: string;
+            startup: number;
+          }>,
+        );
+      }
+    });
+  });
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
 
   assert.deepEqual(await learned, [
-    { id: node.nodeId, addr: `tcp://127.0.0.1:${port}` },
+    {
+      id: node.nodeId,
+      addr: `tcp://127.0.0.1:${port}`,
+      startup: node.startup,
+    },
   ]);
 });
 
@@ -2506,28 +2542,43 @@ test("listen fills the bound port when advertise uses port 0", async (t) => {
     advertise: "tcp://127.0.0.1:0",
   });
 
-  const learned = new Promise<Array<{ id: string; addr: string }>>(
-    (resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
+  const learned = new Promise<
+    Array<{ id: string; addr: string; startup: number }>
+  >((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; members?: unknown };
 
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(message.members as Array<{ id: string; addr: string }>);
-        }
-      });
-    },
-  );
+      if (
+        message.t === "peers" &&
+        Array.isArray(message.members) &&
+        message.members.length > 0
+      ) {
+        resolve(
+          message.members as Array<{
+            id: string;
+            addr: string;
+            startup: number;
+          }>,
+        );
+      }
+    });
+  });
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
 
   assert.deepEqual(await learned, [
-    { id: node.nodeId, addr: `tcp://127.0.0.1:${bound.port}` },
+    {
+      id: node.nodeId,
+      addr: `tcp://127.0.0.1:${bound.port}`,
+      startup: node.startup,
+    },
   ]);
 });
 
@@ -2545,28 +2596,43 @@ test("listen fills the bound port when advertise omits the port", async (t) => {
     advertise: "ws://127.0.0.1/",
   });
 
-  const learned = new Promise<Array<{ id: string; addr: string }>>(
-    (resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
+  const learned = new Promise<
+    Array<{ id: string; addr: string; startup: number }>
+  >((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; members?: unknown };
 
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(message.members as Array<{ id: string; addr: string }>);
-        }
-      });
-    },
-  );
+      if (
+        message.t === "peers" &&
+        Array.isArray(message.members) &&
+        message.members.length > 0
+      ) {
+        resolve(
+          message.members as Array<{
+            id: string;
+            addr: string;
+            startup: number;
+          }>,
+        );
+      }
+    });
+  });
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
 
   assert.deepEqual(await learned, [
-    { id: node.nodeId, addr: `ws://127.0.0.1:${bound.port}` },
+    {
+      id: node.nodeId,
+      addr: `ws://127.0.0.1:${bound.port}`,
+      startup: node.startup,
+    },
   ]);
 });
 
@@ -2594,7 +2660,12 @@ test("listen does not advertise without options", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
 
   assert.deepEqual(await learned, []);
 });
@@ -2612,37 +2683,48 @@ test("peers ignores invalid or wildcard entries", async (t) => {
   node.join(port1);
   port2.start();
 
-  const learned = new Promise<Array<{ id: string; addr: string }>>(
-    (resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
+  const learned = new Promise<
+    Array<{ id: string; addr: string; startup: number }>
+  >((resolve) => {
+    port2.addEventListener("message", (event) => {
+      const message = event.data as { t?: string; members?: unknown };
 
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(message.members as Array<{ id: string; addr: string }>);
-        }
-      });
-    },
-  );
+      if (
+        message.t === "peers" &&
+        Array.isArray(message.members) &&
+        message.members.length > 0
+      ) {
+        resolve(
+          message.members as Array<{
+            id: string;
+            addr: string;
+            startup: number;
+          }>,
+        );
+      }
+    });
+  });
 
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
   port2.postMessage({
     t: "peers",
     from: "ghost",
     members: [
-      { id: "wild", addr: "tcp://0.0.0.0:1" },
-      { id: "bad", addr: "not a url" },
-      { id: "0", addr: "tcp://127.0.0.1:1" },
-      { id: "00", addr: "tcp://192.0.2.1:1" },
+      { id: "wild", addr: "tcp://0.0.0.0:1", startup: 1 },
+      { id: "bad", addr: "not a url", startup: 1 },
+      { id: "0", addr: "tcp://127.0.0.1:1", startup: 1 },
+      { id: "00", addr: "tcp://192.0.2.1:1", startup: 1 },
     ],
   });
 
   assert.deepEqual(await learned, [
-    { id: "0", addr: "tcp://127.0.0.1:1" },
-    { id: "00", addr: "tcp://192.0.2.1:1" },
+    { id: "0", addr: "tcp://127.0.0.1:1", startup: 1 },
+    { id: "00", addr: "tcp://192.0.2.1:1", startup: 1 },
   ]);
 });
 
@@ -2713,7 +2795,12 @@ test("rejects a forwarded call whose hop budget is exhausted", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "peer", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "peer",
+    version: protocolVersion,
+    startup: 1,
+  });
   port2.postMessage({ t: "up", from: "peer", service: "math" });
   await up;
 
@@ -2754,11 +2841,18 @@ test("dial rejects a peer that does not match the advertised id", async (t) => {
 
   node.join(port1);
   port2.start();
-  port2.postMessage({ t: "hello", from: "ghost", version: 1 });
+  port2.postMessage({
+    t: "hello",
+    from: "ghost",
+    version: protocolVersion,
+    startup: 1,
+  });
   port2.postMessage({
     t: "peers",
     from: "ghost",
-    members: [{ id: "expected", addr: `tcp://127.0.0.1:${bound.port}` }],
+    members: [
+      { id: "expected", addr: `tcp://127.0.0.1:${bound.port}`, startup: 1 },
+    ],
   });
 
   const event = await within(up, 2000);

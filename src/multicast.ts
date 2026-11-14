@@ -150,6 +150,7 @@ export class Multicast {
         cluster: this.cluster,
         from: entry.id,
         addr: entry.addr,
+        startup: entry.startup,
       };
 
       this.socket.send(
@@ -158,6 +159,7 @@ export class Multicast {
           cluster: claims.cluster,
           from: claims.from,
           addr: claims.addr,
+          startup: claims.startup,
           secret: secret !== undefined,
           sig: secret !== undefined ? sign(secret, claims) : undefined,
         }),
@@ -252,6 +254,7 @@ export class Multicast {
       cluster?: unknown;
       from?: unknown;
       addr?: unknown;
+      startup?: unknown;
       secret?: unknown;
       sig?: unknown;
     };
@@ -261,6 +264,7 @@ export class Multicast {
       typeof value.cluster !== "string" ||
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
+      typeof value.startup !== "number" ||
       typeof value.secret !== "boolean" ||
       value.from === this.nodeId ||
       value.cluster !== this.cluster ||
@@ -280,7 +284,8 @@ export class Multicast {
         claims === undefined ||
         claims.cluster !== value.cluster ||
         claims.from !== value.from ||
-        claims.addr !== value.addr
+        claims.addr !== value.addr ||
+        claims.startup !== value.startup
       ) {
         return;
       }
@@ -301,6 +306,8 @@ export class Multicast {
       return;
     }
 
-    this.events.emit("peers", [{ id: value.from, addr: value.addr }]);
+    this.events.emit("peers", [
+      { id: value.from, addr: value.addr, startup: value.startup },
+    ]);
   }
 }
