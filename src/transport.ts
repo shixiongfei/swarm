@@ -55,7 +55,7 @@ export class Transport {
     this.onError = options.onError;
   }
 
-  async open(url: string | URL, options?: ListenOptions) {
+  async open(url: string | URL, options: ListenOptions = {}) {
     const server = await this.createServer(url, options);
 
     this.servers.push(server);
@@ -80,7 +80,7 @@ export class Transport {
     server.close();
   }
 
-  async connect(url: string | URL, options?: WsClientOptions) {
+  async connect(url: string | URL, options: WsClientOptions = {}) {
     const client = await this.createClient(url, options);
 
     this.track(client);
@@ -88,7 +88,7 @@ export class Transport {
     try {
       await client.connect();
     } catch (err) {
-      if (options !== undefined && options.reconnect === false) {
+      if (options.reconnect === false) {
         this.untrack(client);
         client.close();
       }
@@ -99,14 +99,11 @@ export class Transport {
 
   async createClient(
     url: string | URL,
-    options?: WsClientOptions,
+    options: WsClientOptions = {},
     expected?: string,
   ): Promise<Client> {
     const { protocol, host, port, secret: urlSecret } = parseUrl(url);
-    const secret =
-      options !== undefined && options.secret !== undefined
-        ? options.secret
-        : urlSecret;
+    const secret = options.secret !== undefined ? options.secret : urlSecret;
 
     if (protocol === "tcp:") {
       const { TcpClient } = await import("./tcpclient.ts");
@@ -167,11 +164,11 @@ export class Transport {
 
   private async createServer(
     url: string | URL,
-    options: ListenOptions | undefined,
+    options: ListenOptions,
   ): Promise<Server> {
     const { protocol, secure, host, port, secret, path } = parseUrl(url);
-    const ws = options !== undefined ? options.ws : undefined;
-    const backlog = options !== undefined ? options.backlog : undefined;
+    const ws = options.ws;
+    const backlog = options.backlog;
     const tls = ws !== undefined ? ws.tls : undefined;
     const server = ws !== undefined ? ws.server : undefined;
     const listenPath =

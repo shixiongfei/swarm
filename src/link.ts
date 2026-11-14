@@ -76,7 +76,7 @@ export abstract class Link implements Enveloper {
     service: string,
     method: string,
     args: unknown[],
-    timeout?: number,
+    timeout: number,
     ttl?: number,
     target?: string,
   ) {
@@ -88,14 +88,11 @@ export abstract class Link implements Enveloper {
       service,
       method,
       args,
+      timeout,
     };
 
     if (target !== undefined) {
       message.target = target;
-    }
-
-    if (timeout !== undefined) {
-      message.timeout = timeout;
     }
 
     if (ttl !== undefined) {

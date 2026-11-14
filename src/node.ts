@@ -328,18 +328,16 @@ export class Node implements Provider {
     return this;
   }
 
-  async listen(url: string | URL, options?: ListenOptions) {
+  async listen(url: string | URL, options: ListenOptions = {}) {
     this.checkOpen();
 
     const { path } = parseUrl(url);
-    const ws = options !== undefined ? options.ws : undefined;
+    const ws = options.ws;
     const listenPath =
       ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
 
     const advertised =
-      options !== undefined && options.advertise !== undefined
-        ? parseUrl(options.advertise)
-        : undefined;
+      options.advertise !== undefined ? parseUrl(options.advertise) : undefined;
 
     if (advertised !== undefined && !isAdvertisable(advertised.host)) {
       throw new SwarmError(
@@ -761,36 +759,34 @@ export class Node implements Provider {
     this.membership.linkDown(nodeLink.peerId);
   }
 
-  private linkedPeers() {
-    const linked = new Set<string>();
-
+  private eachLink(visit: (nodeLink: NodeLink) => void) {
     for (const nodeLink of this.nodeLinks) {
-      if (nodeLink.peerId !== undefined) {
-        linked.add(nodeLink.peerId);
-      }
+      visit(nodeLink);
     }
 
     for (const nodeLink of this.nodeHub.links) {
+      visit(nodeLink);
+    }
+  }
+
+  private linkedPeers() {
+    const linked = new Set<string>();
+
+    this.eachLink((nodeLink) => {
       if (nodeLink.peerId !== undefined) {
         linked.add(nodeLink.peerId);
       }
-    }
+    });
 
     return linked;
   }
 
   private broadcastPeers() {
-    for (const nodeLink of this.nodeLinks) {
+    this.eachLink((nodeLink) => {
       if (nodeLink.peerId !== undefined) {
         nodeLink.peers(this.membership.shared(nodeLink.local));
       }
-    }
-
-    for (const nodeLink of this.nodeHub.links) {
-      if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.membership.shared(nodeLink.local));
-      }
-    }
+    });
   }
 }
 
