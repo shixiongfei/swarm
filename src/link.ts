@@ -39,31 +39,32 @@ export abstract class Link implements Enveloper {
   }
 
   hello(startup: number, token?: string) {
-    this.send(
-      token === undefined
-        ? { t: "hello", from: this.nodeId, version: protocolVersion, startup }
-        : {
-            t: "hello",
-            from: this.nodeId,
-            version: protocolVersion,
-            startup,
-            token,
-          },
-    );
+    this.handshake("hello", startup, token);
   }
 
   accept(startup: number, token?: string) {
-    this.send(
-      token === undefined
-        ? { t: "accept", from: this.nodeId, version: protocolVersion, startup }
-        : {
-            t: "accept",
-            from: this.nodeId,
-            version: protocolVersion,
-            startup,
-            token,
-          },
-    );
+    this.handshake("accept", startup, token);
+  }
+
+  private handshake(t: "hello" | "accept", startup: number, token?: string) {
+    if (token === undefined) {
+      this.send({
+        t,
+        from: this.nodeId,
+        version: protocolVersion,
+        startup,
+      } as Envelope);
+
+      return;
+    }
+
+    this.send({
+      t,
+      from: this.nodeId,
+      version: protocolVersion,
+      startup,
+      token,
+    } as Envelope);
   }
 
   register(instance: Instance) {
