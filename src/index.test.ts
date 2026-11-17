@@ -11,67 +11,46 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { createNode, Node } from "./index.ts";
+import { createNode } from "./index.ts";
 
 describe("createNode", () => {
-  test("returns the same node for the same cluster", () => {
+  test("returns a fresh node for every call", (t) => {
     const first = createNode({ cluster: "same-cluster" });
     const second = createNode({ cluster: "same-cluster" });
 
-    assert.equal(first, second);
+    t.after(() => {
+      first.close();
+      second.close();
+    });
+
+    assert.notEqual(first, second);
   });
 
-  test("later callers get the first node regardless of options", (t) => {
-    const node = createNode({ cluster: "conflict-cluster", secret: "one" });
+  test("defaults to the default cluster", (t) => {
+    const node = createNode();
 
     t.after(() => node.close());
-
-    assert.equal(
-      createNode({ cluster: "conflict-cluster", secret: "two" }),
-      node,
-    );
-    assert.equal(node.secret, "one");
-  });
-
-  test("defaults to the default cluster", () => {
-    const node = createNode();
 
     assert.equal(node.cluster, "default");
   });
 
-  test("keeps clusters separate", () => {
-    const first = createNode({ cluster: "cluster-a" });
-    const second = createNode({ cluster: "cluster-b" });
-
-    assert.notEqual(first, second);
-    assert.equal(first.cluster, "cluster-a");
-    assert.equal(second.cluster, "cluster-b");
-  });
-
-  test("passes secret through", () => {
+  test("passes cluster and secret through", (t) => {
     const node = createNode({ cluster: "secret-cluster", secret: "s3cret" });
 
-    assert.equal(node.secret, "s3cret");
+    t.after(() => node.close());
 
-    node.close();
+    assert.equal(node.cluster, "secret-cluster");
+    assert.equal(node.secret, "s3cret");
   });
 
-  test("close evicts the cluster so a new node is created", () => {
-    const first = createNode({ cluster: "evict-cluster" });
+  test("closing one node does not close another", (t) => {
+    const first = createNode({ cluster: "shared-cluster" });
+    const second = createNode({ cluster: "shared-cluster" });
+
+    t.after(() => second.close());
+
     first.close();
 
-    const second = createNode({ cluster: "evict-cluster" });
-
-    assert.notEqual(second, first);
-    assert.equal(second.cluster, "evict-cluster");
-  });
-
-  test("closing another node does not evict the cached one", () => {
-    const cached = createNode({ cluster: "shared-cluster" });
-    const other = new Node({ cluster: "shared-cluster" });
-
-    other.close();
-
-    assert.equal(createNode({ cluster: "shared-cluster" }), cached);
+    assert.equal(second.cluster, "shared-cluster");
   });
 });

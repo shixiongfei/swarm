@@ -100,7 +100,6 @@ export type NodeEvents = {
   error: (error: Error) => void;
 };
 
-const nodes = new Map<string, Node>();
 const defaultMaxHops = 8;
 
 export class Node implements Provider {
@@ -534,10 +533,6 @@ export class Node implements Provider {
 
     this.pubsub.close();
 
-    if (nodes.get(this.cluster) === this) {
-      nodes.delete(this.cluster);
-    }
-
     this.nodeLocal.close();
     this.watcher.close();
 
@@ -794,15 +789,6 @@ export type NodeOptions = Partial<NodeConfig>;
 
 export function createNode(options: NodeOptions = {}) {
   const cluster = options.cluster === undefined ? "default" : options.cluster;
-  const existing = nodes.get(cluster);
 
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const node = new Node(Object.assign({}, options, { cluster }));
-
-  nodes.set(cluster, node);
-
-  return node;
+  return new Node(Object.assign({}, options, { cluster }));
 }
