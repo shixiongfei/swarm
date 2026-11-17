@@ -573,6 +573,8 @@ describe("Node", () => {
     await waitFor(() => downs.length === 1);
 
     assert.equal((downs[0] as NodeLinkDown).reason, "error");
+    assert.equal((downs[0] as NodeLinkDown).code, "CLOSED");
+    assert.equal((downs[0] as NodeLinkDown).message, "link is closed");
   });
 
   test("emits link-down with a bye reason when the peer closes", async (t) => {
@@ -1795,6 +1797,25 @@ test("repeated advertise keeps a single self member", async (t) => {
   assert.equal(self.length, 1);
   assert.equal(self[0].addr, `tcp://127.0.0.1:${second.port}`);
   assert.notEqual(first.port, second.port);
+});
+
+test("listen emits an error when multicast cannot start", async (t) => {
+  const node = new Node({
+    cluster: "multicast-fail",
+    multicast: { group: "not-an-ip" },
+  });
+
+  t.after(() => node.close());
+
+  const raised = new Promise<Error>((resolve) =>
+    node.events.once("error", resolve),
+  );
+
+  await node.listen("tcp://127.0.0.1:0", {
+    advertise: "tcp://127.0.0.1:0",
+  });
+
+  assert.equal(((await raised) as SwarmError).code, "MULTICAST_UNAVAILABLE");
 });
 
 test("snapshot reports links and services", async (t) => {

@@ -56,6 +56,8 @@ export type Envelope =
       from: string;
       to: string;
       kind: ErrorKind;
+      code: string;
+      retriable: boolean;
       message: string;
     }
   | {
@@ -169,6 +171,8 @@ function isError(
     typeof message.from !== "string" ||
     typeof message.to !== "string" ||
     !errorKinds.includes(message.kind) ||
+    typeof message.code !== "string" ||
+    typeof message.retriable !== "boolean" ||
     typeof message.message !== "string"
   ) {
     return undefined;

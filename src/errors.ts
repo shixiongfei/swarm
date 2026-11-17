@@ -12,14 +12,56 @@
 export type ErrorKind =
   "not-found" | "timeout" | "rejected" | "failed" | "cancelled";
 
+export type ErrorCode =
+  | "FAILED"
+  | "CANCELLED"
+  | "CLOSED"
+  | "CLONE_FAILED"
+  | "CONGESTED"
+  | "ENVELOPE_INVALID"
+  | "HANDSHAKE_REJECTED"
+  | "HANDSHAKE_TIMEOUT"
+  | "HEARTBEAT_TIMEOUT"
+  | "MULTICAST_UNAVAILABLE"
+  | "NOT_FOUND"
+  | "SIGNATURE_INVALID"
+  | "TIMEOUT"
+  | "VERSION_MISMATCH";
+
+const defaultCodes: Record<ErrorKind, ErrorCode> = {
+  cancelled: "CANCELLED",
+  failed: "FAILED",
+  "not-found": "NOT_FOUND",
+  rejected: "ENVELOPE_INVALID",
+  timeout: "TIMEOUT",
+};
+
 export class SwarmError extends Error {
   readonly kind: ErrorKind;
+  readonly code: string;
   readonly retriable: boolean;
 
-  constructor(kind: ErrorKind, message: string, retriable = false) {
+  constructor(kind: ErrorKind, message: string, retriable = false, code = "") {
     super(message);
     this.name = "SwarmError";
     this.kind = kind;
+    this.code = code === "" ? defaultCodes[kind] : code;
     this.retriable = retriable;
   }
+}
+
+export function errorCode(error: unknown) {
+  if (error instanceof SwarmError) {
+    return error.code;
+  }
+
+  if (error instanceof Error) {
+    const code: unknown = (error as { code?: unknown }).code;
+
+    if (typeof code === "string" && code !== "") {
+      return code;
+    }
+  }
+
+  return "FAILED";
 }

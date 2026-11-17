@@ -9,6 +9,7 @@
  * https://github.com/shixiongfei/swarm
  */
 
+import { SwarmError } from "./errors.ts";
 import { LinkStream } from "./linkstream.ts";
 import type { Link } from "./link.ts";
 import type { PeerEntry } from "./envelope.ts";
@@ -121,9 +122,16 @@ export class Discovery {
       this.multicast = multicast;
 
       await multicast.open(this.self);
-    } catch {
+    } catch (err) {
       this.multicast = undefined;
-      // multicast is best-effort; seeds and explicit links still work
+      this.onError(
+        new SwarmError(
+          "failed",
+          `multicast is unavailable: ${err instanceof Error ? err.message : String(err)}`,
+          false,
+          "MULTICAST_UNAVAILABLE",
+        ),
+      );
     }
   }
 

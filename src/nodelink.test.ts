@@ -135,7 +135,10 @@ describe("NodeLink", () => {
     await assert.rejects(
       link.call("peer", "math", "add", [], 50),
       (err: SwarmError) =>
-        err.kind === "failed" && err.message === "link is closed",
+        err.kind === "failed" &&
+        err.code === "CLOSED" &&
+        err.retriable === true &&
+        err.message === "link is closed",
     );
   });
 
@@ -167,6 +170,39 @@ describe("NodeLink", () => {
     await assert.rejects(
       b.call("boom", "fail"),
       (err: SwarmError) => err.kind === "rejected" && err.message === "denied",
+    );
+  });
+
+  test("propagates the handler error code and retriable over a link", async (t) => {
+    const a = new Node({ cluster: "code-a" });
+    const b = new Node({ cluster: "code-b" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+    });
+
+    a.register("boom", {
+      fail: () => {
+        throw new SwarmError("failed", "peer is gone", true, "ECONNRESET");
+      },
+    });
+
+    const up = new Promise<WatchEvent>((resolve) => b.watch("boom", resolve));
+
+    b.attach(port2);
+    a.attach(port1);
+
+    await up;
+
+    await assert.rejects(
+      b.call("boom", "fail"),
+      (err: SwarmError) =>
+        err.kind === "failed" &&
+        err.code === "ECONNRESET" &&
+        err.retriable === true &&
+        err.message === "peer is gone",
     );
   });
 
@@ -894,6 +930,7 @@ describe("NodeLink", () => {
 
     assert.equal(link.peerId, undefined);
     assert.equal(stub.closed, true);
+    assert.equal(link.closeCode, "VERSION_MISMATCH");
   });
 
   test("caps an inbound call timeout at 60 seconds", async (t) => {

@@ -78,7 +78,7 @@ export class Router {
     const remaining = ttl === undefined ? this.maxHops : ttl;
 
     if (remaining <= 0) {
-      throw new SwarmError("not-found", `service not found: ${service}`);
+      throw new SwarmError("not-found", `service not found: ${service}`, true);
     }
 
     const outbound = this.links();
@@ -153,7 +153,11 @@ export class Router {
     );
 
     if (instances.length === 0) {
-      throw new SwarmError("not-found", `service ${service} is not available`);
+      throw new SwarmError(
+        "not-found",
+        `service ${service} is not available`,
+        true,
+      );
     }
 
     return Promise.all(

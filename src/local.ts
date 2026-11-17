@@ -63,7 +63,7 @@ export class Local {
     const methods = this.services.get(service);
 
     if (methods === undefined) {
-      throw new SwarmError("not-found", `service not found: ${service}`);
+      throw new SwarmError("not-found", `service not found: ${service}`, true);
     }
 
     const handler = hasOwn(methods, method) ? methods[method] : undefined;
@@ -72,6 +72,7 @@ export class Local {
       throw new SwarmError(
         "not-found",
         `method not found: ${service}.${method}`,
+        true,
       );
     }
 

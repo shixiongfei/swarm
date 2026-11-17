@@ -151,7 +151,7 @@ describe("Balancer", () => {
   test("invoke retries the next link when a peer misses the service", async () => {
     const balancer = new Balancer();
     const stale = link("stale", async () => {
-      throw new SwarmError("not-found", "service not found: math");
+      throw new SwarmError("not-found", "service not found: math", true);
     });
     const healthy = link("healthy", async () => 7);
 
@@ -189,26 +189,26 @@ describe("Balancer", () => {
     assert.equal(calls, 1);
   });
 
-  test("invoke retries the next link when a call times out", async () => {
+  test("invoke does not retry the next link when a call times out", async () => {
     const balancer = new Balancer();
+    let calls = 0;
     const slow = link("slow", async () => {
+      calls += 1;
       throw new SwarmError("timeout", "call timed out: math.add");
     });
-    const healthy = link("healthy", async () => 7);
+    const healthy = link("healthy", async () => {
+      calls += 1;
+      return 7;
+    });
 
-    assert.equal(
-      await balancer.invoke(
-        "math",
-        "add",
-        [1, 2],
-        10,
-        8,
-        undefined,
-        undefined,
-        [slow, healthy],
-      ),
-      7,
+    await assert.rejects(
+      balancer.invoke("math", "add", [1, 2], 10, 8, undefined, undefined, [
+        slow,
+        healthy,
+      ]),
+      (err: SwarmError) => err.kind === "timeout" && err.retriable === false,
     );
+    assert.equal(calls, 1);
   });
 
   test("invoke passes a reduced timeout to retried calls", async () => {
@@ -216,13 +216,16 @@ describe("Balancer", () => {
     const seen: number[] = [];
     const slow = {
       ...link("slow", async () => {
-        throw new SwarmError("timeout", "call timed out: math.add");
+        throw new SwarmError("failed", "link is closed", true, "CLOSED");
       }),
       call: (...args: unknown[]) => {
         seen.push(args[4] as number);
         return new Promise<never>((_resolve, reject) => {
           setTimeout(
-            () => reject(new SwarmError("timeout", "call timed out: math.add")),
+            () =>
+              reject(
+                new SwarmError("failed", "link is closed", true, "CLOSED"),
+              ),
             20,
           );
         });

@@ -89,6 +89,8 @@ export type NodeSnapshot = {
 
 export type NodeLinkDown = NodeLinkInfo & {
   reason: LinkCloseReason;
+  code: string;
+  message: string;
 };
 
 export type NodeEvents = {
@@ -265,6 +267,8 @@ export class Node implements Provider {
   private linkDownInfo(nodeLink: NodeLink): NodeLinkDown {
     return Object.assign(this.linkInfo(nodeLink), {
       reason: nodeLink.closeReason,
+      code: nodeLink.closeCode,
+      message: nodeLink.closeMessage,
     });
   }
 

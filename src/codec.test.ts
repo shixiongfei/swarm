@@ -49,6 +49,8 @@ const envelopes: Envelope[] = [
     from: "node-b",
     to: "node-a",
     kind: "timeout",
+    code: "TIMEOUT",
+    retriable: false,
     message: "call timed out",
   },
   {

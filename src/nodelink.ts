@@ -65,6 +65,8 @@ export class NodeLink implements Observable {
   peerStartup?: number;
   private closed = false;
   private reason: LinkCloseReason = "close";
+  private reasonCode = "CLOSED";
+  private reasonMessage = "link is closed";
   private lastSeen = Date.now();
   private heartbeat?: ReturnType<typeof setInterval>;
   private handshake?: ReturnType<typeof setTimeout>;
@@ -139,7 +141,12 @@ export class NodeLink implements Observable {
                 this.link.fail(
                   message.id,
                   message.from,
-                  new SwarmError("failed", "reply is not cloneable"),
+                  new SwarmError(
+                    "failed",
+                    "reply is not cloneable",
+                    false,
+                    "CLONE_FAILED",
+                  ),
                 );
               }
             },
@@ -166,7 +173,12 @@ export class NodeLink implements Observable {
         ) {
           this.pending.reject(
             message.id,
-            new SwarmError(message.kind, message.message),
+            new SwarmError(
+              message.kind,
+              message.message,
+              message.retriable,
+              message.code,
+            ),
           );
         }
         return;
@@ -246,7 +258,7 @@ export class NodeLink implements Observable {
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
       link.events.on("close", () => {
-        this.dispose("link is closed", "error");
+        this.dispose("link is closed", "error", "CLOSED");
       }),
     ];
 
@@ -254,7 +266,11 @@ export class NodeLink implements Observable {
       this.handshake = undefined;
 
       if (this.peer === undefined) {
-        this.dispose("link handshake is timed out", "timeout");
+        this.dispose(
+          "link handshake is timed out",
+          "timeout",
+          "HANDSHAKE_TIMEOUT",
+        );
         this.link.close();
       }
     }, this.handshakeTimeout);
@@ -266,6 +282,14 @@ export class NodeLink implements Observable {
 
   get closeReason() {
     return this.reason;
+  }
+
+  get closeCode() {
+    return this.reasonCode;
+  }
+
+  get closeMessage() {
+    return this.reasonMessage;
   }
 
   get latency() {
@@ -329,7 +353,9 @@ export class NodeLink implements Observable {
     signal?: AbortSignal,
   ) {
     if (this.closed) {
-      return Promise.reject(new SwarmError("failed", "link is closed", true));
+      return Promise.reject(
+        new SwarmError("failed", "link is closed", true, "CLOSED"),
+      );
     }
 
     if (
@@ -337,7 +363,12 @@ export class NodeLink implements Observable {
       this.pending.size >= this.maxInflight
     ) {
       return Promise.reject(
-        new SwarmError("rejected", "too many in-flight calls"),
+        new SwarmError(
+          "rejected",
+          "too many in-flight calls",
+          true,
+          "CONGESTED",
+        ),
       );
     }
 
@@ -348,13 +379,19 @@ export class NodeLink implements Observable {
       () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
-          ? new SwarmError("failed", "arguments are not cloneable")
+          ? new SwarmError(
+              "failed",
+              "arguments are not cloneable",
+              false,
+              "CLONE_FAILED",
+            )
           : cause instanceof SwarmError
             ? cause
             : new SwarmError(
                 "failed",
                 cause instanceof Error ? cause.message : String(cause),
                 true,
+                "CLOSED",
               ),
       signal,
     );
@@ -417,7 +454,7 @@ export class NodeLink implements Observable {
 
   private beat() {
     if (this.lastSeen + this.heartbeatTimeout < Date.now()) {
-      this.dispose("link is timed out", "timeout");
+      this.dispose("link is timed out", "timeout", "HEARTBEAT_TIMEOUT");
       this.link.close();
       return;
     }
@@ -459,6 +496,7 @@ export class NodeLink implements Observable {
     this.dispose(
       `protocol version ${version} is incompatible with ${protocolVersion}`,
       "error",
+      "VERSION_MISMATCH",
     );
     this.link.close();
 
@@ -470,7 +508,7 @@ export class NodeLink implements Observable {
       return false;
     }
 
-    this.dispose("link is closed", "error");
+    this.dispose("link signature is invalid", "error", "SIGNATURE_INVALID");
     this.link.close();
 
     return true;
@@ -503,13 +541,19 @@ export class NodeLink implements Observable {
     return true;
   }
 
-  private dispose(message: string, reason: LinkCloseReason = "close") {
+  private dispose(
+    message: string,
+    reason: LinkCloseReason = "close",
+    code = "CLOSED",
+  ) {
     if (this.closed) {
       return;
     }
 
     this.closed = true;
     this.reason = reason;
+    this.reasonCode = code;
+    this.reasonMessage = message;
 
     if (this.handshake !== undefined) {
       clearTimeout(this.handshake);
@@ -521,7 +565,7 @@ export class NodeLink implements Observable {
       this.heartbeat = undefined;
     }
 
-    this.pending.clear(() => new SwarmError("failed", message));
+    this.pending.clear(() => new SwarmError("failed", message, false, code));
 
     for (const dispose of this.disposes) {
       dispose();

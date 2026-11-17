@@ -130,7 +130,6 @@ test("dial ignores a failed create and retries later", async () => {
   const created: string[] = [];
   let failed = false;
 
-  // A failing create must clear the in-flight marker so the next dial retries.
   const dialer = new Dialer({
     seeds: [],
     create: (addr) => {

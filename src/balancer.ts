@@ -110,7 +110,7 @@ export class Balancer {
     const links = this.order(service, ...sets);
 
     if (links.length === 0) {
-      throw new SwarmError("not-found", `service not found: ${service}`);
+      throw new SwarmError("not-found", `service not found: ${service}`, true);
     }
 
     const started = Date.now();
@@ -124,7 +124,7 @@ export class Balancer {
       const peer = link.peerId;
 
       if (peer === undefined) {
-        throw new SwarmError("failed", "link is not connected", true);
+        throw new SwarmError("failed", "link is not connected", true, "CLOSED");
       }
 
       const remaining = timeout - (Date.now() - started);
@@ -148,7 +148,7 @@ export class Balancer {
         if (
           index + 1 < links.length &&
           err instanceof SwarmError &&
-          (err.retriable || err.kind === "not-found" || err.kind === "timeout")
+          err.retriable
         ) {
           return attempt(index + 1);
         }
