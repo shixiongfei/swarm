@@ -205,7 +205,6 @@ export class Multicast {
       void this.open(this.local).catch(() => this.retryLater());
     }, this.interval);
 
-    timer.unref();
     this.retry = timer;
   }
 

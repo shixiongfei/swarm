@@ -452,7 +452,7 @@ export class NodeLink implements Observable {
   }
 
   private negotiate(version: number) {
-    if (version === protocolVersion) {
+    if (Math.floor(version / 100) === Math.floor(protocolVersion / 100)) {
       return true;
     }
 

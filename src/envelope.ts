@@ -13,7 +13,10 @@ import { isMetaData } from "./registry.ts";
 import type { MetaData } from "./registry.ts";
 import type { ErrorKind } from "./errors.ts";
 
-export const protocolVersion = 1;
+const majorVersion = 1;
+const minorVersion = 0;
+
+export const protocolVersion = majorVersion * 100 + minorVersion;
 
 export type PeerEntry = { id: string; addr: string; startup: number };
 

@@ -56,7 +56,21 @@ export class Dialer {
   }
 
   list() {
-    return this.seeds.map((seed) => String(seed));
+    return this.seeds.map((seed) => {
+      let url: URL;
+
+      try {
+        url = new URL(seed);
+      } catch {
+        return String(seed);
+      }
+
+      if (url.username === "" && url.password === "") {
+        return String(seed);
+      }
+
+      return `${url.protocol}//${url.host}${url.pathname}`;
+    });
   }
 
   has(addr: string) {

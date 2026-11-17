@@ -844,7 +844,7 @@ describe("NodeLink", () => {
     assert.equal(stub.closed, true);
   });
 
-  test("closes a link whose protocol version differs", (t) => {
+  test("accepts a peer with the same major protocol version", (t) => {
     const local = new NodeLocal("local-node");
     const stub = new StubLink();
     const link = new NodeLink(stub, {
@@ -861,7 +861,33 @@ describe("NodeLink", () => {
     stub.events.emit("envelope", {
       t: "hello",
       from: "peer-node",
-      version: protocolVersion + 1,
+      version: Math.floor(protocolVersion / 100) * 100 + 99,
+      startup: 1,
+      token: signToken("", "peer-node"),
+    });
+
+    assert.equal(link.peerId, "peer-node");
+    assert.equal(stub.closed, false);
+  });
+
+  test("closes a link from another major protocol version", (t) => {
+    const local = new NodeLocal("local-node");
+    const stub = new StubLink();
+    const link = new NodeLink(stub, {
+      provider: local,
+      startup: 1,
+      secret: "",
+    });
+
+    t.after(() => {
+      link.close();
+      local.close();
+    });
+
+    stub.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: (Math.floor(protocolVersion / 100) + 1) * 100,
       startup: 1,
       token: signToken("", "peer-node"),
     });

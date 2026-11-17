@@ -85,6 +85,17 @@ test("add ignores a duplicate seed and dials the new one", async (t) => {
   assert.deepEqual(created, [{ addr: seed, id: undefined }]);
 });
 
+test("list omits credentials from seeds", (t) => {
+  const { dialer } = makeDialer([
+    "ws://user:pass@10.0.0.9:9",
+    "tcp://user:pass@10.0.0.9:10",
+  ]);
+
+  t.after(() => dialer.close());
+
+  assert.deepEqual(dialer.list(), ["ws://10.0.0.9:9/", "tcp://10.0.0.9:10"]);
+});
+
 test("remove forgets a seed without dialing", (t) => {
   const { dialer, created } = makeDialer();
 
