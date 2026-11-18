@@ -119,6 +119,10 @@ export class UnixDiscovery {
 
     await this.scan();
 
+    if (this.closed) {
+      return;
+    }
+
     this.timer = setInterval(() => void this.scan(), this.interval);
   }
 

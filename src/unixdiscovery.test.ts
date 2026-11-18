@@ -168,3 +168,46 @@ test("derives a private directory from the cluster", async (t) => {
 
   await waitFor(async () => !(await exists(dir)));
 });
+
+test("close during open leaves no scan timer", async (t) => {
+  const dir = await tempDir();
+  const discovery = new UnixDiscovery({
+    nodeId: "f".repeat(16),
+    cluster: "race",
+    secret: "",
+    dir,
+    interval: 20,
+  });
+  const probe = discovery as unknown as {
+    scan: () => Promise<void>;
+    timer?: ReturnType<typeof setInterval>;
+  };
+
+  t.after(async () => {
+    if (probe.timer !== undefined) {
+      clearInterval(probe.timer);
+    }
+
+    discovery.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const started = new Promise<void>((resolve) => (entered = resolve));
+
+  probe.scan = async () => {
+    entered();
+    await gate;
+  };
+
+  const opening = discovery.open();
+
+  await started;
+  discovery.close();
+  release();
+  await opening;
+
+  assert.equal(probe.timer, undefined);
+});
