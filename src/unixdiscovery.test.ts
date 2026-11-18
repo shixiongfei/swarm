@@ -23,6 +23,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { UnixDiscovery } from "./unixdiscovery.ts";
 import { waitFor } from "./testutil.ts";
 import type { Socket } from "node:net";
@@ -166,6 +167,33 @@ test("keeps a fresh endpoint that has no listener yet", async (t) => {
   assert.equal(await exists(stale), true);
 });
 
+test("keeps an endpoint through a single failed connection", async (t) => {
+  const dir = await tempDir();
+  const peer = join(dir, `${"f".repeat(16)}.sock`);
+  const discovery = new UnixDiscovery({
+    nodeId: "0".repeat(16),
+    cluster: "single-failure",
+    secret: "",
+    dir,
+    interval: 60000,
+  });
+
+  t.after(() => {
+    discovery.close();
+    return rm(dir, { recursive: true, force: true });
+  });
+
+  await writeFile(peer, "");
+
+  const past = new Date(Date.now() - 60000);
+
+  await utimes(peer, past, past);
+  await discovery.open();
+  await delay(200);
+
+  assert.equal(await exists(peer), true);
+});
+
 test("reaps an endpoint left by a dead peer", async (t) => {
   const dir = await tempDir();
   const stale = join(dir, `${"f".repeat(16)}.sock`);
@@ -210,8 +238,6 @@ test(
       });
     });
 
-    // Closing the server unlinks the socket; move it out of the way first so
-    // the file survives, as it would after a crash.
     await rename(marker, parked);
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rename(parked, marker);

@@ -41,6 +41,7 @@ export type UnixDiscoveryEvents = {
 
 const defaultInterval = 3000;
 const staleAfter = 10000;
+const maxStaleFailures = 3;
 const keyLength = 16;
 const dirMode = 0o700;
 const socketMode = 0o600;
@@ -61,6 +62,7 @@ export class UnixDiscovery {
   private readonly interval: number;
   private readonly server = createServer((socket) => this.onAccept(socket));
   private readonly dials = new Map<string, Socket>();
+  private readonly failures = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private path: string | undefined;
   private closed = false;
@@ -149,6 +151,7 @@ export class UnixDiscovery {
     }
 
     this.dials.clear();
+    this.failures.clear();
 
     if (this.server.listening) {
       this.server.close();
@@ -191,6 +194,8 @@ export class UnixDiscovery {
       return;
     }
 
+    const seen = new Set<string>();
+
     for (const name of names) {
       if (!name.endsWith(suffix)) {
         continue;
@@ -202,11 +207,19 @@ export class UnixDiscovery {
 
       const path = join(this.dir, name);
 
+      seen.add(path);
+
       if (this.dials.has(path)) {
         continue;
       }
 
       this.dial(path);
+    }
+
+    for (const path of this.failures.keys()) {
+      if (!seen.has(path)) {
+        this.failures.delete(path);
+      }
     }
   }
 
@@ -223,7 +236,13 @@ export class UnixDiscovery {
       return;
     }
 
-    await unlink(path).catch(ignore);
+    try {
+      await unlink(path);
+    } catch {
+      return;
+    }
+
+    this.failures.delete(path);
   }
 
   private endpoint(path: string) {
@@ -258,6 +277,15 @@ export class UnixDiscovery {
         return;
       }
 
+      const previous = this.failures.get(path);
+      const failures = previous === undefined ? 1 : previous + 1;
+
+      this.failures.set(path, failures);
+
+      if (failures < maxStaleFailures) {
+        return;
+      }
+
       void this.reap(path);
     };
 
@@ -265,6 +293,7 @@ export class UnixDiscovery {
     socket.once("close", forget);
     socket.once("connect", () => {
       socket.off("error", onError);
+      this.failures.delete(path);
 
       if (this.closed) {
         forget();
