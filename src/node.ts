@@ -356,6 +356,11 @@ export class Node implements Provider {
 
     const server = await this.transport.open(url, options);
 
+    if (this.closed) {
+      this.transport.close(server);
+      throw new SwarmError("rejected", "node is closed");
+    }
+
     if (advertised !== undefined) {
       if (advertised.portOmitted || advertised.port === 0) {
         advertised.port = server.port;

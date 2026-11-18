@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { createServer } from "node:net";
 import { createApp } from "./app.ts";
 import { createService } from "./service.ts";
 import { freePort, waitFor } from "./testutil.ts";
@@ -108,6 +109,60 @@ describe("App", () => {
 
     await assert.rejects(app.start(), (err: SwarmError) => {
       return err.code === "APP_CLOSED";
+    });
+  });
+
+  test("a failed start closes the node and stays stopped", async (t) => {
+    const taken = await freePort();
+    const blocker = createServer();
+
+    await new Promise<void>((resolve) =>
+      blocker.listen(taken, "127.0.0.1", resolve),
+    );
+
+    const open = await freePort();
+    const math = createService({
+      name: "math",
+      setup: () => ({
+        add: (a: number, b: number) => a + b,
+      }),
+    });
+
+    const app = createApp({
+      node: { cluster: "app" },
+      listen: [`tcp://127.0.0.1:${open}`, `tcp://127.0.0.1:${taken}`],
+      services: [math],
+    });
+
+    t.after(() => {
+      blocker.close();
+      return app.stop();
+    });
+
+    await assert.rejects(() => app.start());
+
+    assert.equal(math.state, "idle");
+    assert.equal(app.node.isClosed, true);
+
+    await assert.rejects(app.start(), (err: SwarmError) => {
+      return err.code === "APP_CLOSED";
+    });
+
+    await waitFor(async () => {
+      const probe = createServer();
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          probe.once("error", reject);
+          probe.listen(open, "127.0.0.1", resolve);
+        });
+
+        return true;
+      } catch {
+        return false;
+      } finally {
+        await new Promise<void>((resolve) => probe.close(() => resolve()));
+      }
     });
   });
 });

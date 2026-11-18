@@ -55,12 +55,18 @@ class AppImpl implements App {
 
     this.started = true;
 
-    for (const url of this.listenUrls) {
-      await this.node.listen(url);
-    }
+    try {
+      for (const url of this.listenUrls) {
+        await this.node.listen(url);
+      }
 
-    for (const service of this.services) {
-      service.attach(this.node);
+      for (const service of this.services) {
+        service.attach(this.node);
+      }
+    } catch (err) {
+      this.stopped = true;
+      this.node.close();
+      throw err;
     }
 
     return this;

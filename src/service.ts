@@ -73,6 +73,10 @@ class ServiceImpl<M extends Methods> implements Service<M> {
     this.node = node;
     this.current = "waiting";
 
+    for (const providers of this.providers.values()) {
+      providers.clear();
+    }
+
     for (const dependency of this.requires) {
       this.unsubscribes.push(
         node.watch(dependency, (event) => this.observe(dependency, event)),

@@ -165,6 +165,36 @@ describe("Service", () => {
     assert.equal(registered(node, "db"), false);
   });
 
+  test("reattaching does not reuse providers from the previous node", async (t) => {
+    const source = new Node({ cluster: "service" });
+    const target = new Node({ cluster: "service" });
+    const db = createService({ name: "db", setup: () => ({ get: () => 1 }) });
+    const api = createService({
+      name: "api",
+      requires: ["db"],
+      setup: () => ({ ping: () => "pong" }),
+    });
+
+    t.after(() => {
+      source.close();
+      target.close();
+    });
+
+    db.attach(source);
+    api.attach(source);
+
+    await waitFor(() => api.state === "ready");
+
+    api.detach();
+    db.detach();
+    api.attach(target);
+
+    await Promise.resolve();
+
+    assert.equal(api.state, "waiting");
+    assert.equal(registered(target, "api"), false);
+  });
+
   test("attach twice is rejected", (t) => {
     const node = new Node({ cluster: "service" });
     const db = createService({ name: "db", setup: () => ({ get: () => 1 }) });

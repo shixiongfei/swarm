@@ -14,6 +14,7 @@ import { describe, test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
@@ -1776,6 +1777,40 @@ test("listen failure detaches from an attached http server", async (t) => {
   );
 
   assert.equal(http.listenerCount("upgrade"), 0);
+});
+
+test("close during listen releases the bound server", async (t) => {
+  const port = await freePort();
+  const node = new Node({ cluster: "listen-close" });
+
+  t.after(() => node.close());
+
+  const listening = node.listen(`tcp://127.0.0.1:${port}`);
+
+  node.close();
+
+  await assert.rejects(
+    listening,
+    (err: SwarmError) =>
+      err.kind === "rejected" && err.message === "node is closed",
+  );
+
+  await waitFor(async () => {
+    const probe = createServer();
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        probe.once("error", reject);
+        probe.listen(port, "127.0.0.1", resolve);
+      });
+
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+    }
+  });
 });
 
 test("repeated advertise keeps a single self member", async (t) => {
