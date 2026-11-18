@@ -10,7 +10,7 @@
  */
 
 import { SwarmError } from "./errors.ts";
-import { rethrowAsync } from "./events.ts";
+import { reportError } from "./events.ts";
 import type { Methods } from "./local.ts";
 import type { Node } from "./node.ts";
 import type { WatchEvent } from "./registry.ts";
@@ -231,13 +231,7 @@ class ServiceImpl<M extends Methods> implements Service<M> {
           );
 
     this.detach();
-
-    if (node.events.listenerCount("error") === 0) {
-      rethrowAsync(err);
-      return;
-    }
-
-    node.events.emit("error", err);
+    reportError(node.events, err);
   }
 }
 

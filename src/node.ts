@@ -12,7 +12,7 @@
 import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
-import { rethrowAsync } from "./events.ts";
+import { reportError, rethrowAsync } from "./events.ts";
 import { isAdvertisable, normalizePath, parseUrl } from "./address.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
@@ -118,7 +118,7 @@ export class Node implements Provider {
   });
 
   private readonly nodeLocal = new NodeLocal(this.nodeId, (error) =>
-    this.reportError(error),
+    reportError(this.events, error),
   );
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
@@ -270,17 +270,6 @@ export class Node implements Provider {
 
   registrations() {
     return this.watcher.instances();
-  }
-
-  private reportError(error: unknown) {
-    const err = error instanceof Error ? error : new Error(String(error));
-
-    if (this.events.listenerCount("error") === 0) {
-      rethrowAsync(err);
-      return;
-    }
-
-    this.events.emit("error", err);
   }
 
   private linkInfo(nodeLink: NodeLink): NodeLinkInfo {

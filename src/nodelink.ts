@@ -592,6 +592,10 @@ export class NodeLink implements Observable {
     return true;
   }
 
+  private get sendCloseCode() {
+    return this.opened ? "CLOSED" : "HANDSHAKE_FAILED";
+  }
+
   private transmit(update: () => void) {
     try {
       update();
@@ -601,11 +605,7 @@ export class NodeLink implements Observable {
         this.failures += 1;
 
         if (this.failures >= maxSendFailures) {
-          this.dispose(
-            "link is not writable",
-            "error",
-            this.opened ? "CLOSED" : "HANDSHAKE_FAILED",
-          );
+          this.dispose("link is not writable", "error", this.sendCloseCode);
           this.link.close();
         }
       }
@@ -626,11 +626,7 @@ export class NodeLink implements Observable {
         return;
       }
 
-      this.dispose(
-        "link is not writable",
-        "error",
-        this.opened ? "CLOSED" : "HANDSHAKE_FAILED",
-      );
+      this.dispose("link is not writable", "error", this.sendCloseCode);
       this.link.close();
     }
   }

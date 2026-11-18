@@ -14,3 +14,19 @@ export function rethrowAsync(error: unknown) {
     throw error;
   });
 }
+
+export type ErrorEvents = {
+  listenerCount(event: "error"): number;
+  emit(event: "error", error: Error): void;
+};
+
+export function reportError(events: ErrorEvents, error: unknown) {
+  const err = error instanceof Error ? error : new Error(String(error));
+
+  if (events.listenerCount("error") === 0) {
+    rethrowAsync(err);
+    return;
+  }
+
+  events.emit("error", err);
+}
