@@ -195,6 +195,38 @@ describe("Service", () => {
     assert.equal(registered(target, "api"), false);
   });
 
+  test("closing during setup leaves the service idle", async (t) => {
+    const node = new Node({ cluster: "service" });
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const service = createService({
+      name: "math",
+      setup: async () => {
+        entered();
+        await gate;
+
+        return {
+          add: (a: number, b: number) => a + b,
+        };
+      },
+    });
+
+    t.after(() => node.close());
+
+    service.attach(node);
+
+    await started;
+
+    node.close();
+    release();
+
+    await Promise.resolve();
+
+    assert.equal(service.state, "idle");
+  });
+
   test("attach twice is rejected", (t) => {
     const node = new Node({ cluster: "service" });
     const db = createService({ name: "db", setup: () => ({ get: () => 1 }) });

@@ -47,6 +47,7 @@ export class Transport {
   private readonly onError: TransportOptions["onError"];
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
+  private disposed = false;
 
   constructor(options: TransportOptions) {
     this.nodeId = options.nodeId;
@@ -82,6 +83,11 @@ export class Transport {
 
   async connect(url: string | URL, options: WsClientOptions = {}) {
     const client = await this.createClient(url, options);
+
+    if (this.disposed) {
+      client.close();
+      throw new SwarmError("rejected", "node is closed");
+    }
 
     this.track(client);
 
@@ -149,6 +155,8 @@ export class Transport {
   }
 
   dispose() {
+    this.disposed = true;
+
     for (const client of this.clients) {
       client.close();
     }

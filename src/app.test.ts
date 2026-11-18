@@ -165,4 +165,32 @@ describe("App", () => {
       }
     });
   });
+
+  test("stop during start rejects the start and leaves services idle", async (t) => {
+    const math = createService({
+      name: "math",
+      setup: () => ({
+        add: (a: number, b: number) => a + b,
+      }),
+    });
+
+    const app = createApp({
+      node: { cluster: "app" },
+      listen: ["tcp://127.0.0.1:0"],
+      services: [math],
+    });
+
+    t.after(() => app.stop());
+
+    const starting = app.start();
+
+    app.stop();
+
+    await assert.rejects(starting, (err: SwarmError) => {
+      return err.kind === "rejected" && err.message === "node is closed";
+    });
+
+    assert.equal(math.state, "idle");
+    assert.equal(app.node.isClosed, true);
+  });
 });

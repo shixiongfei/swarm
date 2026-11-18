@@ -1813,6 +1813,56 @@ test("close during listen releases the bound server", async (t) => {
   });
 });
 
+test("connect racing with close rejects without leaving a client", async (t) => {
+  const peer = new Node({ cluster: "node" });
+  const { port } = await peer.listen("tcp://127.0.0.1:0");
+  const node = new Node({ cluster: "node" });
+
+  t.after(() => {
+    peer.close();
+    node.close();
+  });
+
+  const connecting = node.connect(`tcp://127.0.0.1:${port}`);
+
+  node.close();
+
+  await assert.rejects(connecting, (err: SwarmError) => {
+    return err.kind === "rejected" && err.message === "node is closed";
+  });
+
+  const clients = (node as unknown as { transport: { clients: unknown[] } })
+    .transport.clients;
+
+  assert.equal(clients.length, 0);
+  assert.equal(peer.snapshot().links.length, 0);
+});
+
+test("closing an established link twice tears it down once", async (t) => {
+  const a = new Node({ cluster: "node" });
+  const { port } = await a.listen("tcp://127.0.0.1:0");
+  const b = new Node({
+    cluster: "node",
+    seeds: [`tcp://127.0.0.1:${port}`],
+  });
+
+  await b.listen("tcp://127.0.0.1:0");
+
+  t.after(() => {
+    a.close();
+    b.close();
+  });
+
+  await waitFor(() => a.snapshot().links.length === 1);
+  await waitFor(() => b.snapshot().links.length === 1);
+
+  b.close();
+  b.close();
+
+  assert.equal(b.snapshot().links.length, 0);
+  await waitFor(() => a.snapshot().links.length === 0);
+});
+
 test("repeated advertise keeps a single self member", async (t) => {
   const node = new Node({ cluster: "advertise-dedupe" });
 
