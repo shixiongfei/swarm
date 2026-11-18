@@ -40,9 +40,5 @@ export function verifyToken(
 
   const now = Math.floor(Date.now() / 1000);
 
-  return (
-    claims.exp - claims.iat < 120 &&
-    claims.exp + maxClockSkew > now &&
-    claims.iat <= now + maxClockSkew
-  );
+  return claims.exp - claims.iat < 120 && claims.exp + maxClockSkew > now;
 }

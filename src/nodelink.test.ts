@@ -28,6 +28,7 @@ class StubLink extends Link {
   readonly sent: Envelope[] = [];
   closed = false;
   failNextSend = false;
+  failSendType: Envelope["t"] | undefined;
   nextError: Error | undefined;
 
   constructor() {
@@ -35,7 +36,7 @@ class StubLink extends Link {
   }
 
   send(message: Envelope) {
-    if (this.failNextSend) {
+    if (this.failNextSend || this.failSendType === message.t) {
       this.failNextSend = false;
       throw this.nextError !== undefined ? this.nextError : new Error("boom");
     }
@@ -82,6 +83,41 @@ test("disposes the link when the handshake reply fails", () => {
   nodeLink.events.on("close", () => (closes += 1));
 
   link.failNextSend = true;
+  link.events.emit("envelope", {
+    t: "hello",
+    from: "peer-node",
+    version: protocolVersion,
+    startup: 1,
+    token: signToken("", "peer-node"),
+  });
+
+  assert.equal(closes, 1);
+  assert.equal(link.closed, true);
+  assert.equal(nodeLink.closeCode, "HANDSHAKE_FAILED");
+});
+
+test("disposes the link when the handshake announcement fails", () => {
+  const local = new NodeLocal("local-node");
+  const link = new StubLink();
+  const nodeLink = new NodeLink(link, {
+    provider: local,
+    startup: 1,
+    secret: "",
+    handshakeTimeout: 50,
+  });
+  let closes = 0;
+
+  local.register("math", { run: () => 1 });
+  nodeLink.events.on("close", () => (closes += 1));
+
+  link.failSendType = "up";
+  link.nextError = new SwarmError(
+    "failed",
+    "link is congested",
+    true,
+    "CONGESTED",
+  );
+
   link.events.emit("envelope", {
     t: "hello",
     from: "peer-node",

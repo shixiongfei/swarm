@@ -41,7 +41,9 @@ const defaultCodes: Record<ErrorKind, ErrorCode> = {
   timeout: "TIMEOUT",
 };
 
-export const errorKinds = Object.keys(defaultCodes) as ErrorKind[];
+export const errorKinds: readonly ErrorKind[] = Object.freeze(
+  Object.keys(defaultCodes) as ErrorKind[],
+);
 
 export class SwarmError extends Error {
   readonly kind: ErrorKind;

@@ -15,6 +15,10 @@ import { parseEnvelope } from "./envelope.ts";
 import { errorKinds } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
+test("exposes error kinds as a frozen list", () => {
+  assert.equal(Object.isFrozen(errorKinds), true);
+});
+
 test("accepts every error kind", () => {
   for (const kind of errorKinds) {
     const envelope = parseEnvelope({

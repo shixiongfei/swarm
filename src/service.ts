@@ -10,6 +10,7 @@
  */
 
 import { SwarmError } from "./errors.ts";
+import { rethrowAsync } from "./events.ts";
 import type { Methods } from "./local.ts";
 import type { Node } from "./node.ts";
 import type { WatchEvent } from "./registry.ts";
@@ -45,6 +46,7 @@ class ServiceImpl<M extends Methods> implements Service<M> {
   private current: ServiceState = "idle";
   private registered = false;
   private preparing = false;
+  private generation = 0;
 
   constructor(options: ServiceOptions<M>) {
     this.name = options.name;
@@ -71,6 +73,7 @@ class ServiceImpl<M extends Methods> implements Service<M> {
     }
 
     this.node = node;
+    this.generation += 1;
     this.current = "waiting";
 
     for (const providers of this.providers.values()) {
@@ -93,6 +96,7 @@ class ServiceImpl<M extends Methods> implements Service<M> {
   detach() {
     const node = this.node;
 
+    this.generation += 1;
     this.methods = undefined;
 
     if (node === undefined) {
@@ -184,18 +188,20 @@ class ServiceImpl<M extends Methods> implements Service<M> {
 
     this.preparing = true;
 
+    const generation = this.generation;
+
     try {
       let methods = this.methods;
 
       if (methods === undefined) {
         methods = await this.setup({ node });
 
-        if (this.node === node) {
+        if (this.generation === generation) {
           this.methods = methods;
         }
       }
 
-      if (this.node === node && this.present()) {
+      if (this.generation === generation && this.present()) {
         node.register(this.name, methods);
         this.registered = true;
         this.current = "ready";
@@ -225,6 +231,12 @@ class ServiceImpl<M extends Methods> implements Service<M> {
           );
 
     this.detach();
+
+    if (node.events.listenerCount("error") === 0) {
+      rethrowAsync(err);
+      return;
+    }
+
     node.events.emit("error", err);
   }
 }

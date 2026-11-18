@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { Node } from "./node.ts";
 import { createService } from "./service.ts";
 import { freePort, waitFor } from "./testutil.ts";
@@ -182,6 +183,74 @@ describe("Service", () => {
     assert.equal(calls, 2);
     assert.equal(registered(target, "db"), true);
     assert.equal(registered(source, "db"), false);
+  });
+
+  test("reruns setup when the same node reattaches during setup", async (t) => {
+    const node = new Node({ cluster: "service" });
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const db = createService({
+      name: "db",
+      setup: async () => {
+        calls += 1;
+
+        const generation = calls;
+
+        if (generation === 1) {
+          await gate;
+        }
+
+        return { generation: () => generation };
+      },
+    });
+
+    t.after(() => node.close());
+
+    db.attach(node);
+
+    await waitFor(() => calls === 1);
+
+    db.detach();
+    db.attach(node);
+    release();
+
+    await waitFor(() => db.state === "ready");
+
+    assert.equal(calls, 2);
+    assert.equal(await node.call("db", "generation"), 2);
+  });
+
+  test("a setup failure crashes the process when nobody listens", () => {
+    const script = `
+import { Node } from "./node.ts";
+import { createService } from "./service.ts";
+
+const node = new Node({ cluster: "test" });
+
+createService({
+  name: "db",
+  setup: () => {
+    throw new Error("boom-setup");
+  },
+}).attach(node);
+
+setTimeout(() => console.log("survived"), 500);
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-setup/);
+    assert.doesNotMatch(result.stdout, /survived/);
   });
 
   test("follows a dependency provided by another node", async (t) => {

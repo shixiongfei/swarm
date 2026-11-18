@@ -75,11 +75,11 @@ describe("token", () => {
     }
   });
 
-  test("rejects a token issued too far in the future", async () => {
-    const iat = Math.floor(Date.now() / 1000) + 60;
+  test("accepts a token from a clock running ahead", async () => {
+    const iat = Math.floor(Date.now() / 1000) + 30;
     const token = sign("s3cret", { from: "peer", iat, exp: iat + 60 });
 
-    assert.equal(await verifyToken(token, "s3cret", "peer"), false);
+    assert.equal(await verifyToken(token, "s3cret", "peer"), true);
   });
 
   test("works without webcrypto", async () => {

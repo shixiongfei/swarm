@@ -284,6 +284,36 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(delivered, 1);
   });
 
+  test("a throwing topic subscriber crashes the process when nobody listens", () => {
+    const script = `
+import { Node } from "./node.ts";
+
+const node = new Node({ cluster: "test" });
+
+node.subscribe("topic", () => {
+  throw new Error("boom-topic");
+});
+
+node.publish("topic", {});
+
+setTimeout(() => console.log("survived"), 500);
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-topic/);
+    assert.doesNotMatch(result.stdout, /survived/);
+  });
+
   test("register rejects metadata that cannot be cloned", async () => {
     const node = makeNode();
 

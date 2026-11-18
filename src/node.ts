@@ -273,10 +273,14 @@ export class Node implements Provider {
   }
 
   private reportError(error: unknown) {
-    this.events.emit(
-      "error",
-      error instanceof Error ? error : new Error(String(error)),
-    );
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    if (this.events.listenerCount("error") === 0) {
+      rethrowAsync(err);
+      return;
+    }
+
+    this.events.emit("error", err);
   }
 
   private linkInfo(nodeLink: NodeLink): NodeLinkInfo {
