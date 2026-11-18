@@ -12,6 +12,8 @@
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
 import { withTimeout } from "./timeout.ts";
+import { rethrowAsync } from "./events.ts";
+import type { EventLite } from "eventlite.js";
 
 export type Methods<M = Record<string, any>> = Record<
   keyof M,
@@ -20,6 +22,10 @@ export type Methods<M = Record<string, any>> = Record<
 
 export type TopicHandler = (data: unknown, origin: string) => void;
 
+export type LocalOptions = {
+  onError?: (error: unknown) => void;
+};
+
 const hasOwn =
   Object.hasOwn ||
   ((obj: object, key: PropertyKey) =>
@@ -27,17 +33,17 @@ const hasOwn =
 
 export class Local {
   private readonly services = new Map<string, Methods>();
-  private readonly topics = eventlite<string>({
-    allowDuplicate: true,
-    isolate: {
-      onError: (error) => {
-        queueMicrotask(() => {
-          throw error;
-        });
-      },
-    },
-  });
+  private readonly topics: EventLite<string>;
   private closed = false;
+
+  constructor(options: LocalOptions = {}) {
+    this.topics = eventlite<string>({
+      allowDuplicate: true,
+      isolate: {
+        onError: options.onError !== undefined ? options.onError : rethrowAsync,
+      },
+    });
+  }
 
   register(service: string, methods: Methods) {
     this.checkOpen();
@@ -111,7 +117,7 @@ export class Local {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "local is closed");
+      throw new SwarmError("rejected", "local is closed", false, "CLOSED");
     }
   }
 }

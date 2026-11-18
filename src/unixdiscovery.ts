@@ -15,6 +15,7 @@ import {
   mkdir,
   readdir,
   rmdir,
+  stat,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -39,6 +40,7 @@ export type UnixDiscoveryEvents = {
 };
 
 const defaultInterval = 3000;
+const staleAfter = 10000;
 const keyLength = 16;
 const dirMode = 0o700;
 const socketMode = 0o600;
@@ -88,6 +90,10 @@ export class UnixDiscovery {
 
     const marker = join(this.dir, `${this.key}${suffix}`);
     const endpoint = isWindows ? `${this.pipe}${this.key}` : marker;
+
+    if (!isWindows) {
+      await unlink(marker).catch(ignore);
+    }
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error);
@@ -204,6 +210,22 @@ export class UnixDiscovery {
     }
   }
 
+  private async reap(path: string) {
+    let mtime: number;
+
+    try {
+      mtime = (await stat(path)).mtimeMs;
+    } catch {
+      return;
+    }
+
+    if (Date.now() - mtime < staleAfter) {
+      return;
+    }
+
+    await unlink(path).catch(ignore);
+  }
+
   private endpoint(path: string) {
     if (!isWindows) {
       return path;
@@ -228,14 +250,15 @@ export class UnixDiscovery {
       socket.destroy();
 
       if (
-        error.code === "ECONNREFUSED" ||
-        error.code === "ENOTSOCK" ||
-        error.code === "ENOENT"
+        error.code !== "ECONNREFUSED" &&
+        error.code !== "ENOTSOCK" &&
+        error.code !== "ENOENT"
       ) {
-        void unlink(path).catch(ignore);
-      } else {
         this.events.emit("error", error);
+        return;
       }
+
+      void this.reap(path);
     };
 
     socket.once("error", onError);

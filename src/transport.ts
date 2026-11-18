@@ -86,7 +86,7 @@ export class Transport {
 
     if (this.disposed) {
       client.close();
-      throw new SwarmError("rejected", "node is closed");
+      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
     }
 
     this.track(client);

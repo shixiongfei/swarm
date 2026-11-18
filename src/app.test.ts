@@ -14,6 +14,7 @@ import { describe, test } from "node:test";
 import { createServer } from "node:net";
 import { createApp } from "./app.ts";
 import { createService } from "./service.ts";
+import { Node } from "./node.ts";
 import { freePort, waitFor } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 
@@ -49,6 +50,29 @@ describe("App", () => {
 
     assert.equal(await app.start(), app);
     assert.equal(await app.start(), app);
+  });
+
+  test("concurrent start waits for the same boot", async (t) => {
+    const port = await freePort();
+    const app = createApp({
+      node: { cluster: "app" },
+      listen: [`tcp://127.0.0.1:${port}`],
+    });
+    const peer = new Node({ cluster: "peer" });
+
+    t.after(() => {
+      app.stop();
+      peer.close();
+    });
+
+    const first = app.start();
+    const second = app.start();
+
+    assert.equal(first, second);
+    assert.equal(await first, app);
+    assert.equal(await second, app);
+
+    assert.equal(await peer.connect(`tcp://127.0.0.1:${port}`), peer);
   });
 
   test("stop detaches services and closes the node", async (t) => {

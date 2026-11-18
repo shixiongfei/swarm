@@ -26,6 +26,7 @@ export type ErrorCode =
   | "HEARTBEAT_TIMEOUT"
   | "MULTICAST_UNAVAILABLE"
   | "NOT_FOUND"
+  | "REJECTED"
   | "SERVICE_ATTACHED"
   | "SETUP_FAILED"
   | "SIGNATURE_INVALID"
@@ -36,9 +37,11 @@ const defaultCodes: Record<ErrorKind, ErrorCode> = {
   cancelled: "CANCELLED",
   failed: "FAILED",
   "not-found": "NOT_FOUND",
-  rejected: "ENVELOPE_INVALID",
+  rejected: "REJECTED",
   timeout: "TIMEOUT",
 };
+
+export const errorKinds = Object.keys(defaultCodes) as ErrorKind[];
 
 export class SwarmError extends Error {
   readonly kind: ErrorKind;

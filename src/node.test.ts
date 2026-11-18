@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -209,13 +210,89 @@ describe("Node", () => {
     );
   });
 
+  test("a closed node reports the CLOSED code", async () => {
+    const node = makeNode();
+
+    node.close();
+
+    await assert.rejects(
+      node.call("math", "add"),
+      (err: SwarmError) => err.code === "CLOSED",
+    );
+  });
+
+  test("a throwing event handler crashes the process", () => {
+    const script = `
+import { Node } from "./node.ts";
+import { protocolVersion } from "./envelope.ts";
+import { signToken } from "./token.ts";
+
+const node = new Node({ cluster: "test" });
+const { port1, port2 } = new MessageChannel();
+
+node.events.on("link-up", () => {
+  throw new Error("boom-node");
+});
+
+node.attach(port1);
+port2.start();
+port2.postMessage({
+  t: "hello",
+  from: "ghost",
+  version: protocolVersion,
+  startup: 1,
+  token: signToken("", "ghost"),
+});
+
+setTimeout(() => console.log("survived"), 500);
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-node/);
+    assert.doesNotMatch(result.stdout, /survived/);
+  });
+
+  test("reports a throwing topic subscriber through the error event", (t) => {
+    const node = makeNode();
+    const errors: Error[] = [];
+    let delivered = 0;
+
+    t.after(() => node.close());
+
+    node.events.on("error", (error) => errors.push(error));
+    node.subscribe("topic", () => {
+      throw new Error("boom");
+    });
+    node.subscribe("topic", () => {
+      delivered += 1;
+    });
+
+    node.publish("topic", {});
+
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].message, "boom");
+    assert.equal(delivered, 1);
+  });
+
   test("register rejects metadata that cannot be cloned", async () => {
     const node = makeNode();
 
     assert.throws(
       () => node.register("math", { add: () => 0 }, { build: () => {} }),
       (err: SwarmError) =>
-        err.kind === "rejected" && err.message === "meta is not cloneable",
+        err.kind === "rejected" &&
+        err.message === "meta is not cloneable" &&
+        err.code === "CLONE_FAILED",
     );
 
     await assert.rejects(
@@ -3216,6 +3293,7 @@ test("applies timeout configuration to attached links", (t) => {
     handshakeTimeout: 123,
     heartbeatInterval: 456,
     heartbeatTimeout: 789,
+    maxInboundTimeout: 42,
   });
   const { port1, port2 } = new MessageChannel();
 
@@ -3232,6 +3310,7 @@ test("applies timeout configuration to attached links", (t) => {
       handshakeTimeout: number;
       heartbeatInterval: number;
       heartbeatTimeout: number;
+      maxInboundTimeout: number;
     }>;
   };
   const link = internals.nodeLinks[0];
@@ -3240,6 +3319,7 @@ test("applies timeout configuration to attached links", (t) => {
   assert.equal(link.handshakeTimeout, 123);
   assert.equal(link.heartbeatInterval, 456);
   assert.equal(link.heartbeatTimeout, 789);
+  assert.equal(link.maxInboundTimeout, 42);
 });
 
 test("connect rejects a url with a fragment", async (t) => {

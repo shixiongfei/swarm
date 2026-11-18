@@ -83,7 +83,10 @@ test("parseUrl rejects malformed urls and secrets", () => {
   const rejects = (url: string, message: string) => {
     assert.throws(
       () => parseUrl(url),
-      (err: SwarmError) => err.kind === "rejected" && err.message === message,
+      (err: SwarmError) =>
+        err.kind === "rejected" &&
+        err.code === "REJECTED" &&
+        err.message === message,
       url,
     );
   };

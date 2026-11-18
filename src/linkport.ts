@@ -90,6 +90,7 @@ export class LinkPort extends Link {
         "failed",
         err instanceof Error ? err.message : String(err),
         true,
+        "CLOSED",
       );
     }
   }

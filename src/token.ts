@@ -11,6 +11,8 @@
 
 import { sign, verify } from "./jwt.ts";
 
+const maxClockSkew = 5;
+
 export function signToken(secret: string, from: string) {
   const iat = Math.floor(Date.now() / 1000);
   return sign(secret, { from, iat, exp: iat + 60 });
@@ -38,5 +40,9 @@ export function verifyToken(
 
   const now = Math.floor(Date.now() / 1000);
 
-  return claims.exp - claims.iat < 120 && claims.exp > now;
+  return (
+    claims.exp - claims.iat < 120 &&
+    claims.exp + maxClockSkew > now &&
+    claims.iat <= now + maxClockSkew
+  );
 }

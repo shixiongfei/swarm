@@ -11,6 +11,7 @@
 
 import { SwarmError } from "./errors.ts";
 import { sameMeta } from "./registry.ts";
+import { rethrowAsync } from "./events.ts";
 import type {
   Instance,
   Observable,
@@ -244,9 +245,7 @@ function notify(handlers: WatchHandler[], event: WatchEvent) {
     try {
       handler(event);
     } catch (error) {
-      queueMicrotask(() => {
-        throw error;
-      });
+      rethrowAsync(error);
     }
   }
 }

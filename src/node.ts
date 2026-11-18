@@ -12,6 +12,7 @@
 import { eventlite } from "eventlite.js";
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
+import { rethrowAsync } from "./events.ts";
 import { isAdvertisable, normalizePath, parseUrl } from "./address.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { LinkPort } from "./linkport.ts";
@@ -62,6 +63,7 @@ export type NodeConfig = {
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
   maxInflight?: number;
+  maxInboundTimeout?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
   discovery?: boolean | DiscoveryOptions;
@@ -112,10 +114,12 @@ export class Node implements Provider {
   readonly secret: string;
   readonly events = eventlite<NodeEvents>({
     allowDuplicate: true,
-    isolate: true,
+    isolate: { onError: rethrowAsync },
   });
 
-  private readonly nodeLocal = new NodeLocal(this.nodeId);
+  private readonly nodeLocal = new NodeLocal(this.nodeId, (error) =>
+    this.reportError(error),
+  );
   private readonly nodeLinks: NodeLink[] = [];
   private readonly nodeHub: NodeHub;
   private readonly watcher = new Watcher();
@@ -133,6 +137,7 @@ export class Node implements Provider {
   private readonly heartbeatInterval: number | undefined;
   private readonly heartbeatTimeout: number | undefined;
   private readonly handshakeTimeout: number | undefined;
+  private readonly maxInboundTimeout: number | undefined;
   private closed = false;
 
   constructor(config: NodeConfig) {
@@ -154,6 +159,7 @@ export class Node implements Provider {
     this.heartbeatInterval = config.heartbeatInterval;
     this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout = config.handshakeTimeout;
+    this.maxInboundTimeout = config.maxInboundTimeout;
 
     this.transport = new Transport({
       nodeId: this.nodeId,
@@ -225,6 +231,7 @@ export class Node implements Provider {
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
       maxInflight: this.maxInflight,
+      maxInboundTimeout: this.maxInboundTimeout,
     });
 
     this.nodeHub.events.on("open", (nodeLink) => {
@@ -263,6 +270,13 @@ export class Node implements Provider {
 
   registrations() {
     return this.watcher.instances();
+  }
+
+  private reportError(error: unknown) {
+    this.events.emit(
+      "error",
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 
   private linkInfo(nodeLink: NodeLink): NodeLinkInfo {
@@ -308,7 +322,12 @@ export class Node implements Provider {
       try {
         ownedMeta = structuredClone(meta);
       } catch (err) {
-        throw new SwarmError("rejected", "meta is not cloneable");
+        throw new SwarmError(
+          "rejected",
+          "meta is not cloneable",
+          false,
+          "CLONE_FAILED",
+        );
       }
 
       if (!isMetaData(ownedMeta)) {
@@ -364,7 +383,7 @@ export class Node implements Provider {
 
     if (this.closed) {
       this.transport.close(server);
-      throw new SwarmError("rejected", "node is closed");
+      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
     }
 
     if (advertised !== undefined) {
@@ -579,19 +598,7 @@ export class Node implements Provider {
   }
 
   private relay(event: WatchEvent) {
-    for (const nodeLink of this.nodeLinks) {
-      if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
-        continue;
-      }
-
-      if (event.type === "up") {
-        nodeLink.register(event.instance);
-      } else {
-        nodeLink.unregister(event.instance);
-      }
-    }
-
-    for (const nodeLink of this.nodeHub.links) {
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
       if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
         continue;
       }
@@ -606,7 +613,7 @@ export class Node implements Provider {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "node is closed");
+      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
     }
   }
 
@@ -625,6 +632,7 @@ export class Node implements Provider {
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
+      maxInboundTimeout: this.maxInboundTimeout,
     });
 
     if (addr !== undefined) {
@@ -779,11 +787,7 @@ export class Node implements Provider {
   }
 
   private eachLink(visit: (nodeLink: NodeLink) => void) {
-    for (const nodeLink of this.nodeLinks) {
-      visit(nodeLink);
-    }
-
-    for (const nodeLink of this.nodeHub.links) {
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
       visit(nodeLink);
     }
   }

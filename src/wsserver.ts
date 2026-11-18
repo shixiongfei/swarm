@@ -97,7 +97,7 @@ export class WsServer extends Server<WebSocket> {
 
   async listen() {
     if (this.isClosed) {
-      throw new SwarmError("rejected", "ws server is closed");
+      throw new SwarmError("rejected", "ws server is closed", false, "CLOSED");
     }
 
     if (this.http.listening) {
@@ -129,7 +129,7 @@ export class WsServer extends Server<WebSocket> {
 
     if (this.isClosed) {
       this.http.close();
-      throw new SwarmError("rejected", "ws server is closed");
+      throw new SwarmError("rejected", "ws server is closed", false, "CLOSED");
     }
 
     this.http.on("error", (error) => this.events.emit("error", error));

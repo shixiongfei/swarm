@@ -108,7 +108,7 @@ export class LinkWs extends Link {
     }
 
     if (this.socket.bufferedAmount > maxQueueSize) {
-      throw new SwarmError("failed", "link is congested", true);
+      throw new SwarmError("failed", "link is congested", true, "CONGESTED");
     }
 
     this.socket.send(payload as Uint8Array<ArrayBuffer>);

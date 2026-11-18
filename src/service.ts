@@ -93,6 +93,8 @@ class ServiceImpl<M extends Methods> implements Service<M> {
   detach() {
     const node = this.node;
 
+    this.methods = undefined;
+
     if (node === undefined) {
       this.current = "idle";
       return;
@@ -187,7 +189,10 @@ class ServiceImpl<M extends Methods> implements Service<M> {
 
       if (methods === undefined) {
         methods = await this.setup({ node });
-        this.methods = methods;
+
+        if (this.node === node) {
+          this.methods = methods;
+        }
       }
 
       if (this.node === node && this.present()) {

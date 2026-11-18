@@ -78,7 +78,7 @@ export class WsClient extends Client<WebSocket> {
 
         reject(
           this.isClosed
-            ? new SwarmError("rejected", "client is closed")
+            ? new SwarmError("rejected", "client is closed", false, "CLOSED")
             : new SwarmError("failed", errorMessage(event)),
         );
       };
@@ -89,7 +89,7 @@ export class WsClient extends Client<WebSocket> {
 
         reject(
           this.isClosed
-            ? new SwarmError("rejected", "client is closed")
+            ? new SwarmError("rejected", "client is closed", false, "CLOSED")
             : new SwarmError("failed", "connection closed before connect"),
         );
       };

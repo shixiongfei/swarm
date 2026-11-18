@@ -28,6 +28,7 @@ class StubLink extends Link {
   readonly sent: Envelope[] = [];
   closed = false;
   failNextSend = false;
+  nextError: Error | undefined;
 
   constructor() {
     super("stub-node");
@@ -36,7 +37,7 @@ class StubLink extends Link {
   send(message: Envelope) {
     if (this.failNextSend) {
       this.failNextSend = false;
-      throw new Error("boom");
+      throw this.nextError !== undefined ? this.nextError : new Error("boom");
     }
 
     this.sent.push(message);
@@ -45,6 +46,26 @@ class StubLink extends Link {
   close() {
     this.closed = true;
   }
+}
+
+function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
+  const link = new StubLink();
+  const nodeLink = new NodeLink(link, {
+    provider: local,
+    startup: 1,
+    secret: "",
+    maxInboundTimeout,
+  });
+
+  link.events.emit("envelope", {
+    t: "hello",
+    from: "peer-node",
+    version: protocolVersion,
+    startup: 1,
+    token: signToken("", "peer-node"),
+  });
+
+  return { link, nodeLink };
 }
 
 test("disposes the link when the handshake reply fails", () => {
@@ -72,6 +93,208 @@ test("disposes the link when the handshake reply fails", () => {
   assert.equal(closes, 1);
   assert.equal(link.closed, true);
   assert.equal(nodeLink.closeCode, "HANDSHAKE_FAILED");
+});
+
+test("does not leak an unhandled rejection when a failure reply is congested", async (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => unhandled.push(error);
+
+  t.after(() => {
+    process.off("unhandledRejection", onUnhandled);
+    nodeLink.close();
+    local.close();
+  });
+
+  process.on("unhandledRejection", onUnhandled);
+
+  link.failNextSend = true;
+  link.nextError = new SwarmError(
+    "failed",
+    "link is congested",
+    true,
+    "CONGESTED",
+  );
+
+  link.events.emit("envelope", {
+    t: "call",
+    id: "call-1",
+    from: "peer-node",
+    to: "stub-node",
+    service: "missing",
+    method: "run",
+    args: [],
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(unhandled, []);
+});
+
+test("reports a reply that cannot be encoded", async (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local);
+
+  local.register("echo", { run: () => 1 });
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  link.failNextSend = true;
+  link.nextError = new SwarmError(
+    "failed",
+    "envelope is not encodable",
+    false,
+    "ENVELOPE_INVALID",
+  );
+
+  link.events.emit("envelope", {
+    t: "call",
+    id: "call-2",
+    from: "peer-node",
+    to: "stub-node",
+    service: "echo",
+    method: "run",
+    args: [],
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+  const error = link.sent.find((message) => message.t === "error");
+
+  assert.equal(
+    error !== undefined && error.t === "error" ? error.code : undefined,
+    "CLONE_FAILED",
+  );
+});
+
+test("clamps the inbound timeout to the link configuration", async (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local, 20);
+
+  local.register("slow", {
+    run: () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
+  });
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  link.events.emit("envelope", {
+    t: "call",
+    id: "call-3",
+    from: "peer-node",
+    to: "stub-node",
+    service: "slow",
+    method: "run",
+    args: [],
+    timeout: 5000,
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 80));
+
+  const error = link.sent.find((message) => message.t === "error");
+
+  assert.equal(
+    error !== undefined && error.t === "error" ? error.kind : undefined,
+    "timeout",
+  );
+});
+
+test("closes the link when a state update cannot be sent", (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local);
+  let closes = 0;
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  nodeLink.events.on("close", () => (closes += 1));
+
+  link.failNextSend = true;
+  link.nextError = new SwarmError(
+    "failed",
+    "link is congested",
+    true,
+    "CONGESTED",
+  );
+
+  nodeLink.register({ service: "math", nodeId: "other-node" });
+
+  assert.equal(link.closed, true);
+  assert.equal(closes, 1);
+  assert.equal(nodeLink.closeCode, "CLOSED");
+});
+
+test("drops a state update that cannot be encoded", (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local);
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  link.failNextSend = true;
+  link.nextError = new SwarmError(
+    "failed",
+    "envelope is not encodable",
+    false,
+    "ENVELOPE_INVALID",
+  );
+
+  nodeLink.register({ service: "math", nodeId: "other-node" });
+
+  assert.equal(link.closed, false);
+  assert.equal(nodeLink.peerId, "peer-node");
+});
+
+test("closes the link after repeated send failures", (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local);
+  const congested = new SwarmError(
+    "failed",
+    "link is congested",
+    true,
+    "CONGESTED",
+  );
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  const fail = () => {
+    link.failNextSend = true;
+    link.nextError = congested;
+
+    assert.throws(() =>
+      nodeLink.publish("news", 1, "peer-node", "pub-fail", 1),
+    );
+  };
+
+  fail();
+  fail();
+
+  assert.equal(link.closed, false);
+
+  nodeLink.publish("news", 1, "peer-node", "pub-ok", 1);
+
+  fail();
+  fail();
+
+  assert.equal(link.closed, false);
+
+  fail();
+
+  assert.equal(link.closed, true);
+  assert.equal(nodeLink.closeCode, "CLOSED");
 });
 
 describe("NodeLink", () => {

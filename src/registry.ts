@@ -232,7 +232,7 @@ export class Registry implements Observable {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "registry is closed");
+      throw new SwarmError("rejected", "registry is closed", false, "CLOSED");
     }
   }
 }

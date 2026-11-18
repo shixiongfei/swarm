@@ -30,7 +30,27 @@ type NodeLinkEvents = {
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 const defaultHandshakeTimeout = 15000;
-const maxInboundTimeout = 60000;
+const defaultMaxInboundTimeout = 60000;
+const maxSendFailures = 3;
+
+function isTransportFailure(error: unknown) {
+  return error instanceof SwarmError && error.retriable;
+}
+
+function isDataFailure(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (error.name === "DataCloneError") {
+    return true;
+  }
+
+  return (
+    error instanceof SwarmError &&
+    (error.code === "ENVELOPE_INVALID" || error.code === "CLONE_FAILED")
+  );
+}
 
 export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
 
@@ -42,6 +62,7 @@ export type NodeLinkConfig = {
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
   maxInflight?: number;
+  maxInboundTimeout?: number;
 };
 
 export class NodeLink implements Observable {
@@ -60,6 +81,7 @@ export class NodeLink implements Observable {
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number;
   private readonly maxInflight: number | undefined;
+  private readonly maxInboundTimeout: number;
   private readonly disposes: Array<() => void>;
   private peer?: string;
   peerStartup?: number;
@@ -73,6 +95,7 @@ export class NodeLink implements Observable {
   private handshake?: ReturnType<typeof setTimeout>;
   private pingAt?: number;
   private rtt?: number;
+  private failures = 0;
 
   private readonly onEnvelope = (message: Envelope) => {
     this.lastSeen = Date.now();
@@ -120,7 +143,7 @@ export class NodeLink implements Observable {
         const timeout =
           message.timeout === undefined
             ? undefined
-            : Math.min(message.timeout, maxInboundTimeout);
+            : Math.min(message.timeout, this.maxInboundTimeout);
 
         Promise.resolve()
           .then(() =>
@@ -135,23 +158,9 @@ export class NodeLink implements Observable {
             ),
           )
           .then(
-            (value) => {
-              try {
-                this.link.reply(message.id, message.from, value);
-              } catch (err) {
-                this.link.fail(
-                  message.id,
-                  message.from,
-                  new SwarmError(
-                    "failed",
-                    "reply is not cloneable",
-                    false,
-                    "CLONE_FAILED",
-                  ),
-                );
-              }
-            },
-            (error: unknown) => this.link.fail(message.id, message.from, error),
+            (value) => this.sendReply(message.id, message.from, value),
+            (error: unknown) =>
+              this.sendFailure(message.id, message.from, error),
           );
         return;
       }
@@ -203,7 +212,13 @@ export class NodeLink implements Observable {
 
       case "ping":
         if (this.peer !== undefined && message.from === this.peer) {
-          this.link.send({ t: "pong", from: this.link.nodeId });
+          try {
+            this.transmit(() =>
+              this.link.send({ t: "pong", from: this.link.nodeId }),
+            );
+          } catch {
+            // The pong is best-effort; the link health tracks the failure.
+          }
         }
         return;
 
@@ -255,6 +270,10 @@ export class NodeLink implements Observable {
         ? config.handshakeTimeout
         : defaultHandshakeTimeout;
     this.maxInflight = config.maxInflight;
+    this.maxInboundTimeout =
+      config.maxInboundTimeout !== undefined
+        ? config.maxInboundTimeout
+        : defaultMaxInboundTimeout;
 
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
@@ -306,15 +325,15 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.link.hello(this.startup, this.token());
+    this.transmit(() => this.link.hello(this.startup, this.token()));
   }
 
   register(instance: Instance) {
-    this.link.register(instance);
+    this.sync(() => this.link.register(instance));
   }
 
   unregister(instance: Instance) {
-    this.link.unregister(instance);
+    this.sync(() => this.link.unregister(instance));
   }
 
   lookup(service: string) {
@@ -375,7 +394,9 @@ export class NodeLink implements Observable {
 
     return this.pending.call(
       (id) =>
-        this.link.call(id, to, service, method, args, timeout, ttl, target),
+        this.transmit(() =>
+          this.link.call(id, to, service, method, args, timeout, ttl, target),
+        ),
       timeout,
       () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
       (cause) =>
@@ -405,11 +426,13 @@ export class NodeLink implements Observable {
     id: string,
     ttl: number,
   ) {
-    this.link.publish(topic, data, origin, id, ttl);
+    this.transmit(() => this.link.publish(topic, data, origin, id, ttl));
   }
 
   peers(members: PeerEntry[]) {
-    this.link.send({ t: "peers", from: this.link.nodeId, members });
+    this.sync(() =>
+      this.link.send({ t: "peers", from: this.link.nodeId, members }),
+    );
   }
 
   bye() {
@@ -418,7 +441,7 @@ export class NodeLink implements Observable {
     }
 
     try {
-      this.link.send({ t: "bye", from: this.link.nodeId });
+      this.transmit(() => this.link.send({ t: "bye", from: this.link.nodeId }));
     } catch {
       // The link is closed or congested; goodbye is best-effort.
     }
@@ -440,7 +463,7 @@ export class NodeLink implements Observable {
 
     try {
       if (reply) {
-        this.link.accept(this.startup, this.token());
+        this.transmit(() => this.link.accept(this.startup, this.token()));
       }
 
       this.announce();
@@ -451,6 +474,10 @@ export class NodeLink implements Observable {
         "HANDSHAKE_FAILED",
       );
       this.link.close();
+      return;
+    }
+
+    if (this.closed) {
       return;
     }
 
@@ -488,7 +515,9 @@ export class NodeLink implements Observable {
     this.pingAt = Date.now();
 
     try {
-      this.link.send({ t: "ping", from: this.link.nodeId });
+      this.transmit(() =>
+        this.link.send({ t: "ping", from: this.link.nodeId }),
+      );
     } catch {
       this.pingAt = undefined;
     }
@@ -534,11 +563,15 @@ export class NodeLink implements Observable {
 
   private announce() {
     for (const instance of this.provider.registrations()) {
+      if (this.closed) {
+        return;
+      }
+
       if (instance.nodeId === this.peer) {
         continue;
       }
 
-      this.link.register(instance);
+      this.register(instance);
     }
   }
 
@@ -557,6 +590,76 @@ export class NodeLink implements Observable {
     this.peer = nodeId;
 
     return true;
+  }
+
+  private transmit(update: () => void) {
+    try {
+      update();
+      this.failures = 0;
+    } catch (err) {
+      if (isTransportFailure(err)) {
+        this.failures += 1;
+
+        if (this.failures >= maxSendFailures) {
+          this.dispose("link is not writable", "error", "CLOSED");
+          this.link.close();
+        }
+      }
+
+      throw err;
+    }
+  }
+
+  private sync(update: () => void) {
+    if (this.closed) {
+      return;
+    }
+
+    try {
+      this.transmit(update);
+    } catch (err) {
+      if (isDataFailure(err)) {
+        return;
+      }
+
+      this.dispose("link is not writable", "error", "CLOSED");
+      this.link.close();
+    }
+  }
+
+  private sendReply(id: string, to: string, value: unknown) {
+    try {
+      this.transmit(() => this.link.reply(id, to, value));
+    } catch (err) {
+      if (isTransportFailure(err)) {
+        return;
+      }
+
+      try {
+        this.transmit(() =>
+          this.link.fail(
+            id,
+            to,
+            new SwarmError(
+              "failed",
+              "reply is not cloneable",
+              false,
+              "CLONE_FAILED",
+            ),
+          ),
+        );
+      } catch {
+        // The reply cannot be encoded or sent; the caller times out.
+      }
+    }
+  }
+
+  private sendFailure(id: string, to: string, error: unknown) {
+    try {
+      this.transmit(() => this.link.fail(id, to, error));
+    } catch {
+      // Delivering the failure is best-effort; the caller times out.
+    }
   }
 
   private dispose(

@@ -119,6 +119,71 @@ describe("Service", () => {
     assert.equal(calls, 1);
   });
 
+  test("runs setup again after detaching and reattaching", async (t) => {
+    const node = new Node({ cluster: "service" });
+    let calls = 0;
+    const db = createService({
+      name: "db",
+      setup: () => {
+        calls += 1;
+
+        return { get: () => 1 };
+      },
+    });
+
+    t.after(() => node.close());
+
+    db.attach(node);
+
+    await waitFor(() => db.state === "ready");
+
+    db.detach();
+    db.attach(node);
+
+    await waitFor(() => db.state === "ready");
+
+    assert.equal(calls, 2);
+  });
+
+  test("does not cache setup that finishes after detach", async (t) => {
+    const source = new Node({ cluster: "service" });
+    const target = new Node({ cluster: "service" });
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const db = createService({
+      name: "db",
+      setup: async ({ node }) => {
+        calls += 1;
+
+        if (calls === 1) {
+          await gate;
+        }
+
+        return { self: () => node.nodeId };
+      },
+    });
+
+    t.after(() => {
+      source.close();
+      target.close();
+    });
+
+    db.attach(source);
+
+    await waitFor(() => calls === 1);
+
+    db.detach();
+    db.attach(target);
+    release();
+
+    await waitFor(() => db.state === "ready");
+
+    assert.equal(calls, 2);
+    assert.equal(registered(target, "db"), true);
+    assert.equal(registered(source, "db"), false);
+  });
+
   test("follows a dependency provided by another node", async (t) => {
     const port = await freePort();
     const hub = new Node({ cluster: "service-remote" });

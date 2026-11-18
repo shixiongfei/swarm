@@ -19,10 +19,11 @@ import type { MetaData, Observable, WatchHandler } from "./registry.ts";
 export class NodeLocal implements Observable, Provider {
   private readonly nodeId: string;
   private readonly registry = new Registry();
-  private readonly local = new Local();
+  private readonly local: Local;
 
-  constructor(nodeId: string) {
+  constructor(nodeId: string, onError?: (error: unknown) => void) {
     this.nodeId = nodeId;
+    this.local = new Local({ onError });
   }
 
   register(service: string, methods: Methods, meta?: MetaData) {

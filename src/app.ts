@@ -33,6 +33,7 @@ class AppImpl implements App {
   private readonly services: Service[];
   private started = false;
   private stopped = false;
+  private starting?: Promise<App>;
 
   constructor(options: AppOptions) {
     this.node = new Node(options.node);
@@ -44,17 +45,25 @@ class AppImpl implements App {
     });
   }
 
-  async start() {
+  start(): Promise<App> {
     if (this.stopped) {
-      throw new SwarmError("rejected", "app is stopped", false, "APP_CLOSED");
+      return Promise.reject(
+        new SwarmError("rejected", "app is stopped", false, "APP_CLOSED"),
+      );
     }
 
     if (this.started) {
-      return this;
+      return Promise.resolve(this);
     }
 
-    this.started = true;
+    if (this.starting === undefined) {
+      this.starting = this.boot();
+    }
 
+    return this.starting;
+  }
+
+  private async boot(): Promise<App> {
     try {
       for (const url of this.listenUrls) {
         await this.node.listen(url);
@@ -63,13 +72,17 @@ class AppImpl implements App {
       for (const service of this.services) {
         service.attach(this.node);
       }
+
+      this.started = true;
+
+      return this;
     } catch (err) {
       this.stopped = true;
       this.node.close();
       throw err;
+    } finally {
+      this.starting = undefined;
     }
-
-    return this;
   }
 
   async stop() {

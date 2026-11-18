@@ -12,16 +12,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseEnvelope } from "./envelope.ts";
+import { errorKinds } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
 test("accepts every error kind", () => {
-  for (const kind of [
-    "not-found",
-    "timeout",
-    "rejected",
-    "failed",
-    "cancelled",
-  ] as const) {
+  for (const kind of errorKinds) {
     const envelope = parseEnvelope({
       t: "error",
       from: "node-a",

@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, test } from "node:test";
 import { signToken, verifyToken } from "./token.ts";
+import { sign } from "./jwt.ts";
 
 describe("token", () => {
   test("accepts a token it signed", async () => {
@@ -59,6 +60,26 @@ describe("token", () => {
     } finally {
       Date.now = now;
     }
+  });
+
+  test("accepts a token that just expired within the clock skew", async () => {
+    const token = await signToken("s3cret", "peer");
+    const now = Date.now;
+
+    Date.now = () => now() + 63 * 1000;
+
+    try {
+      assert.equal(await verifyToken(token, "s3cret", "peer"), true);
+    } finally {
+      Date.now = now;
+    }
+  });
+
+  test("rejects a token issued too far in the future", async () => {
+    const iat = Math.floor(Date.now() / 1000) + 60;
+    const token = sign("s3cret", { from: "peer", iat, exp: iat + 60 });
+
+    assert.equal(await verifyToken(token, "s3cret", "peer"), false);
   });
 
   test("works without webcrypto", async () => {

@@ -10,6 +10,7 @@
  */
 
 import { eventlite } from "eventlite.js";
+import { rethrowAsync } from "./events.ts";
 
 export type ServerEvents<S = any> = {
   online: (socket: S, remoteAddress?: string) => void;
@@ -20,13 +21,7 @@ export type ServerEvents<S = any> = {
 export abstract class Server<S = any> {
   readonly events = eventlite<ServerEvents<S>>({
     allowDuplicate: true,
-    isolate: {
-      onError: (error) => {
-        queueMicrotask(() => {
-          throw error;
-        });
-      },
-    },
+    isolate: { onError: rethrowAsync },
   });
 
   private readonly sockets = new Set<S>();

@@ -44,7 +44,7 @@ export class TcpServer extends Server<Socket> {
 
   async listen() {
     if (this.isClosed) {
-      throw new SwarmError("rejected", "tcp server is closed");
+      throw new SwarmError("rejected", "tcp server is closed", false, "CLOSED");
     }
 
     if (this.server.listening) {
@@ -72,7 +72,7 @@ export class TcpServer extends Server<Socket> {
 
     if (this.isClosed) {
       this.server.close();
-      throw new SwarmError("rejected", "tcp server is closed");
+      throw new SwarmError("rejected", "tcp server is closed", false, "CLOSED");
     }
 
     this.server.on("error", (error) => this.events.emit("error", error));

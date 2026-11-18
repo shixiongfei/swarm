@@ -10,8 +10,9 @@
  */
 
 import { isMetaData } from "./registry.ts";
-import type { MetaData } from "./registry.ts";
+import { errorKinds } from "./errors.ts";
 import type { ErrorKind } from "./errors.ts";
+import type { MetaData } from "./registry.ts";
 
 const majorVersion = 1;
 const minorVersion = 0;
@@ -80,14 +81,6 @@ export interface Enveloper {
   send(message: Envelope): void;
   close(): void;
 }
-
-const errorKinds: readonly ErrorKind[] = [
-  "not-found",
-  "timeout",
-  "rejected",
-  "failed",
-  "cancelled",
-];
 
 function isHandshake(
   message: Extract<Envelope, { t: "hello" | "accept" }>,

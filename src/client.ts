@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { rethrowAsync } from "./events.ts";
 
 export type ClientEvents<S = any> = {
   online: (socket: S) => void;
@@ -30,13 +31,7 @@ const defaultConnectTimeout = 15000;
 export abstract class Client<S = any> {
   readonly events = eventlite<ClientEvents<S>>({
     allowDuplicate: true,
-    isolate: {
-      onError: (error) => {
-        queueMicrotask(() => {
-          throw error;
-        });
-      },
-    },
+    isolate: { onError: rethrowAsync },
   });
 
   socket: S | undefined;
@@ -70,7 +65,7 @@ export abstract class Client<S = any> {
 
   async connect(): Promise<this> {
     if (this.closed) {
-      throw new SwarmError("rejected", "client is closed");
+      throw new SwarmError("rejected", "client is closed", false, "CLOSED");
     }
 
     if (this.connecting) {

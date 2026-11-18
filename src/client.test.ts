@@ -50,6 +50,34 @@ test(
   },
 );
 
+test("close cancels the retry scheduled by a rejected connect", async () => {
+  let attempts = 0;
+
+  class AlwaysFailingClient extends Client<number> {
+    protected async open() {
+      attempts += 1;
+      throw new Error("boom");
+    }
+
+    protected destroy() {}
+  }
+
+  const client = new AlwaysFailingClient({
+    retryDelay: 10,
+    maxRetryDelay: 10,
+  });
+
+  await assert.rejects(client.connect(), /boom/);
+
+  client.close();
+
+  const attempted = attempts;
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(attempts, attempted);
+});
+
 test("a throwing event handler crashes the process", () => {
   const script = `
 import { Client } from "./client.ts";
