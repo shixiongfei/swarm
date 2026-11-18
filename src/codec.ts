@@ -29,7 +29,12 @@ export function encode(message: Envelope): Uint8Array {
   try {
     return packr.pack(message);
   } catch (err) {
-    throw new SwarmError("failed", "envelope is not encodable");
+    throw new SwarmError(
+      "failed",
+      "envelope is not encodable",
+      false,
+      "ENVELOPE_INVALID",
+    );
   }
 }
 

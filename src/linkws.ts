@@ -99,7 +99,12 @@ export class LinkWs extends Link {
     const payload = encode(message);
 
     if (payload.byteLength > maxEnvelopeSize) {
-      throw new SwarmError("failed", "envelope is too large");
+      throw new SwarmError(
+        "failed",
+        "envelope is too large",
+        false,
+        "ENVELOPE_INVALID",
+      );
     }
 
     if (this.socket.bufferedAmount > maxQueueSize) {

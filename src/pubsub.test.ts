@@ -55,6 +55,19 @@ function makePubSub(links: NodeLink[], maxHops = 3) {
   return { pubsub, local };
 }
 
+test("publish keeps fanning out when a link fails", () => {
+  const sent: Sent[] = [];
+  const { pubsub, local } = makePubSub([
+    makeLink("a", [], new Error("congested")),
+    makeLink("b", sent),
+  ]);
+
+  pubsub.publish("topic", "data", undefined, undefined, "pub-1");
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(local, [{ topic: "topic", data: "data", origin: "self" }]);
+});
+
 test("publish forwards to every link and publishes locally", () => {
   const first: Sent[] = [];
   const second: Sent[] = [];

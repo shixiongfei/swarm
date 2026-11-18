@@ -21,8 +21,8 @@ import { Node } from "./node.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
+import { SwarmError } from "./errors.ts";
 import type { NodeLinkDown } from "./node.ts";
-import type { SwarmError } from "./errors.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
 const tlsKey = `-----BEGIN PRIVATE KEY-----
@@ -3121,3 +3121,136 @@ type MembershipInternals = {
 type NodeInternals = {
   membership: MembershipInternals;
 };
+
+test("attach emits link-up once per link", async (t) => {
+  const first = new Node({ cluster: "node" });
+  const second = new Node({ cluster: "node" });
+  const { port1, port2 } = new MessageChannel();
+  let firstCount = 0;
+  let secondCount = 0;
+
+  first.events.on("link-up", () => (firstCount += 1));
+  second.events.on("link-up", () => (secondCount += 1));
+  t.after(() => {
+    first.close();
+    second.close();
+  });
+
+  first.attach(port1);
+  second.attach(port2);
+
+  await waitFor(
+    () =>
+      first.snapshot().links.length === 1 &&
+      second.snapshot().links.length === 1,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(firstCount, 1);
+  assert.equal(secondCount, 1);
+});
+
+test("unregister converges when it races the handshake", async (t) => {
+  const a = new Node({ cluster: "node" });
+  const b = new Node({ cluster: "node" });
+  const c = new Node({ cluster: "node" });
+  const ab = new MessageChannel();
+  const bc = new MessageChannel();
+
+  t.after(() => {
+    a.close();
+    b.close();
+    c.close();
+  });
+
+  b.attach(bc.port1);
+  c.attach(bc.port2);
+  a.attach(ab.port1);
+  b.attach(ab.port2);
+  c.register("db", { ping: () => "pong" });
+
+  await waitFor(() => a.registrations().some((item) => item.service === "db"));
+
+  c.unregister("db");
+
+  await waitFor(
+    () =>
+      !a.registrations().some((item) => item.service === "db") &&
+      !b.registrations().some((item) => item.service === "db"),
+  );
+});
+
+test("relays a cancelled failure instead of timing out", async (t) => {
+  const first = new Node({ cluster: "node" });
+  const second = new Node({ cluster: "node" });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    first.close();
+    second.close();
+  });
+
+  first.attach(port1);
+  second.attach(port2);
+  second.register("svc", {
+    boom: () => {
+      throw new SwarmError("cancelled", "stop");
+    },
+  });
+
+  await waitFor(
+    () =>
+      first.snapshot().links.length === 1 &&
+      first.registrations().some((item) => item.service === "svc"),
+  );
+
+  await assert.rejects(
+    first.call("svc", "boom", [], { timeout: 2000 }),
+    (err: SwarmError) => err.kind === "cancelled" && err.code === "CANCELLED",
+  );
+});
+
+test("applies timeout configuration to attached links", (t) => {
+  const node = new Node({
+    cluster: "node",
+    handshakeTimeout: 123,
+    heartbeatInterval: 456,
+    heartbeatTimeout: 789,
+  });
+  const { port1, port2 } = new MessageChannel();
+
+  t.after(() => {
+    node.close();
+    port1.close();
+    port2.close();
+  });
+
+  node.attach(port1);
+
+  const internals = node as unknown as {
+    nodeLinks: Array<{
+      handshakeTimeout: number;
+      heartbeatInterval: number;
+      heartbeatTimeout: number;
+    }>;
+  };
+  const link = internals.nodeLinks[0];
+
+  assert.ok(link);
+  assert.equal(link.handshakeTimeout, 123);
+  assert.equal(link.heartbeatInterval, 456);
+  assert.equal(link.heartbeatTimeout, 789);
+});
+
+test("connect rejects a url with a fragment", async (t) => {
+  const node = new Node({ cluster: "node" });
+
+  t.after(() => node.close());
+
+  await assert.rejects(
+    node.connect("ws://127.0.0.1:1/swarm#frag"),
+    (err: SwarmError) =>
+      err.kind === "rejected" &&
+      err.message === "url does not support a fragment",
+  );
+});

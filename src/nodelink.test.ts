@@ -47,6 +47,33 @@ class StubLink extends Link {
   }
 }
 
+test("disposes the link when the handshake reply fails", () => {
+  const local = new NodeLocal("local-node");
+  const link = new StubLink();
+  const nodeLink = new NodeLink(link, {
+    provider: local,
+    startup: 1,
+    secret: "",
+    handshakeTimeout: 50,
+  });
+  let closes = 0;
+
+  nodeLink.events.on("close", () => (closes += 1));
+
+  link.failNextSend = true;
+  link.events.emit("envelope", {
+    t: "hello",
+    from: "peer-node",
+    version: protocolVersion,
+    startup: 1,
+    token: signToken("", "peer-node"),
+  });
+
+  assert.equal(closes, 1);
+  assert.equal(link.closed, true);
+  assert.equal(nodeLink.closeCode, "HANDSHAKE_FAILED");
+});
+
 describe("NodeLink", () => {
   test("emits bye and closes when the peer leaves", async (t) => {
     const local = new NodeLocal("local-node");

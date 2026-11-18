@@ -60,6 +60,10 @@ export function parseUrl(url: string | URL): ParsedUrl {
     throw new SwarmError("rejected", "tcp url does not support a path");
   }
 
+  if (parsed.hash !== "") {
+    throw new SwarmError("rejected", "url does not support a fragment");
+  }
+
   let secret = "";
 
   if (parsed.password !== "") {

@@ -92,6 +92,7 @@ test("parseUrl rejects malformed urls and secrets", () => {
   rejects("http://127.0.0.1:1", "invalid url: http://127.0.0.1:1");
   rejects("tcp://127.0.0.1", "invalid url: tcp://127.0.0.1");
   rejects("tcp://127.0.0.1:1/path", "tcp url does not support a path");
+  rejects("ws://127.0.0.1:1/ws#frag", "url does not support a fragment");
   rejects("tcp://user:%E0%A4%A@127.0.0.1:1", "invalid secret");
 });
 

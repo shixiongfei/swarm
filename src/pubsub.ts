@@ -63,20 +63,22 @@ export class PubSub {
     }
 
     if (remaining > 0) {
-      try {
-        for (const nodeLink of this.links()) {
-          if (from !== undefined && nodeLink.peerId === from) {
-            continue;
+      for (const nodeLink of this.links()) {
+        if (from !== undefined && nodeLink.peerId === from) {
+          continue;
+        }
+
+        try {
+          nodeLink.publish(topic, data, source, pubId, remaining - 1);
+        } catch (err) {
+          if (err instanceof Error && err.name === "DataCloneError") {
+            throw new SwarmError("failed", "data is not cloneable");
           }
 
-          nodeLink.publish(topic, data, source, pubId, remaining - 1);
+          if (err instanceof SwarmError && err.code === "ENVELOPE_INVALID") {
+            throw err;
+          }
         }
-      } catch (err) {
-        if (err instanceof Error && err.name === "DataCloneError") {
-          throw new SwarmError("failed", "data is not cloneable");
-        }
-
-        throw err;
       }
     }
 

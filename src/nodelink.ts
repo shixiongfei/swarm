@@ -64,6 +64,7 @@ export class NodeLink implements Observable {
   private peer?: string;
   peerStartup?: number;
   private closed = false;
+  private opened = false;
   private reason: LinkCloseReason = "close";
   private reasonCode = "CLOSED";
   private reasonMessage = "link is closed";
@@ -433,9 +434,27 @@ export class NodeLink implements Observable {
       return;
     }
 
-    if (reply) {
-      this.link.accept(this.startup, this.token());
+    if (this.opened) {
+      return;
     }
+
+    try {
+      if (reply) {
+        this.link.accept(this.startup, this.token());
+      }
+
+      this.announce();
+    } catch (err) {
+      this.dispose(
+        err instanceof Error ? err.message : String(err),
+        "error",
+        "HANDSHAKE_FAILED",
+      );
+      this.link.close();
+      return;
+    }
+
+    this.opened = true;
 
     if (this.handshake !== undefined) {
       clearTimeout(this.handshake);
@@ -448,7 +467,6 @@ export class NodeLink implements Observable {
       this.heartbeat = setInterval(() => this.beat(), this.heartbeatInterval);
     }
 
-    this.announce();
     this.events.emit("open", from);
   }
 

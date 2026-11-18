@@ -130,6 +130,9 @@ export class Node implements Provider {
   private readonly callTimeout: number;
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
+  private readonly heartbeatInterval: number | undefined;
+  private readonly heartbeatTimeout: number | undefined;
+  private readonly handshakeTimeout: number | undefined;
   private closed = false;
 
   constructor(config: NodeConfig) {
@@ -148,6 +151,9 @@ export class Node implements Provider {
     this.maxHops =
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
     this.maxInflight = config.maxInflight;
+    this.heartbeatInterval = config.heartbeatInterval;
+    this.heartbeatTimeout = config.heartbeatTimeout;
+    this.handshakeTimeout = config.handshakeTimeout;
 
     this.transport = new Transport({
       nodeId: this.nodeId,
@@ -215,9 +221,9 @@ export class Node implements Provider {
       secret: this.secret,
       provider: this,
       startup: this.startup,
-      heartbeatInterval: config.heartbeatInterval,
-      heartbeatTimeout: config.heartbeatTimeout,
-      handshakeTimeout: config.handshakeTimeout,
+      heartbeatInterval: this.heartbeatInterval,
+      heartbeatTimeout: this.heartbeatTimeout,
+      handshakeTimeout: this.handshakeTimeout,
       maxInflight: this.maxInflight,
     });
 
@@ -616,6 +622,9 @@ export class Node implements Provider {
       startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
       maxInflight: this.maxInflight,
+      heartbeatInterval: this.heartbeatInterval,
+      heartbeatTimeout: this.heartbeatTimeout,
+      handshakeTimeout: this.handshakeTimeout,
     });
 
     if (addr !== undefined) {

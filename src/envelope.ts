@@ -86,6 +86,7 @@ const errorKinds: readonly ErrorKind[] = [
   "timeout",
   "rejected",
   "failed",
+  "cancelled",
 ];
 
 function isHandshake(

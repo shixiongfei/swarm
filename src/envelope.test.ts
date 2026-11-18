@@ -14,6 +14,29 @@ import { describe, test } from "node:test";
 import { parseEnvelope } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
+test("accepts every error kind", () => {
+  for (const kind of [
+    "not-found",
+    "timeout",
+    "rejected",
+    "failed",
+    "cancelled",
+  ] as const) {
+    const envelope = parseEnvelope({
+      t: "error",
+      from: "node-a",
+      to: "node-b",
+      id: "error-1",
+      kind,
+      message: "boom",
+      code: "CODE",
+      retriable: false,
+    });
+
+    assert.notEqual(envelope, undefined, kind);
+  }
+});
+
 describe("parseEnvelope", () => {
   test("accepts every envelope type", () => {
     const envelopes: Envelope[] = [
