@@ -11,6 +11,8 @@
 
 export * from "./errors.ts";
 export * from "./node.ts";
+export * from "./service.ts";
+export * from "./app.ts";
 export type { DiscoveryOptions } from "./discovery.ts";
 export type { ListenOptions, WsListenOptions } from "./transport.ts";
 export type { WsClientOptions, WsTlsOptions } from "./wsclient.ts";

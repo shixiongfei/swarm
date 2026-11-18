@@ -100,6 +100,7 @@ export type NodeEvents = {
   "link-down": (link: NodeLinkDown) => void;
   discovery: (directory: string) => void;
   error: (error: Error) => void;
+  close: () => void;
 };
 
 const defaultMaxHops = 8;
@@ -248,6 +249,10 @@ export class Node implements Provider {
     this.watcher.watch((event) => this.relay(event));
 
     void this.discovery.startUnix();
+  }
+
+  get isClosed() {
+    return this.closed;
   }
 
   registrations() {
@@ -523,6 +528,7 @@ export class Node implements Provider {
     }
 
     this.closed = true;
+    this.events.emit("close");
     this.membership.close();
     this.discovery.close();
 

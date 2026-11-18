@@ -13,6 +13,7 @@ export type ErrorKind =
   "not-found" | "timeout" | "rejected" | "failed" | "cancelled";
 
 export type ErrorCode =
+  | "APP_CLOSED"
   | "FAILED"
   | "CANCELLED"
   | "CLOSED"
@@ -24,6 +25,8 @@ export type ErrorCode =
   | "HEARTBEAT_TIMEOUT"
   | "MULTICAST_UNAVAILABLE"
   | "NOT_FOUND"
+  | "SERVICE_ATTACHED"
+  | "SETUP_FAILED"
   | "SIGNATURE_INVALID"
   | "TIMEOUT"
   | "VERSION_MISMATCH";
