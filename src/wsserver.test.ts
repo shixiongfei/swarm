@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
 import { WsServer } from "./wsserver.ts";
-import { waitFor } from "./testutil.ts";
+import { waitFor, within } from "./testutil.ts";
 import type { AddressInfo } from "node:net";
 
 const host = "127.0.0.1";
@@ -91,6 +91,44 @@ test("attaches to an existing http server on a path", async (t) => {
   client.terminate();
 
   assert.equal(http.listening, true);
+});
+
+test("closes an unmatched path when servers share an http server", async (t) => {
+  const http = createHttpServer((_request, response) => response.end("ok"));
+  const port = await new Promise<number>((resolve) => {
+    http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
+  });
+  const alpha = new WsServer(host, 0, { server: http, path: "/alpha" });
+  const beta = new WsServer(host, 0, { server: http, path: "/beta" });
+
+  t.after(() => {
+    alpha.close();
+    beta.close();
+    http.close();
+  });
+
+  await alpha.listen();
+  await beta.listen();
+
+  const first = await openSocket(port, "/alpha");
+  const second = await openSocket(port, "/beta");
+
+  assert.equal(alpha.size, 1);
+  assert.equal(beta.size, 1);
+
+  first.terminate();
+  second.terminate();
+
+  const outcome = await within(
+    openSocket(port, "/gamma").then(
+      () => "open",
+      () => "rejected",
+    ),
+    1000,
+  );
+
+  assert.equal(outcome, "rejected");
+  assert.equal(http.listenerCount("upgrade"), 1);
 });
 
 test("listen rejects when the attached http server is not listening", async () => {

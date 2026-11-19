@@ -26,6 +26,19 @@ export type WsServerOptions = {
   tls?: HttpsServerOptions;
 };
 
+type UpgradeHandler = (
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+) => void;
+
+type Router = {
+  readonly paths: Map<string, UpgradeHandler>;
+  readonly onUpgrade: UpgradeHandler;
+};
+
+const routers = new WeakMap<HttpServer, Router>();
+
 export class WsServer extends Server<WebSocket> {
   private readonly binding: { host: string; port: number };
   private readonly backlog: number | undefined;
@@ -37,22 +50,7 @@ export class WsServer extends Server<WebSocket> {
     maxPayload: maxEnvelopeSize,
   });
 
-  private readonly onUpgrade = (
-    request: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-  ) => {
-    const url = request.url !== undefined ? request.url : "/";
-    const path = url.split("?", 2)[0];
-
-    if (path !== this.path) {
-      if (this.http.listenerCount("upgrade") === 1) {
-        socket.destroy();
-      }
-
-      return;
-    }
-
+  private readonly onUpgrade: UpgradeHandler = (request, socket, head) => {
     this.server.handleUpgrade(request, socket, head, (ws) =>
       this.onSocket(ws, (socket as { remoteAddress?: string }).remoteAddress),
     );
@@ -76,7 +74,31 @@ export class WsServer extends Server<WebSocket> {
           ? createHttpsServer(tls)
           : createServer();
 
-    this.http.on("upgrade", this.onUpgrade);
+    let router = routers.get(this.http);
+
+    if (router === undefined) {
+      const http = this.http;
+      const paths = new Map<string, UpgradeHandler>();
+      const onUpgrade: UpgradeHandler = (request, socket, head) => {
+        const url = request.url !== undefined ? request.url : "/";
+        const handler = paths.get(url.split("?", 2)[0]);
+
+        if (handler !== undefined) {
+          handler(request, socket, head);
+          return;
+        }
+
+        if (http.listenerCount("upgrade") === 1) {
+          socket.destroy();
+        }
+      };
+
+      router = { paths, onUpgrade };
+      routers.set(this.http, router);
+      this.http.on("upgrade", onUpgrade);
+    }
+
+    router.paths.set(this.path, this.onUpgrade);
   }
 
   get host() {
@@ -137,7 +159,19 @@ export class WsServer extends Server<WebSocket> {
   }
 
   protected stop() {
-    this.http.off("upgrade", this.onUpgrade);
+    const router = routers.get(this.http);
+
+    if (router !== undefined) {
+      if (router.paths.get(this.path) === this.onUpgrade) {
+        router.paths.delete(this.path);
+      }
+
+      if (router.paths.size === 0) {
+        this.http.off("upgrade", router.onUpgrade);
+        routers.delete(this.http);
+      }
+    }
+
     this.server.close();
 
     if (this.owned && this.http.listening) {
