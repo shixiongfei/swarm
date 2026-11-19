@@ -310,6 +310,83 @@ test("decodes a small frame after a large payload", async (t) => {
   assert.deepEqual(received, [large, small]);
 });
 
+test("decodes a trailing frame after a near-maximum frame", async (t) => {
+  const { server, socket, peer } = await createPair();
+  const remote = new LinkStream(peer, "peer-node");
+  const received: string[] = [];
+  let closes = 0;
+
+  remote.events.on("envelope", (message) => {
+    const pub = message as { t: string; data: unknown };
+
+    received.push(pub.t === "pub" && pub.data === 2 ? "small" : "large");
+  });
+  remote.events.on("close", () => {
+    closes += 1;
+  });
+
+  t.after(() => {
+    socket.destroy();
+    remote.close();
+    server.close();
+  });
+
+  const large: Envelope = {
+    t: "pub",
+    id: "pub-1",
+    ttl: 8,
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: "",
+  };
+  const small: Envelope = {
+    t: "pub",
+    id: "pub-1",
+    ttl: 8,
+    from: "client-node",
+    origin: "client-node",
+    topic: "news",
+    data: 2,
+  };
+
+  let size = maxEnvelopeSize - 1024;
+
+  for (let i = 0; i < 8; i += 1) {
+    large.data = "a".repeat(size);
+
+    const length = encode(large).byteLength;
+
+    if (length === maxEnvelopeSize) {
+      break;
+    }
+
+    size += maxEnvelopeSize - length;
+  }
+
+  assert.equal(encode(large).byteLength, maxEnvelopeSize);
+
+  const largeFrame = frame(large);
+  const smallFrame = frame(small);
+  const tail = new Uint8Array(1 + smallFrame.byteLength);
+
+  tail.set(largeFrame.subarray(largeFrame.byteLength - 1));
+  tail.set(smallFrame, 1);
+
+  assert.ok(tail.byteLength > 4);
+
+  socket.write(largeFrame.subarray(0, largeFrame.byteLength - 1));
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+  socket.write(tail);
+
+  await waitFor(() => received.length === 2);
+
+  assert.deepEqual(received, ["large", "small"]);
+  assert.equal(closes, 0);
+});
+
 test("close drains queued frames and ends the socket", async (t) => {
   const written: Uint8Array[] = [];
   let ended = 0;

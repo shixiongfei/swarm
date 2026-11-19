@@ -40,9 +40,32 @@ export class LinkStream extends Link {
       return;
     }
 
-    if (!this.append(chunk)) {
-      this.abort();
-      return;
+    let offset = 0;
+
+    while (offset < chunk.byteLength) {
+      const room = maxBufferSize - (this.tail - this.head);
+
+      if (room <= 0) {
+        this.abort();
+        return;
+      }
+
+      const end = Math.min(offset + room, chunk.byteLength);
+
+      if (!this.append(chunk.subarray(offset, end))) {
+        this.abort();
+        return;
+      }
+
+      offset = end;
+
+      if (offset < chunk.byteLength) {
+        this.drain();
+
+        if (this.closed) {
+          return;
+        }
+      }
     }
 
     this.drain();
