@@ -23,6 +23,7 @@ import type { Instance, Observable, WatchHandler } from "./registry.ts";
 type NodeLinkEvents = {
   open: (peerId: string) => void;
   peers: (members: PeerEntry[]) => void;
+  down: (instance: Instance, direct: boolean) => void;
   bye: () => void;
   close: () => void;
 };
@@ -125,11 +126,16 @@ export class NodeLink implements Observable {
         }
         return;
 
-      case "down":
+      case "down": {
         if (this.peer !== undefined && message.from !== this.link.nodeId) {
-          this.registry.remove(message.service, message.from);
+          const instance = this.registry.remove(message.service, message.from);
+
+          if (instance !== undefined) {
+            this.events.emit("down", instance, this.peer === message.from);
+          }
         }
         return;
+      }
 
       case "call": {
         if (
@@ -334,6 +340,14 @@ export class NodeLink implements Observable {
 
   unregister(instance: Instance) {
     this.sync(() => this.link.unregister(instance));
+  }
+
+  forget(instance: Instance) {
+    if (this.closed) {
+      return;
+    }
+
+    this.registry.remove(instance.service, instance.nodeId);
   }
 
   lookup(service: string) {

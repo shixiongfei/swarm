@@ -249,6 +249,11 @@ export class Node implements Provider {
       nodeLink.events.once("close", () =>
         this.events.emit("link-down", this.linkDownInfo(nodeLink)),
       );
+      nodeLink.events.on("down", (instance, direct) => {
+        if (direct) {
+          this.forget(instance);
+        }
+      });
       nodeLink.peers(this.membership.shared(nodeLink.local));
     });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
@@ -604,6 +609,14 @@ export class Node implements Provider {
     }
   }
 
+  private forget(instance: Instance) {
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      if (nodeLink.has(instance.service, instance.nodeId)) {
+        nodeLink.forget(instance);
+      }
+    }
+  }
+
   private checkOpen() {
     if (this.closed) {
       throw new SwarmError("rejected", "node is closed", false, "CLOSED");
@@ -670,6 +683,11 @@ export class Node implements Provider {
     nodeLink.events.on("bye", () =>
       this.membership.forgetByLink(nodeLink.peerId),
     );
+    nodeLink.events.on("down", (instance, direct) => {
+      if (direct) {
+        this.forget(instance);
+      }
+    });
     nodeLink.events.on("close", () => this.detach(nodeLink));
 
     try {

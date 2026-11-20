@@ -456,6 +456,104 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(await waitFor(() => c.snapshot().services.length === 0), true);
   });
 
+  test("unregister converges across a diamond where both paths relay the owner", async (t) => {
+    const a = new Node({ cluster: "echo-diamond-a" });
+    const b = new Node({ cluster: "echo-diamond-b" });
+    const c = new Node({ cluster: "echo-diamond-c" });
+    const d = new Node({ cluster: "echo-diamond-d" });
+    const nodes = [a, b, c, d];
+
+    t.after(() => {
+      for (const node of nodes) {
+        node.close();
+      }
+    });
+
+    for (const [left, right] of [
+      [a, b],
+      [a, c],
+      [b, d],
+      [c, d],
+    ]) {
+      const channel = new MessageChannel();
+
+      left.attach(channel.port1);
+      right.attach(channel.port2);
+    }
+
+    d.register("math", { add: () => 1 });
+
+    assert.equal(
+      await waitFor(
+        () => nodes.every((node) => node.snapshot().services.length === 1),
+      ),
+      true,
+    );
+
+    d.unregister("math");
+
+    assert.equal(
+      await waitFor(
+        () =>
+          nodes.every((node) => node.snapshot().services.length === 0),
+        1000,
+      ),
+      true,
+    );
+  });
+
+  test("a broken path keeps an instance reachable through another peer", async (t) => {
+    const a = new Node({ cluster: "echo-path-a" });
+    const b = new Node({ cluster: "echo-path-b" });
+    const c = new Node({ cluster: "echo-path-c" });
+    const d = new Node({ cluster: "echo-path-d" });
+    const nodes = [a, b, c, d];
+
+    t.after(() => {
+      for (const node of nodes) {
+        node.close();
+      }
+    });
+
+    const plain = [
+      [a, b],
+      [a, c],
+      [c, d],
+    ];
+
+    for (const [left, right] of plain) {
+      const channel = new MessageChannel();
+
+      left.attach(channel.port1);
+      right.attach(channel.port2);
+    }
+
+    const bd = new MessageChannel();
+
+    b.attach(bd.port1);
+    d.attach(bd.port2);
+
+    d.register("math", { add: () => 1 });
+
+    assert.equal(
+      await waitFor(
+        () => nodes.every((node) => node.snapshot().services.length === 1),
+      ),
+      true,
+    );
+
+    bd.port1.close();
+    bd.port2.close();
+
+    assert.equal(
+      await waitFor(() => b.snapshot().services.length === 0),
+      true,
+    );
+
+    assert.equal(a.snapshot().services.length, 1);
+    assert.equal(await a.call("math", "add"), 1);
+  });
+
   test("unregister propagates across duplicate links to the same peer", async (t) => {
     const a = new Node({ cluster: "echo-dup-a" });
     const b = new Node({ cluster: "echo-dup-b" });
