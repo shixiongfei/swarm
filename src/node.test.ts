@@ -2624,11 +2624,12 @@ test("listens on a websocket path and advertises it", async (t) => {
     ws: { server: http },
   });
 
+  const advertised = [
+    ...(provider as unknown as NodeInternals).membership.members.values(),
+  ][0];
+
   assert.equal(listening.port, port);
-  assert.equal(
-    (provider as unknown as NodeInternals).membership.members[0].addr,
-    `ws://127.0.0.1:${port}/swarm`,
-  );
+  assert.equal(advertised.addr, `ws://127.0.0.1:${port}/swarm`);
 
   const up = new Promise<void>((resolve) =>
     consumer.watch("math", (event) => {
@@ -3333,7 +3334,7 @@ test("restores a member when the dial link reconnects", async (t) => {
     a as unknown as { transport: { servers: Array<{ close(): void }> } }
   ).transport.servers[0].close();
 
-  internals.membership.members.length = 0;
+  internals.membership.members.clear();
   internals.membership.seen.clear();
 
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -3343,9 +3344,7 @@ test("restores a member when the dial link reconnects", async (t) => {
   const restored = await within(
     new Promise<boolean>((resolve) => {
       const tick = () => {
-        if (
-          internals.membership.members.some((member) => member.id === a.nodeId)
-        ) {
+        if (internals.membership.members.has(a.nodeId)) {
           resolve(true);
           return;
         }
@@ -3400,7 +3399,7 @@ test("discovers a same-machine peer over a unix socket", async (t) => {
 });
 
 type MembershipInternals = {
-  members: Array<{ id: string; addr: string }>;
+  members: Map<string, { id: string; addr: string }>;
   seen: Map<string, number>;
   learn(entries: Array<{ id: string; addr: string }>, local: boolean): void;
 };

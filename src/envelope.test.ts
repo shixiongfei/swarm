@@ -235,4 +235,26 @@ describe("parseEnvelope", () => {
       assert.equal(parseEnvelope(value), undefined);
     }
   });
+
+  test("accepts a large peers frame and rejects an oversized address", () => {
+    const entry = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 };
+    const many = Array.from({ length: 8000 }, (_, index) => ({
+      ...entry,
+      id: `peer-${index}`,
+    }));
+    const frame = { t: "peers" as const, from: "node-a", members: many };
+
+    assert.equal(parseEnvelope(frame), frame);
+
+    const longAddr = `tcp://10.0.0.9:9/${"a".repeat(1024)}`;
+
+    assert.equal(
+      parseEnvelope({
+        t: "peers",
+        from: "node-a",
+        members: [{ ...entry, addr: longAddr }],
+      }),
+      undefined,
+    );
+  });
 });

@@ -19,6 +19,8 @@ const minorVersion = 0;
 
 export const protocolVersion = majorVersion * 100 + minorVersion;
 
+const maxPeerAddrLength = 1024;
+
 export type PeerEntry = { id: string; addr: string; startup: number };
 
 export type Envelope =
@@ -200,6 +202,7 @@ function isPeerEntry(entry: unknown): boolean {
   return (
     typeof peer.id === "string" &&
     typeof peer.addr === "string" &&
+    peer.addr.length <= maxPeerAddrLength &&
     typeof peer.startup === "number"
   );
 }

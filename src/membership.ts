@@ -28,7 +28,7 @@ export type MembershipOptions = {
 };
 
 export class Membership {
-  readonly members: NodeMember[] = [];
+  readonly members = new Map<string, NodeMember>();
 
   private readonly seen = new Map<string, number>();
   private readonly expiries = new Map<string, number>();
@@ -60,7 +60,7 @@ export class Membership {
 
   learn(entries: PeerEntry[], local: boolean) {
     const now = Date.now();
-    const advertised = this.members.some((member) => member.id === this.id);
+    const advertised = this.members.has(this.id);
     let changed = false;
 
     for (const entry of entries) {
@@ -83,7 +83,7 @@ export class Membership {
       this.seen.set(entry.id, now);
       this.expiries.delete(entry.addr);
 
-      const existing = this.members.find((member) => member.id === entry.id);
+      const existing = this.members.get(entry.id);
 
       if (existing !== undefined) {
         if (existing.addr !== entry.addr) {
@@ -102,7 +102,7 @@ export class Membership {
         continue;
       }
 
-      this.members.push(entry);
+      this.members.set(entry.id, entry);
       changed = true;
       this.onUp(entry);
 
@@ -129,13 +129,13 @@ export class Membership {
 
     this.seen.set(peer, Date.now());
 
-    if (this.members.some((member) => member.id === peer)) {
+    if (this.members.has(peer)) {
       return false;
     }
 
     const member = { id: peer, addr, startup };
 
-    this.members.push(member);
+    this.members.set(peer, member);
     this.broadcast();
     this.onUp(member);
 
@@ -143,27 +143,21 @@ export class Membership {
   }
 
   upsertSelf(member: NodeMember) {
-    const index = this.members.findIndex((item) => item.id === member.id);
-
-    if (index >= 0) {
-      this.members[index] = member;
-    } else {
-      this.members.push(member);
-    }
-
+    this.members.set(member.id, member);
     this.broadcast();
   }
 
   self() {
-    return this.members.filter((member) => member.id === this.id);
+    const member = this.members.get(this.id);
+
+    return member === undefined ? [] : [member];
   }
 
   forget(id: string, addr: string) {
-    const index = this.members.findIndex((member) => member.id === id);
+    const member = this.members.get(id);
 
-    if (index >= 0) {
-      const [member] = this.members.splice(index, 1);
-
+    if (member !== undefined) {
+      this.members.delete(id);
       this.seen.delete(id);
       this.broadcast();
       this.onDown(member);
@@ -178,7 +172,7 @@ export class Membership {
       return;
     }
 
-    const member = this.members.find((item) => item.id === peer);
+    const member = this.members.get(peer);
 
     if (member !== undefined) {
       this.forget(member.id, member.addr);
@@ -186,7 +180,7 @@ export class Membership {
   }
 
   leave(id: string) {
-    const member = this.members.find((item) => item.id === id);
+    const member = this.members.get(id);
 
     if (member !== undefined) {
       this.forget(member.id, member.addr);
@@ -194,10 +188,7 @@ export class Membership {
   }
 
   linkDown(peer: string | undefined) {
-    if (
-      peer !== undefined &&
-      this.members.some((member) => member.id === peer)
-    ) {
+    if (peer !== undefined && this.members.has(peer)) {
       this.seen.set(peer, Date.now());
     }
 
@@ -205,17 +196,17 @@ export class Membership {
   }
 
   shared(local: boolean) {
+    const members = [...this.members.values()];
+
     if (local) {
-      return this.members;
+      return members;
     }
 
-    return this.members.filter(
-      (member) => !isLoopback(parseUrl(member.addr).host),
-    );
+    return members.filter((member) => !isLoopback(parseUrl(member.addr).host));
   }
 
   snapshot() {
-    return this.members.map((member) => ({
+    return [...this.members.values()].map((member) => ({
       id: member.id,
       addr: member.addr,
       startup: member.startup,
@@ -230,7 +221,7 @@ export class Membership {
       this.timer = undefined;
     }
 
-    this.members.length = 0;
+    this.members.clear();
     this.seen.clear();
     this.expiries.clear();
   }
@@ -239,9 +230,7 @@ export class Membership {
     const linked = this.linked();
     let changed = false;
 
-    for (let index = this.members.length - 1; index >= 0; index -= 1) {
-      const member = this.members[index];
-
+    for (const member of this.members.values()) {
       if (member.id === this.id || linked.has(member.id)) {
         continue;
       }
@@ -252,7 +241,7 @@ export class Membership {
         continue;
       }
 
-      this.members.splice(index, 1);
+      this.members.delete(member.id);
       this.seen.delete(member.id);
       this.onDown(member);
 
@@ -288,7 +277,7 @@ export class Membership {
     const linked = this.linked();
     let next: number | undefined;
 
-    for (const member of this.members) {
+    for (const member of this.members.values()) {
       if (member.id === this.id || linked.has(member.id)) {
         continue;
       }

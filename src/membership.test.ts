@@ -65,7 +65,7 @@ test("learn skips its own id and loopback hosts from a remote link", (t) => {
 
   t.after(() => membership.close());
 
-  membership.members.push({
+  membership.members.set("self", {
     id: "self",
     addr: "tcp://127.0.0.1:9",
     startup: 1,
@@ -79,17 +79,11 @@ test("learn skips its own id and loopback hosts from a remote link", (t) => {
     false,
   );
 
-  assert.deepEqual(
-    membership.members.map((member) => member.id),
-    ["self"],
-  );
+  assert.deepEqual([...membership.members.keys()], ["self"]);
 
   membership.learn([remote], false);
 
-  assert.deepEqual(
-    membership.members.map((member) => member.id),
-    ["self", "peer"],
-  );
+  assert.deepEqual([...membership.members.keys()], ["self", "peer"]);
 });
 
 test("learn announces and dials a new member", (t) => {
@@ -315,7 +309,11 @@ test("learn dials a new member only when its own id wins the tie-break", (t) => 
 
   t.after(() => membership.close());
 
-  membership.members.push({ id: "self", addr: "tcp://10.0.0.1:1", startup: 1 });
+  membership.members.set("self", {
+    id: "self",
+    addr: "tcp://10.0.0.1:1",
+    startup: 1,
+  });
 
   membership.learn(
     [{ id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 }],
