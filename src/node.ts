@@ -172,7 +172,7 @@ export class Node implements Provider {
     this.dialer = new Dialer({
       seeds: config.seeds !== undefined ? config.seeds : [],
       create: (addr, id) => this.transport.createClient(addr, undefined, id),
-      track: (client) => this.transport.track(client),
+      track: (client, addr) => this.transport.track(client, addr),
       untrack: (client) => this.transport.untrack(client),
       isClosed: () => this.closed,
     });
@@ -708,6 +708,7 @@ export class Node implements Provider {
 
     nodeLink.close("dedupe");
     this.dialer.drop(addr);
+    this.transport.drop(addr);
   }
 
   private dropOutbound(nodeLink: NodeLink) {
@@ -717,6 +718,7 @@ export class Node implements Provider {
 
     if (addr !== undefined) {
       this.dialer.drop(addr);
+      this.transport.drop(addr);
     }
   }
 
@@ -764,15 +766,17 @@ export class Node implements Provider {
 
     this.membership.leave(nodeId);
 
-    for (const nodeLink of this.nodeLinks) {
-      if (nodeLink.peerId === nodeId) {
-        nodeLink.close();
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      if (nodeLink.peerId !== nodeId) {
+        continue;
       }
-    }
 
-    for (const nodeLink of this.nodeHub.links) {
-      if (nodeLink.peerId === nodeId) {
-        nodeLink.close();
+      const addr = this.dialed.get(nodeLink);
+
+      nodeLink.close();
+
+      if (addr !== undefined) {
+        this.transport.drop(addr);
       }
     }
 

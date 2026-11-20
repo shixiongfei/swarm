@@ -47,6 +47,8 @@ export class Transport {
   private readonly onError: TransportOptions["onError"];
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
+  private readonly outbound = new Map<string, Client>();
+  private readonly pendingConnects = new Map<string, Promise<void>>();
   private disposed = false;
 
   constructor(options: TransportOptions) {
@@ -82,25 +84,21 @@ export class Transport {
   }
 
   async connect(url: string | URL, options: WsClientOptions = {}) {
-    const client = await this.createClient(url, options);
+    const addr = String(url);
+    const pending = this.pendingConnects.get(addr);
 
-    if (this.disposed) {
-      client.close();
-      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
+    if (pending !== undefined) {
+      await pending;
+      return;
     }
 
-    this.track(client);
+    const connecting = this.connectOnce(addr, url, options).finally(() => {
+      this.pendingConnects.delete(addr);
+    });
 
-    try {
-      await client.connect();
-    } catch (err) {
-      if (options.reconnect === false) {
-        this.untrack(client);
-        client.close();
-      }
+    this.pendingConnects.set(addr, connecting);
 
-      throw err;
-    }
+    await connecting;
   }
 
   async createClient(
@@ -142,8 +140,9 @@ export class Transport {
     return client;
   }
 
-  track(client: Client) {
+  track(client: Client, addr: string) {
     this.clients.push(client);
+    this.outbound.set(addr, client);
   }
 
   untrack(client: Client) {
@@ -152,6 +151,23 @@ export class Transport {
     if (index >= 0) {
       this.clients.splice(index, 1);
     }
+
+    for (const [addr, existing] of this.outbound) {
+      if (existing === client) {
+        this.outbound.delete(addr);
+      }
+    }
+  }
+
+  drop(addr: string) {
+    const client = this.outbound.get(addr);
+
+    if (client === undefined) {
+      return;
+    }
+
+    this.untrack(client);
+    client.close();
   }
 
   dispose() {
@@ -162,12 +178,46 @@ export class Transport {
     }
 
     this.clients.length = 0;
+    this.outbound.clear();
 
     for (const server of this.servers) {
       server.close();
     }
 
     this.servers.length = 0;
+  }
+
+  private async connectOnce(
+    addr: string,
+    url: string | URL,
+    options: WsClientOptions,
+  ) {
+    const existing = this.outbound.get(addr);
+
+    if (existing !== undefined) {
+      await existing.connect();
+      return;
+    }
+
+    const client = await this.createClient(url, options);
+
+    if (this.disposed) {
+      client.close();
+      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
+    }
+
+    this.track(client, addr);
+
+    try {
+      await client.connect();
+    } catch (err) {
+      if (options.reconnect === false) {
+        this.untrack(client);
+        client.close();
+      }
+
+      throw err;
+    }
   }
 
   private async createServer(

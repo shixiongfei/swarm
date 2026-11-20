@@ -184,6 +184,51 @@ test("connect tracks a client and attaches it with the url", async (t) => {
   assert.equal(peer.attaches[0].addr, `tcp://127.0.0.1:${server.port}`);
 });
 
+test("a client that was never adopted does not block connect", async (t) => {
+  const hub = makeTransport();
+  const peer = makeTransport();
+  const server = await hub.transport.open("tcp://127.0.0.1:0");
+  const url = `tcp://127.0.0.1:${server.port}`;
+  const abandoned = await peer.transport.createClient(url);
+
+  t.after(() => {
+    closeLinks(
+      hub.joins,
+      peer.attaches.map((entry) => entry.link),
+    );
+    peer.transport.dispose();
+    hub.transport.dispose();
+  });
+
+  abandoned.close();
+
+  await peer.transport.connect(url);
+
+  assert.equal(peer.attaches.length, 1);
+  await waitFor(() => hub.joins.length === 1);
+});
+
+test("concurrent connect calls share one client", async (t) => {
+  const hub = makeTransport();
+  const peer = makeTransport();
+  const server = await hub.transport.open("tcp://127.0.0.1:0");
+  const url = `tcp://127.0.0.1:${server.port}`;
+
+  t.after(() => {
+    closeLinks(
+      hub.joins,
+      peer.attaches.map((entry) => entry.link),
+    );
+    peer.transport.dispose();
+    hub.transport.dispose();
+  });
+
+  await Promise.all([peer.transport.connect(url), peer.transport.connect(url)]);
+
+  assert.equal(peer.attaches.length, 1);
+  await waitFor(() => hub.joins.length === 1);
+});
+
 test("createClient attaches with the expected peer id", async (t) => {
   const hub = makeTransport();
   const peer = makeTransport();

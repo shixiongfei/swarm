@@ -14,14 +14,14 @@ import type { Client } from "./client.ts";
 export type DialerOptions = {
   seeds: Array<string | URL>;
   create: (addr: string, id?: string) => Promise<Client>;
-  track: (client: Client) => void;
+  track: (client: Client, addr: string) => void;
   untrack: (client: Client) => void;
   isClosed: () => boolean;
 };
 
 export class Dialer {
   private readonly seeds: Array<string | URL>;
-  private readonly dials = new Map<string, Client | undefined>();
+  private readonly dials = new Map<string, { client?: Client }>();
   private readonly create: DialerOptions["create"];
   private readonly track: DialerOptions["track"];
   private readonly untrack: DialerOptions["untrack"];
@@ -84,16 +84,16 @@ export class Dialer {
   }
 
   drop(addr: string) {
-    const client = this.dials.get(addr);
+    const dial = this.dials.get(addr);
 
     this.dials.delete(addr);
 
-    if (client === undefined) {
+    if (dial?.client === undefined) {
       return;
     }
 
-    this.untrack(client);
-    client.close();
+    this.untrack(dial.client);
+    dial.client.close();
   }
 
   close() {
@@ -107,24 +107,30 @@ export class Dialer {
       return;
     }
 
-    this.dials.set(addr, undefined);
+    const dial: { client?: Client } = {};
+
+    this.dials.set(addr, dial);
 
     let client: Client;
 
     try {
       client = await this.create(addr, id);
     } catch {
-      this.dials.delete(addr);
+      if (this.dials.get(addr) === dial) {
+        this.dials.delete(addr);
+      }
+
       return;
     }
 
-    if (this.isClosed() || !this.dials.has(addr)) {
+    if (this.isClosed() || this.dials.get(addr) !== dial) {
       client.close();
       return;
     }
 
-    this.dials.set(addr, client);
-    this.track(client);
+    dial.client = client;
+
+    this.track(client, addr);
 
     try {
       await client.connect();

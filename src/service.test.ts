@@ -222,53 +222,53 @@ describe("Service", () => {
   });
 
   test("a stale setup failure does not tear down the next attach", async (t) => {
-  const source = new Node({ cluster: "service" });
-  const target = new Node({ cluster: "service" });
-  const errors: Error[] = [];
-  let calls = 0;
-  let reject!: (error: Error) => void;
-  let entered!: () => void;
-  const gate = new Promise<never>((_, fail) => (reject = fail));
-  const started = new Promise<void>((resolve) => (entered = resolve));
-  const db = createService({
-    name: "db",
-    setup: async ({ node }) => {
-      calls += 1;
+    const source = new Node({ cluster: "service" });
+    const target = new Node({ cluster: "service" });
+    const errors: Error[] = [];
+    let calls = 0;
+    let reject!: (error: Error) => void;
+    let entered!: () => void;
+    const gate = new Promise<never>((_, fail) => (reject = fail));
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const db = createService({
+      name: "db",
+      setup: async ({ node }) => {
+        calls += 1;
 
-      if (calls === 1) {
-        entered();
-        await gate;
-      }
+        if (calls === 1) {
+          entered();
+          await gate;
+        }
 
-      return { self: () => node.nodeId };
-    },
+        return { self: () => node.nodeId };
+      },
+    });
+
+    t.after(() => {
+      source.close();
+      target.close();
+    });
+
+    source.events.on("error", (error) => errors.push(error));
+    target.events.on("error", (error) => errors.push(error));
+
+    db.attach(source);
+
+    await started;
+
+    db.detach();
+    db.attach(target);
+    reject(new Error("stale"));
+
+    await waitFor(() => db.state === "ready");
+
+    assert.equal(calls, 2);
+    assert.deepEqual(errors, []);
+    assert.equal(registered(target, "db"), true);
+    assert.equal(await target.call("db", "self"), target.nodeId);
   });
 
-  t.after(() => {
-    source.close();
-    target.close();
-  });
-
-  source.events.on("error", (error) => errors.push(error));
-  target.events.on("error", (error) => errors.push(error));
-
-  db.attach(source);
-
-  await started;
-
-  db.detach();
-  db.attach(target);
-  reject(new Error("stale"));
-
-  await waitFor(() => db.state === "ready");
-
-  assert.equal(calls, 2);
-  assert.deepEqual(errors, []);
-  assert.equal(registered(target, "db"), true);
-  assert.equal(await target.call("db", "self"), target.nodeId);
-});
-
-test("a setup failure crashes the process when nobody listens", () => {
+  test("a setup failure crashes the process when nobody listens", () => {
     const script = `
 import { Node } from "./node.ts";
 import { createService } from "./service.ts";

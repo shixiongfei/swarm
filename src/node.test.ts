@@ -484,8 +484,8 @@ setTimeout(() => console.log("survived"), 500);
     d.register("math", { add: () => 1 });
 
     assert.equal(
-      await waitFor(
-        () => nodes.every((node) => node.snapshot().services.length === 1),
+      await waitFor(() =>
+        nodes.every((node) => node.snapshot().services.length === 1),
       ),
       true,
     );
@@ -494,8 +494,7 @@ setTimeout(() => console.log("survived"), 500);
 
     assert.equal(
       await waitFor(
-        () =>
-          nodes.every((node) => node.snapshot().services.length === 0),
+        () => nodes.every((node) => node.snapshot().services.length === 0),
         1000,
       ),
       true,
@@ -536,8 +535,8 @@ setTimeout(() => console.log("survived"), 500);
     d.register("math", { add: () => 1 });
 
     assert.equal(
-      await waitFor(
-        () => nodes.every((node) => node.snapshot().services.length === 1),
+      await waitFor(() =>
+        nodes.every((node) => node.snapshot().services.length === 1),
       ),
       true,
     );
@@ -545,10 +544,7 @@ setTimeout(() => console.log("survived"), 500);
     bd.port1.close();
     bd.port2.close();
 
-    assert.equal(
-      await waitFor(() => b.snapshot().services.length === 0),
-      true,
-    );
+    assert.equal(await waitFor(() => b.snapshot().services.length === 0), true);
 
     assert.equal(a.snapshot().services.length, 1);
     assert.equal(await a.call("math", "add"), 1);
@@ -2337,6 +2333,65 @@ test("drops a member when the peer leaves", async (t) => {
   );
 
   assert.deepEqual(peer.snapshot().members, []);
+});
+
+test("connecting to the same address twice reuses one outbound client", async (t) => {
+  const hub = new Node({ cluster: "connect-twice" });
+  const peer = new Node({ cluster: "connect-twice-peer" });
+  const port = await freePort();
+  const url = `tcp://127.0.0.1:${port}`;
+  let ups = 0;
+  let downs = 0;
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  await hub.listen(url);
+
+  hub.events.on("link-up", () => (ups += 1));
+  hub.events.on("link-down", () => (downs += 1));
+
+  await peer.connect(url, { retryDelay: 20 });
+  await waitFor(() => ups === 1);
+
+  await peer.connect(url, { retryDelay: 20 });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  assert.equal(ups, 1);
+  assert.equal(downs, 0);
+  assert.equal(peer.snapshot().links.length, 1);
+});
+
+test("leave drops the outbound client instead of letting it reconnect", async (t) => {
+  const hub = new Node({ cluster: "leave-outbound" });
+  const peer = new Node({ cluster: "leave-outbound-peer" });
+  const port = await freePort();
+  const url = `tcp://127.0.0.1:${port}`;
+  let ups = 0;
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  await hub.listen(url);
+
+  hub.events.on("link-up", () => (ups += 1));
+
+  await peer.connect(url, { retryDelay: 20 });
+  await waitFor(() => ups === 1);
+
+  peer.leave(hub.nodeId);
+
+  await waitFor(() => peer.snapshot().links.length === 0);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  assert.equal(ups, 1);
+  assert.equal(peer.snapshot().links.length, 0);
 });
 
 test("ws and wss default to ports 80 and 443", async (t) => {

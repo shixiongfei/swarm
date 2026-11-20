@@ -175,6 +175,50 @@ test("drop closes and untracks the client", async (t) => {
   assert.equal(dialer.has("tcp://10.0.0.9:9"), false);
 });
 
+test("a stale create never takes over the dial that replaced it", async () => {
+  const addr = "tcp://10.0.0.9:9";
+  const pending: Array<(client: Client) => void> = [];
+  const tracked: Client[] = [];
+  const dialer = new Dialer({
+    seeds: [],
+    create: () => new Promise<Client>((resolve) => pending.push(resolve)),
+    track: (client) => tracked.push(client),
+    untrack: (client) => {
+      const index = tracked.indexOf(client);
+
+      if (index >= 0) {
+        tracked.splice(index, 1);
+      }
+    },
+    isClosed: () => false,
+  });
+
+  const first = dialer.dial(addr);
+
+  dialer.drop(addr);
+
+  const second = dialer.dial(addr);
+  const stale = makeClient();
+  const fresh = makeClient();
+
+  pending[0](stale as unknown as Client);
+  await first;
+
+  pending[1](fresh as unknown as Client);
+  await second;
+
+  assert.equal(tracked.length, 1);
+  assert.equal(tracked[0], fresh as unknown as Client);
+  assert.equal(stale.connectCount, 0);
+  assert.equal(stale.closeCount, 1);
+  assert.equal(fresh.closeCount, 0);
+
+  dialer.drop(addr);
+
+  assert.equal(fresh.closeCount, 1);
+  assert.equal(tracked.length, 0);
+});
+
 test("close drops every dial", async (t) => {
   const { dialer, clients, tracked } = makeDialer();
 
