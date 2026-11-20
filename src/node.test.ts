@@ -804,6 +804,33 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(await within(reason, 2000), "bye");
   });
 
+  test("close emits link-down for an outbound link", async (t) => {
+    const hub = new Node({ cluster: "close-outbound-hub" });
+    const peer = new Node({ cluster: "close-outbound-peer" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    const address = await hub.listen("tcp://127.0.0.1:0");
+    const reasons: string[] = [];
+
+    peer.events.on("link-down", (link) => reasons.push(link.reason));
+
+    await peer.connect(`tcp://127.0.0.1:${address.port}`);
+
+    assert.equal(
+      await waitFor(() => peer.snapshot().links[0]?.peerId !== undefined),
+      true,
+    );
+
+    peer.close();
+
+    assert.equal(await waitFor(() => reasons.length === 1), true);
+    assert.deepEqual(reasons, ["close"]);
+  });
+
   test("emits member-up and member-down events", async (t) => {
     const hub = new Node({ cluster: "obs-member-events" });
     const peer = new Node({ cluster: "obs-member-peer" });

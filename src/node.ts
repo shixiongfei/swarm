@@ -566,7 +566,6 @@ export class Node implements Provider {
       nodeLink.bye();
     }
 
-    this.nodeLinks.length = 0;
     this.nodeHub.close();
 
     this.pubsub.close();
