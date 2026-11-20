@@ -1064,7 +1064,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.deepEqual(await received, { data: { ok: true }, from: a.nodeId });
   });
 
-  test("publishes nothing when the payload cannot be cloned", async (t) => {
+  test("delivers locally but not remotely when the payload cannot be cloned", async (t) => {
     const a = new Node({ cluster: "publish-a" });
     const b = new Node({ cluster: "publish-b" });
     const { port1, port2 } = new MessageChannel();
@@ -1105,7 +1105,7 @@ setTimeout(() => console.log("survived"), 500);
 
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
 
-    assert.equal(local, 0);
+    assert.equal(local, 1);
     assert.equal(remote, 0);
   });
 
@@ -1734,7 +1734,7 @@ for (const protocol of ["tcp", "ws"] as const) {
     });
 
     test(
-      "publishes nothing when the payload is not encodable",
+      "delivers locally but not remotely when the payload is not encodable",
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-circular-hub` });
@@ -1767,13 +1767,13 @@ for (const protocol of ["tcp", "ws"] as const) {
             err.message === "envelope is not encodable",
         );
 
-        assert.equal(local, 0);
+        assert.equal(local, 1);
         assert.equal(remote, 0);
       },
     );
 
     test(
-      "publishes nothing when the payload exceeds the envelope limit",
+      "delivers locally but not remotely when the payload exceeds the envelope limit",
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-oversize-hub` });
@@ -1802,7 +1802,7 @@ for (const protocol of ["tcp", "ws"] as const) {
             err.kind === "failed" && err.message === "envelope is too large",
         );
 
-        assert.equal(local, 0);
+        assert.equal(local, 1);
         assert.equal(remote, 0);
       },
     );

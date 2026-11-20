@@ -62,27 +62,29 @@ export class PubSub {
       }
     }
 
-    if (remaining > 0) {
-      for (const nodeLink of this.links()) {
-        if (from !== undefined && nodeLink.peerId === from) {
-          continue;
-        }
-
-        try {
-          nodeLink.publish(topic, data, source, pubId, remaining - 1);
-        } catch (err) {
-          if (err instanceof Error && err.name === "DataCloneError") {
-            throw new SwarmError("failed", "data is not cloneable");
+    try {
+      if (remaining > 0) {
+        for (const nodeLink of this.links()) {
+          if (from !== undefined && nodeLink.peerId === from) {
+            continue;
           }
 
-          if (err instanceof SwarmError && err.code === "ENVELOPE_INVALID") {
-            throw err;
+          try {
+            nodeLink.publish(topic, data, source, pubId, remaining - 1);
+          } catch (err) {
+            if (err instanceof Error && err.name === "DataCloneError") {
+              throw new SwarmError("failed", "data is not cloneable");
+            }
+
+            if (err instanceof SwarmError && err.code === "ENVELOPE_INVALID") {
+              throw err;
+            }
           }
         }
       }
+    } finally {
+      this.local(topic, data, source);
     }
-
-    this.local(topic, data, source);
   }
 
   close() {

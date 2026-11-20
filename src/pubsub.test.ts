@@ -126,7 +126,7 @@ test("publish does not forward when the ttl is exhausted", () => {
   assert.equal(local.length, 1);
 });
 
-test("publish maps a clone failure to a rejected swarm error", () => {
+test("publish delivers locally when a link fails to clone", () => {
   const error = Object.assign(new Error("clone"), { name: "DataCloneError" });
   const { pubsub, local } = makePubSub([makeLink("a", [], error)]);
 
@@ -135,7 +135,7 @@ test("publish maps a clone failure to a rejected swarm error", () => {
     (err: SwarmError) =>
       err.kind === "failed" && err.message === "data is not cloneable",
   );
-  assert.equal(local.length, 0);
+  assert.equal(local.length, 1);
 });
 
 test("close clears the seen ids so they can be published again", () => {
