@@ -105,8 +105,8 @@ test("learn announces and dials a new member", (t) => {
   assert.equal(broadcasts(), 1);
 });
 
-test("learn keeps one member and dials the new address on relocation", (t) => {
-  const { membership, dials } = makeMembership();
+test("learn keeps one member and updates the entry when it relocates", (t) => {
+  const { membership, dials, broadcasts } = makeMembership();
 
   t.after(() => membership.close());
 
@@ -114,15 +114,30 @@ test("learn keeps one member and dials the new address on relocation", (t) => {
   const second = "tcp://10.0.0.9:10";
 
   membership.learn([{ id: remote.id, addr: first, startup: 1 }], true);
-  membership.learn([{ id: remote.id, addr: second, startup: 1 }], true);
+  membership.learn([{ id: remote.id, addr: second, startup: 2 }], true);
 
   assert.deepEqual(membership.snapshot(), [
-    { id: remote.id, addr: first, startup: 1 },
+    { id: remote.id, addr: second, startup: 2 },
   ]);
   assert.deepEqual(dials, [
     { addr: first, id: remote.id },
     { addr: second, id: remote.id },
   ]);
+  assert.equal(broadcasts(), 2);
+});
+
+test("learn refreshes the startup of a member that restarted in place", (t) => {
+  const { membership, broadcasts } = makeMembership();
+
+  t.after(() => membership.close());
+
+  membership.learn([{ id: remote.id, addr: remote.addr, startup: 1 }], true);
+  membership.learn([{ id: remote.id, addr: remote.addr, startup: 2 }], true);
+
+  assert.deepEqual(membership.snapshot(), [
+    { id: remote.id, addr: remote.addr, startup: 2 },
+  ]);
+  assert.equal(broadcasts(), 2);
 });
 
 test("learn does not dial a member it is already linked to", (t) => {

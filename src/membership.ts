@@ -86,12 +86,17 @@ export class Membership {
       const existing = this.members.find((member) => member.id === entry.id);
 
       if (existing !== undefined) {
-        if (
-          existing.addr !== entry.addr &&
-          !this.linked().has(entry.id) &&
-          !this.dialing(entry.addr)
-        ) {
-          this.dial(entry.addr, entry.id);
+        if (existing.addr !== entry.addr) {
+          existing.addr = entry.addr;
+          existing.startup = entry.startup;
+          changed = true;
+
+          if (!this.linked().has(entry.id) && !this.dialing(entry.addr)) {
+            this.dial(entry.addr, entry.id);
+          }
+        } else if (existing.startup !== entry.startup) {
+          existing.startup = entry.startup;
+          changed = true;
         }
 
         continue;
