@@ -122,6 +122,35 @@ test("close stops reconnect", async () => {
   server.close();
 });
 
+test("close during the tls connect rejects with CLOSED and never emits online", async () => {
+  const server = new WsServer(host, 0);
+
+  await server.listen();
+
+  const client = new WsClient(`ws://${host}:${server.port}`, {
+    tls: {},
+    reconnect: false,
+  });
+  const online: WebSocket[] = [];
+
+  client.events.on("online", (socket) => online.push(socket));
+
+  const connecting = client.connect();
+
+  client.close();
+
+  await assert.rejects(
+    connecting,
+    (error: SwarmError) => error.kind === "rejected" && error.code === "CLOSED",
+  );
+
+  assert.deepEqual(online, []);
+  assert.equal(client.socket, undefined);
+  assert.equal(server.size, 0);
+
+  server.close();
+});
+
 test("connect rejects when the server is unavailable", async () => {
   const server = new WsServer(host, 0);
 

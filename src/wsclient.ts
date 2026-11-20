@@ -108,6 +108,10 @@ export class WsClient extends Client<WebSocket> {
       socket.addEventListener("error", onError);
       socket.addEventListener("close", onClose);
       socket.addEventListener("open", onOpen);
+
+      if (this.isClosed) {
+        this.destroy(socket);
+      }
     });
   }
 
