@@ -209,7 +209,9 @@ class ServiceImpl<M extends Methods> implements Service<M> {
         this.current = "waiting";
       }
     } catch (err) {
-      this.fail(node, err);
+      if (this.generation === generation) {
+        this.fail(node, err);
+      }
     } finally {
       this.preparing = false;
     }
