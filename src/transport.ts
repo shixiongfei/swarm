@@ -197,10 +197,7 @@ export class Transport {
       tcpServer.events.on("online", (socket) => {
         this.join(new LinkStream(socket, this.nodeId), secret);
       });
-      tcpServer.events.on("error", (error) => {
-        this.onError(error);
-        this.close(tcpServer);
-      });
+      tcpServer.events.on("error", (error) => this.onError(error));
 
       return tcpServer;
     }
@@ -223,10 +220,7 @@ export class Transport {
         secret,
       );
     });
-    wsServer.events.on("error", (error) => {
-      this.onError(error);
-      this.close(wsServer);
-    });
+    wsServer.events.on("error", (error) => this.onError(error));
 
     return wsServer;
   }

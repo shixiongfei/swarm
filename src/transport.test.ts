@@ -11,11 +11,13 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
+import { WebSocket } from "ws";
 import { Transport } from "./transport.ts";
-import { freePort } from "./testutil.ts";
+import { freePort, waitFor } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Link } from "./link.ts";
+import type { Socket } from "node:net";
 
 type Attach = {
   link: Link;
@@ -77,17 +79,43 @@ test("close closes a server and forgets it", async (t) => {
   assert.equal(again.port, port);
 });
 
-test("open forwards a server error and detaches the server", async (t) => {
-  const { transport, errors } = makeTransport();
-  const server = await transport.open("tcp://127.0.0.1:0");
+test("a server error is reported without closing the listener", async (t) => {
+  const { transport, joins, errors } = makeTransport();
+  const tcpSockets: Socket[] = [];
+  const wsSockets: WebSocket[] = [];
 
-  t.after(() => transport.dispose());
+  t.after(() => {
+    for (const socket of tcpSockets) {
+      socket.destroy();
+    }
 
-  server.events.emit("error", new Error("boom"));
+    for (const socket of wsSockets) {
+      socket.terminate();
+    }
 
-  assert.equal(errors.length, 1);
-  assert.equal(errors[0].message, "boom");
-  await assert.rejects(server.listen());
+    closeLinks(joins);
+    transport.dispose();
+  });
+
+  const tcp = await transport.open("tcp://127.0.0.1:0");
+  const ws = await transport.open("ws://127.0.0.1:0");
+
+  for (const server of [tcp, ws]) {
+    server.events.emit("error", new Error("boom"));
+  }
+
+  assert.deepEqual(
+    errors.map((error) => error.message),
+    ["boom", "boom"],
+  );
+
+  await tcp.listen();
+  await ws.listen();
+
+  tcpSockets.push(createConnection({ port: tcp.port, host: "127.0.0.1" }));
+  wsSockets.push(new WebSocket(`ws://127.0.0.1:${ws.port}`));
+
+  await waitFor(() => joins.length === 2);
 });
 
 test("open rejects web socket options on a tcp url", async (t) => {
