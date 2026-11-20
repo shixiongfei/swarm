@@ -2066,6 +2066,27 @@ test("connect racing with close rejects without leaving a client", async (t) => 
   assert.equal(peer.snapshot().links.length, 0);
 });
 
+test("registrations hands out frozen instances", async (t) => {
+  const node = new Node({ cluster: "node" });
+
+  t.after(() => node.close());
+
+  node.register("math", { add: (a: number, b: number) => a + b });
+
+  const listed = node.registrations()[0] as { service: string };
+
+  assert.equal(Object.isFrozen(listed), true);
+  assert.throws(() => {
+    listed.service = "hacked";
+  }, TypeError);
+
+  assert.deepEqual(
+    node.registrations().map((item) => item.service),
+    ["math"],
+  );
+  assert.equal(await node.call("math", "add", [1, 2]), 3);
+});
+
 test("closing an established link twice tears it down once", async (t) => {
   const a = new Node({ cluster: "node" });
   const { port } = await a.listen("tcp://127.0.0.1:0");

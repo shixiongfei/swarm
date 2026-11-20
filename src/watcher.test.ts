@@ -188,6 +188,47 @@ describe("Watcher", () => {
     ]);
   });
 
+  test("instances and watch events hand out frozen instances", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const seen: string[] = [];
+    let rejected: unknown;
+
+    watcher.addSource(source);
+    watcher.watch("math", (event) => seen.push(event.instance.service));
+    source.add("math", "node-a");
+
+    const listed = watcher.instances()[0] as { service: string };
+
+    assert.equal(Object.isFrozen(listed), true);
+    assert.throws(() => {
+      listed.service = "hacked";
+    }, TypeError);
+    assert.equal(watcher.instances()[0], listed);
+
+    watcher.watch("math", (event) => {
+      try {
+        (event.instance as { service: string }).service = "hacked";
+      } catch (err) {
+        rejected = err;
+      }
+    });
+
+    assert.equal(rejected instanceof TypeError, true);
+
+    source.add("echo", "node-b");
+
+    assert.deepEqual(seen, ["math"]);
+    assert.deepEqual(watcher.instances(), [
+      { service: "math", nodeId: "node-a" },
+      { service: "echo", nodeId: "node-b" },
+    ]);
+    assert.deepEqual(source.snapshot(), [
+      { service: "math", nodeId: "node-a" },
+      { service: "echo", nodeId: "node-b" },
+    ]);
+  });
+
   test("close emits down to global and service watchers", () => {
     const watcher = new Watcher();
     const source = new Registry();

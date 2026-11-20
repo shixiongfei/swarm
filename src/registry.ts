@@ -17,8 +17,20 @@ export type MetaData = Record<string, unknown>;
 export type Instance = {
   readonly service: string;
   readonly nodeId: string;
-  readonly meta?: MetaData;
+  readonly meta?: Readonly<MetaData>;
 };
+
+function toInstance(
+  service: string,
+  nodeId: string,
+  meta?: MetaData,
+): Instance {
+  return Object.freeze(
+    meta === undefined
+      ? { service, nodeId }
+      : { service, nodeId, meta: Object.freeze({ ...meta }) },
+  );
+}
 
 export interface WatchEvent {
   type: "up" | "down";
@@ -64,8 +76,7 @@ export class Registry implements Observable {
           return existing;
         }
 
-        const instance: Instance =
-          meta === undefined ? { service, nodeId } : { service, nodeId, meta };
+        const instance = toInstance(service, nodeId, meta);
 
         instances[index] = instance;
 
@@ -75,8 +86,7 @@ export class Registry implements Observable {
       }
     }
 
-    const instance: Instance =
-      meta === undefined ? { service, nodeId } : { service, nodeId, meta };
+    const instance = toInstance(service, nodeId, meta);
 
     if (instances !== undefined) {
       instances.push(instance);

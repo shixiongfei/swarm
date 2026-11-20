@@ -165,6 +165,34 @@ describe("Registry", () => {
     assert.deepEqual(registry.registrations("nope"), []);
   });
 
+  test("snapshot and lookup hand out frozen instances", () => {
+    const registry = new Registry();
+
+    registry.add("math", "node-a", { build: 1 });
+
+    const instance = registry.lookup("math")[0] as unknown as {
+      service: string;
+      meta: { build: number };
+    };
+
+    assert.equal(Object.isFrozen(instance), true);
+    assert.equal(Object.isFrozen(instance.meta), true);
+    assert.throws(() => {
+      instance.service = "hacked";
+    }, TypeError);
+    assert.throws(() => {
+      instance.meta.build = 99;
+    }, TypeError);
+
+    assert.equal(registry.lookup("math")[0], instance);
+    assert.deepEqual(registry.lookup("math"), [
+      { service: "math", nodeId: "node-a", meta: { build: 1 } },
+    ]);
+    assert.deepEqual(registry.registrations("node-a"), [
+      { service: "math", nodeId: "node-a", meta: { build: 1 } },
+    ]);
+  });
+
   test("drop removes every instance of one node", () => {
     const registry = new Registry();
 
