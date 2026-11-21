@@ -2503,19 +2503,34 @@ test("connecting to the same address twice reuses one outbound client", async (t
 test("rejects a seed that points back at the node itself", async (t) => {
   const node = new Node({ cluster: "self-seed" });
   let ups = 0;
+  let attaches = 0;
+  const target = node as unknown as {
+    attachLink: (...args: unknown[]) => void;
+  };
+  const attachLink = target.attachLink.bind(target);
 
   t.after(() => node.close());
 
   const address = await node.listen("tcp://127.0.0.1:0");
 
   node.events.on("link-up", () => (ups += 1));
+  target.attachLink = (...args: unknown[]) => {
+    attaches += 1;
+    attachLink(...args);
+  };
 
   node.addSeed(`tcp://127.0.0.1:${address.port}`);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 500));
+  await new Promise<void>((resolve) => setTimeout(resolve, 2300));
 
   assert.equal(ups, 0);
+  assert.equal(attaches, 1);
   assert.deepEqual(node.snapshot().links, []);
+
+  const clients = (node as unknown as { transport: { clients: unknown[] } })
+    .transport.clients;
+
+  assert.equal(clients.length, 0);
 });
 
 test("leave drops the outbound client instead of letting it reconnect", async (t) => {

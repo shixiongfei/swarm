@@ -589,6 +589,12 @@ export class NodeLink implements Observable {
 
   private connect(nodeId: string) {
     if (nodeId === this.link.nodeId) {
+      try {
+        this.transmit(() => this.link.accept(this.startup, this.token()));
+      } catch {
+        // best effort: the initiator detects the self-connect from accept
+      }
+
       this.dispose("link connects to itself", "error", "HANDSHAKE_REJECTED");
       this.link.close();
 

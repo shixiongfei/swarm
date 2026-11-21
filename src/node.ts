@@ -748,7 +748,14 @@ export class Node implements Provider {
         this.forget(instance);
       }
     });
-    nodeLink.events.on("close", () => this.detach(nodeLink));
+    nodeLink.events.on("close", () => {
+      if (nodeLink.closeCode === "HANDSHAKE_REJECTED" && addr !== undefined) {
+        this.dialer.drop(addr);
+        this.transport.drop(addr);
+      }
+
+      this.detach(nodeLink);
+    });
 
     try {
       nodeLink.hello();
