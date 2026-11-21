@@ -36,8 +36,8 @@ export class NodeHub implements Observable {
   private readonly secret: string;
   private readonly provider: Provider;
   private readonly startup: number;
-  private readonly heartbeatInterval?: number;
-  private readonly heartbeatTimeout?: number;
+  private readonly heartbeatInterval: number;
+  private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout?: number;
   private readonly maxInflight?: number;
   private readonly maxInboundTimeout?: number;

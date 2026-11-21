@@ -55,6 +55,8 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
     provider: local,
     startup: 1,
     secret: "",
+    heartbeatInterval: 15000,
+    heartbeatTimeout: 45000,
     maxInboundTimeout,
   });
 
@@ -76,6 +78,8 @@ test("disposes the link when the handshake reply fails", () => {
     provider: local,
     startup: 1,
     secret: "",
+    heartbeatInterval: 15000,
+    heartbeatTimeout: 45000,
     handshakeTimeout: 50,
   });
   let closes = 0;
@@ -103,6 +107,8 @@ test("disposes the link when the handshake announcement fails", () => {
     provider: local,
     startup: 1,
     secret: "",
+    heartbeatInterval: 15000,
+    heartbeatTimeout: 45000,
     handshakeTimeout: 50,
   });
   let closes = 0;
@@ -342,6 +348,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     link.events.on("bye", () => events.push("bye"));
@@ -384,6 +392,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     link.events.on("close", () => {
@@ -409,6 +419,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -928,6 +940,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -999,6 +1013,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1021,6 +1037,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1049,6 +1067,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1073,6 +1093,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1111,6 +1133,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1173,6 +1197,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1199,6 +1225,8 @@ describe("NodeLink", () => {
       provider: local,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => {
@@ -1238,6 +1266,8 @@ describe("NodeLink", () => {
       provider,
       startup: 1,
       secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
     });
 
     t.after(() => link.close());

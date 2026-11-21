@@ -3639,6 +3639,22 @@ test("applies timeout configuration to attached links", (t) => {
   assert.equal(link.maxInboundTimeout, 42);
 });
 
+test("rejects a heartbeat timeout that is not greater than its interval", () => {
+  const cases: [number | undefined, number | undefined][] = [
+    [1000, 1000],
+    [1000, 500],
+    [undefined, 1000],
+  ];
+
+  for (const [heartbeatInterval, heartbeatTimeout] of cases) {
+    assert.throws(
+      () => new Node({ cluster: "node", heartbeatInterval, heartbeatTimeout }),
+      (err: SwarmError) =>
+        err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+    );
+  }
+});
+
 test("connect rejects a url with a fragment", async (t) => {
   const node = new Node({ cluster: "node" });
 

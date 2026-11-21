@@ -29,8 +29,6 @@ type NodeLinkEvents = {
   close: () => void;
 };
 
-const defaultHeartbeatInterval = 15000;
-const defaultHeartbeatTimeout = 45000;
 const defaultHandshakeTimeout = 15000;
 const defaultMaxInboundTimeout = 60000;
 const maxSendFailures = 3;
@@ -60,8 +58,8 @@ export type NodeLinkConfig = {
   provider: Provider;
   startup: number;
   secret: string;
-  heartbeatInterval?: number;
-  heartbeatTimeout?: number;
+  heartbeatInterval: number;
+  heartbeatTimeout: number;
   handshakeTimeout?: number;
   maxInflight?: number;
   maxInboundTimeout?: number;
@@ -264,14 +262,8 @@ export class NodeLink implements Observable {
     this.provider = config.provider;
     this.startup = config.startup;
     this.secret = config.secret;
-    this.heartbeatInterval =
-      config.heartbeatInterval !== undefined
-        ? config.heartbeatInterval
-        : defaultHeartbeatInterval;
-    this.heartbeatTimeout =
-      config.heartbeatTimeout !== undefined
-        ? config.heartbeatTimeout
-        : defaultHeartbeatTimeout;
+    this.heartbeatInterval = config.heartbeatInterval;
+    this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout =
       config.handshakeTimeout !== undefined
         ? config.handshakeTimeout

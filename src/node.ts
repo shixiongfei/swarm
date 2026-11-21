@@ -109,6 +109,8 @@ export type NodeEvents = {
 };
 
 const defaultMaxHops = 8;
+const defaultHeartbeatInterval = 15000;
+const defaultHeartbeatTimeout = 45000;
 
 export class Node implements Provider {
   readonly nodeId = randomId();
@@ -137,8 +139,8 @@ export class Node implements Provider {
   private readonly callTimeout: number;
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
-  private readonly heartbeatInterval: number | undefined;
-  private readonly heartbeatTimeout: number | undefined;
+  private readonly heartbeatInterval: number;
+  private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number | undefined;
   private readonly maxInboundTimeout: number | undefined;
   private closed = false;
@@ -161,8 +163,25 @@ export class Node implements Provider {
     this.maxHops =
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
     this.maxInflight = config.maxInflight;
-    this.heartbeatInterval = config.heartbeatInterval;
-    this.heartbeatTimeout = config.heartbeatTimeout;
+
+    this.heartbeatInterval =
+      config.heartbeatInterval !== undefined
+        ? config.heartbeatInterval
+        : defaultHeartbeatInterval;
+
+    this.heartbeatTimeout =
+      config.heartbeatTimeout !== undefined
+        ? config.heartbeatTimeout
+        : defaultHeartbeatTimeout;
+
+    if (this.heartbeatTimeout <= this.heartbeatInterval) {
+      throw new SwarmError(
+        "rejected",
+        "INVALID_TIMEOUT",
+        "heartbeatTimeout must be greater than heartbeatInterval",
+      );
+    }
+
     this.handshakeTimeout = config.handshakeTimeout;
     this.maxInboundTimeout = config.maxInboundTimeout;
 
