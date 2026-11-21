@@ -362,10 +362,11 @@ setTimeout(() => console.log("survived"), 500);
 
   test("register stores a snapshot of meta", () => {
     const node = makeNode();
-    const meta = { build: 1 };
+    const meta = { build: 1, nested: { flags: ["a"] } };
 
     node.register("math", { add: () => 0 }, meta);
     meta.build = 2;
+    meta.nested.flags.push("b");
 
     let stored: unknown;
 
@@ -373,7 +374,7 @@ setTimeout(() => console.log("survived"), 500);
       stored = event.instance.meta;
     });
 
-    assert.deepEqual(stored, { build: 1 });
+    assert.deepEqual(stored, { build: 1, nested: { flags: ["a"] } });
   });
 
   test("re-registering updates the service metadata", async (t) => {
@@ -2108,13 +2109,24 @@ test("registrations hands out frozen instances", async (t) => {
 
   t.after(() => node.close());
 
-  node.register("math", { add: (a: number, b: number) => a + b });
+  node.register(
+    "math",
+    { add: (a: number, b: number) => a + b },
+    { tags: { tier: ["a"] } },
+  );
 
-  const listed = node.registrations()[0] as { service: string };
+  const listed = node.registrations()[0] as unknown as {
+    service: string;
+    meta: { tags: { tier: string[] } };
+  };
 
   assert.equal(Object.isFrozen(listed), true);
+  assert.equal(Object.isFrozen(listed.meta.tags), true);
   assert.throws(() => {
     listed.service = "hacked";
+  }, TypeError);
+  assert.throws(() => {
+    listed.meta.tags.tier.push("b");
   }, TypeError);
 
   assert.deepEqual(

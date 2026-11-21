@@ -168,28 +168,41 @@ describe("Registry", () => {
   test("snapshot and lookup hand out frozen instances", () => {
     const registry = new Registry();
 
-    registry.add("math", "node-a", { build: 1 });
+    registry.add("math", "node-a", { build: 1, tags: { tier: ["a"] } });
 
     const instance = registry.lookup("math")[0] as unknown as {
       service: string;
-      meta: { build: number };
+      meta: { build: number; tags: { tier: string[] } };
     };
 
     assert.equal(Object.isFrozen(instance), true);
     assert.equal(Object.isFrozen(instance.meta), true);
+    assert.equal(Object.isFrozen(instance.meta.tags), true);
+    assert.equal(Object.isFrozen(instance.meta.tags.tier), true);
     assert.throws(() => {
       instance.service = "hacked";
     }, TypeError);
     assert.throws(() => {
       instance.meta.build = 99;
     }, TypeError);
+    assert.throws(() => {
+      instance.meta.tags.tier.push("b");
+    }, TypeError);
 
     assert.equal(registry.lookup("math")[0], instance);
     assert.deepEqual(registry.lookup("math"), [
-      { service: "math", nodeId: "node-a", meta: { build: 1 } },
+      {
+        service: "math",
+        nodeId: "node-a",
+        meta: { build: 1, tags: { tier: ["a"] } },
+      },
     ]);
     assert.deepEqual(registry.registrations("node-a"), [
-      { service: "math", nodeId: "node-a", meta: { build: 1 } },
+      {
+        service: "math",
+        nodeId: "node-a",
+        meta: { build: 1, tags: { tier: ["a"] } },
+      },
     ]);
   });
 

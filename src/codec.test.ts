@@ -205,6 +205,27 @@ describe("codec", () => {
       );
     }
 
+    class Point {
+      x = 1;
+    }
+
+    const custom: Envelope = {
+      t: "call",
+      id: "call-4",
+      from: "node-a",
+      to: "node-b",
+      service: "math",
+      method: "add",
+      args: [new Point()],
+    };
+
+    assert.throws(
+      () => encode(custom),
+      (err: SwarmError) =>
+        err.kind === "failed" &&
+        err.message === "only plain objects, dates and buffers can be encoded",
+    );
+
     const kept: Envelope = {
       t: "call",
       id: "call-3",
@@ -254,6 +275,32 @@ describe("codec", () => {
         method: "add",
         args: [{ a: shared }, { b: shared }],
       }),
+    );
+  });
+
+  test("turns unexpected payload errors into an encode error", () => {
+    const hostile = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new RangeError("payload cannot be inspected");
+        },
+      },
+    );
+
+    assert.throws(
+      () =>
+        encode({
+          t: "call",
+          id: "call-1",
+          from: "node-a",
+          to: "node-b",
+          service: "math",
+          method: "add",
+          args: [hostile],
+        }),
+      (err: SwarmError) =>
+        err.kind === "failed" && err.code === "ENVELOPE_INVALID",
     );
   });
 

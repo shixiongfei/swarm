@@ -9,6 +9,8 @@
  * https://github.com/shixiongfei/swarm
  */
 
+import { deepFreeze } from "./object.ts";
+
 export type ErrorKind =
   "not-found" | "timeout" | "rejected" | "failed" | "cancelled";
 
@@ -41,7 +43,7 @@ const defaultCodes: Record<ErrorKind, ErrorCode> = {
   timeout: "TIMEOUT",
 };
 
-export const errorKinds: readonly ErrorKind[] = Object.freeze(
+export const errorKinds: readonly ErrorKind[] = deepFreeze(
   Object.keys(defaultCodes) as ErrorKind[],
 );
 

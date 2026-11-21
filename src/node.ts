@@ -315,6 +315,8 @@ export class Node implements Provider {
   register(service: string, methods: Methods, meta?: MetaData) {
     this.checkOpen();
 
+    let ownedMeta = meta;
+
     if (meta !== undefined) {
       if (!isMetaData(meta)) {
         throw new SwarmError("rejected", "meta is not a plain object");
@@ -322,6 +324,7 @@ export class Node implements Provider {
 
       try {
         assertEncodable(meta);
+        ownedMeta = structuredClone(meta);
       } catch (err) {
         throw new SwarmError(
           "rejected",
@@ -332,7 +335,7 @@ export class Node implements Provider {
       }
     }
 
-    this.nodeLocal.register(service, methods, meta);
+    this.nodeLocal.register(service, methods, ownedMeta);
 
     return this;
   }
@@ -830,6 +833,5 @@ export type NodeOptions = Partial<NodeConfig>;
 
 export function createNode(options: NodeOptions = {}) {
   const cluster = options.cluster === undefined ? "default" : options.cluster;
-
   return new Node(Object.assign({}, options, { cluster }));
 }

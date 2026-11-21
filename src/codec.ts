@@ -12,6 +12,7 @@
 import { Packr, Unpackr } from "msgpackr";
 import { SwarmError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
+import { isObject, isPlainObject } from "./object.ts";
 import type { Envelope } from "./envelope.ts";
 
 export const maxEnvelopeSize = 8 * 1024 * 1024;
@@ -38,7 +39,7 @@ export function assertEncodable(
     );
   }
 
-  if (typeof value !== "object" || value === null) {
+  if (!isObject(value)) {
     return;
   }
 
@@ -57,6 +58,15 @@ export function assertEncodable(
     ArrayBuffer.isView(value)
   ) {
     return;
+  }
+
+  if (!Array.isArray(value) && !isPlainObject(value)) {
+    throw new SwarmError(
+      "failed",
+      "only plain objects, dates and buffers can be encoded",
+      false,
+      "ENVELOPE_INVALID",
+    );
   }
 
   if (seen.has(value)) {
@@ -84,11 +94,15 @@ export function assertEncodable(
 }
 
 export function encode(message: Envelope): Uint8Array {
-  assertEncodable(message);
-
   try {
+    assertEncodable(message);
+
     return packr.pack(message);
   } catch (err) {
+    if (err instanceof SwarmError) {
+      throw err;
+    }
+
     throw new SwarmError(
       "failed",
       "envelope is not encodable",

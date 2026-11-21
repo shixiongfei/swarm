@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { deepFreeze, isObject, isPlainObject } from "./object.ts";
 
 export type MetaData = Record<string, unknown>;
 
@@ -25,10 +26,10 @@ function toInstance(
   nodeId: string,
   meta?: MetaData,
 ): Instance {
-  return Object.freeze(
+  return deepFreeze(
     meta === undefined
       ? { service, nodeId }
-      : { service, nodeId, meta: Object.freeze({ ...meta }) },
+      : { service, nodeId, meta: Object.assign({}, meta) },
   );
 }
 
@@ -248,17 +249,7 @@ export class Registry implements Observable {
 }
 
 export function isMetaData(value: unknown): value is MetaData | undefined {
-  if (value === undefined) {
-    return true;
-  }
-
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-
-  const proto = Object.getPrototypeOf(value);
-
-  return proto === Object.prototype || proto === null;
+  return value === undefined || (isObject(value) && isPlainObject(value));
 }
 
 export function sameMeta(a: unknown, b: unknown): boolean {
