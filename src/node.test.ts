@@ -3716,11 +3716,34 @@ test("rejects a heartbeat timeout that is not greater than its interval", () => 
     [1000, 1000],
     [1000, 500],
     [undefined, 1000],
+    [NaN, 45000],
+    [1000, NaN],
+    [0, 45000],
+    [1000, Infinity],
   ];
 
   for (const [heartbeatInterval, heartbeatTimeout] of cases) {
     assert.throws(
       () => new Node({ cluster: "node", heartbeatInterval, heartbeatTimeout }),
+      (err: SwarmError) =>
+        err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+    );
+  }
+});
+
+test("rejects a non-positive maxInflight", () => {
+  for (const maxInflight of [0, -1, 1.5, NaN]) {
+    assert.throws(
+      () => new Node({ cluster: "node", maxInflight }),
+      (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
+    );
+  }
+});
+
+test("rejects a non-positive memberTtl", () => {
+  for (const memberTtl of [0, -1, 1.5, NaN]) {
+    assert.throws(
+      () => new Node({ cluster: "node", memberTtl }),
       (err: SwarmError) =>
         err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
     );

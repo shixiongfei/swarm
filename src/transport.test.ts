@@ -14,7 +14,7 @@ import { test } from "node:test";
 import { createConnection, createServer } from "node:net";
 import { WebSocket } from "ws";
 import { Transport } from "./transport.ts";
-import { freePort, waitFor } from "./testutil.ts";
+import { freePort, waitFor, within } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Link } from "./link.ts";
 import type { Socket } from "node:net";
@@ -227,6 +227,44 @@ test("concurrent connect calls share one client", async (t) => {
 
   assert.equal(peer.attaches.length, 1);
   await waitFor(() => hub.joins.length === 1);
+});
+
+test("a later caller can abort its wait without closing the shared connect", async (t) => {
+  const peer = makeTransport();
+  const sockets: Socket[] = [];
+  const server = createServer((socket) => sockets.push(socket));
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  const port = (server.address() as { port: number }).port;
+  const url = `ws://127.0.0.1:${port}`;
+
+  t.after(() => {
+    peer.transport.dispose();
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    server.close();
+  });
+
+  const first = peer.transport.connect(url).then(
+    () => "connected",
+    (error: SwarmError) => error.kind,
+  );
+
+  const controller = new AbortController();
+  const second = peer.transport
+    .connect(url, { signal: controller.signal })
+    .then(
+      () => "connected",
+      (error: SwarmError) => error.kind,
+    );
+
+  await waitFor(() => sockets.length === 1);
+  controller.abort();
+
+  assert.equal(await second, "cancelled");
+  assert.equal(await within(first, 50), undefined);
 });
 
 test("createClient attaches with the expected peer id", async (t) => {

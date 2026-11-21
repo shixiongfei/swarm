@@ -10,6 +10,7 @@
  */
 
 import { SwarmError } from "./errors.ts";
+import { withCancel } from "./timeout.ts";
 import { Balancer } from "./balancer.ts";
 import type { NodeLocal } from "./nodelocal.ts";
 import type { NodeLink } from "./nodelink.ts";
@@ -55,8 +56,14 @@ export class Router {
     target?: string,
     signal?: AbortSignal,
   ) {
+    if (signal !== undefined && signal.aborted) {
+      return Promise.reject(
+        new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+      );
+    }
+
     if (target !== undefined && target === this.nodeId) {
-      return this.withCancel(
+      return withCancel(
         this.local.invoke(service, method, args, timeout),
         signal,
       );
@@ -64,7 +71,7 @@ export class Router {
 
     if (target === undefined && this.local.has(service)) {
       try {
-        return this.withCancel(
+        return withCancel(
           this.local.invoke(service, method, args, timeout),
           signal,
         );
@@ -115,36 +122,6 @@ export class Router {
       signal,
       ...routed,
     );
-  }
-
-  withCancel<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (signal === undefined) {
-      return promise;
-    }
-
-    if (signal.aborted) {
-      return Promise.reject(
-        new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
-      );
-    }
-
-    return new Promise((resolve, reject) => {
-      const onAbort = () =>
-        reject(new SwarmError("cancelled", "CANCELLED", "call was cancelled"));
-
-      signal.addEventListener("abort", onAbort, { once: true });
-
-      promise.then(
-        (value) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(value);
-        },
-        (error) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(error);
-        },
-      );
-    });
   }
 
   callAll(

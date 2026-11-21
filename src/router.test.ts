@@ -214,9 +214,15 @@ describe("Router", () => {
   });
 
   test("rejects a call whose signal already aborted", async () => {
+    let executed = 0;
     const local = new NodeLocal("self");
 
-    local.register("math", { add: () => 1 });
+    local.register("math", {
+      add: () => {
+        executed += 1;
+        return 1;
+      },
+    });
 
     const { router } = makeRouter({ local });
     const controller = new AbortController();
@@ -236,5 +242,7 @@ describe("Router", () => {
       ),
       (err: SwarmError) => err.kind === "cancelled",
     );
+
+    assert.equal(executed, 0);
   });
 });

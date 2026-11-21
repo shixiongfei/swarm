@@ -25,7 +25,7 @@ import { PubSub } from "./pubsub.ts";
 import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
-import { assertTimeout } from "./timeout.ts";
+import { assertTimeout, isTimeout } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable } from "./codec.ts";
 import type { ErrorCode } from "./errors.ts";
@@ -174,11 +174,34 @@ export class Node implements Provider {
         ? config.heartbeatTimeout
         : defaultHeartbeatTimeout;
 
-    if (this.heartbeatTimeout <= this.heartbeatInterval) {
+    if (
+      !isTimeout(this.heartbeatInterval) ||
+      !isTimeout(this.heartbeatTimeout) ||
+      this.heartbeatTimeout <= this.heartbeatInterval
+    ) {
       throw new SwarmError(
         "rejected",
         "INVALID_TIMEOUT",
         "heartbeatTimeout must be greater than heartbeatInterval",
+      );
+    }
+
+    if (
+      this.maxInflight !== undefined &&
+      (!Number.isSafeInteger(this.maxInflight) || this.maxInflight < 1)
+    ) {
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        "maxInflight must be a positive integer",
+      );
+    }
+
+    if (!Number.isSafeInteger(memberTtl) || memberTtl < 1) {
+      throw new SwarmError(
+        "rejected",
+        "INVALID_TIMEOUT",
+        "memberTtl must be a positive integer",
       );
     }
 

@@ -10,6 +10,7 @@
  */
 
 import { SwarmError } from "./errors.ts";
+import { withCancel } from "./timeout.ts";
 import { isLoopback, normalizePath, parseUrl } from "./address.ts";
 import { LinkStream } from "./linkstream.ts";
 import { LinkWs } from "./linkws.ts";
@@ -88,7 +89,7 @@ export class Transport {
     const pending = this.pendingConnects.get(addr);
 
     if (pending !== undefined) {
-      await pending;
+      await withCancel(pending, options.signal);
       return;
     }
 
