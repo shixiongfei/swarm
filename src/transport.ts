@@ -18,6 +18,7 @@ import type { Client } from "./client.ts";
 import type { WsClientOptions } from "./wsclient.ts";
 import type { Server } from "./server.ts";
 import type { Link } from "./link.ts";
+import type { NodeLink } from "./nodelink.ts";
 import type { WsServerOptions } from "./wsserver.ts";
 
 export type WsListenOptions = Omit<WsServerOptions, "backlog">;
@@ -37,7 +38,7 @@ export type TransportOptions = {
     expected?: string,
     addr?: string,
     auto?: boolean,
-  ) => void;
+  ) => NodeLink | void;
   onError: (error: Error) => void;
 };
 
@@ -49,7 +50,11 @@ export class Transport {
   private readonly servers: Server[] = [];
   private readonly clients: Client[] = [];
   private readonly outbound = new Map<string, Client>();
-  private readonly pendingConnects = new Map<string, Promise<void>>();
+  private readonly attached = new Map<Client, NodeLink>();
+  private readonly pendingConnects = new Map<
+    string,
+    Promise<NodeLink | undefined>
+  >();
   private disposed = false;
 
   constructor(options: TransportOptions) {
@@ -89,8 +94,7 @@ export class Transport {
     const pending = this.pendingConnects.get(addr);
 
     if (pending !== undefined) {
-      await withCancel(pending, options.signal);
-      return;
+      return await withCancel(pending, options.signal);
     }
 
     const connecting = this.connectOnce(addr, url, options).finally(() => {
@@ -99,7 +103,7 @@ export class Transport {
 
     this.pendingConnects.set(addr, connecting);
 
-    await connecting;
+    return await connecting;
   }
 
   async createClient(
@@ -115,11 +119,14 @@ export class Transport {
       const client = new TcpClient(host, port, options);
 
       client.events.on("online", (socket) => {
-        this.attach(
-          new LinkStream(socket, this.nodeId),
-          secret,
-          expected,
-          String(url),
+        this.remember(
+          client,
+          this.attach(
+            new LinkStream(socket, this.nodeId),
+            secret,
+            expected,
+            String(url),
+          ),
         );
       });
 
@@ -130,11 +137,14 @@ export class Transport {
     const client = new WsClient(url, options);
 
     client.events.on("online", (socket) => {
-      this.attach(
-        new LinkWs(socket, this.nodeId, isLoopback(host)),
-        secret,
-        expected,
-        String(url),
+      this.remember(
+        client,
+        this.attach(
+          new LinkWs(socket, this.nodeId, isLoopback(host)),
+          secret,
+          expected,
+          String(url),
+        ),
       );
     });
 
@@ -152,6 +162,8 @@ export class Transport {
     if (index >= 0) {
       this.clients.splice(index, 1);
     }
+
+    this.attached.delete(client);
 
     for (const [addr, existing] of this.outbound) {
       if (existing === client) {
@@ -180,6 +192,7 @@ export class Transport {
 
     this.clients.length = 0;
     this.outbound.clear();
+    this.attached.clear();
 
     for (const server of this.servers) {
       server.close();
@@ -197,7 +210,15 @@ export class Transport {
 
     if (existing !== undefined) {
       await existing.connect();
-      return;
+
+      const attached = this.attached.get(existing);
+
+      if (attached !== undefined) {
+        return attached;
+      }
+
+      this.untrack(existing);
+      existing.close();
     }
 
     const client = await this.createClient(url, options);
@@ -219,6 +240,22 @@ export class Transport {
 
       throw err;
     }
+
+    return this.attached.get(client);
+  }
+
+  private remember(client: Client, nodeLink: NodeLink | void) {
+    if (nodeLink === undefined) {
+      return;
+    }
+
+    this.attached.set(client, nodeLink);
+
+    nodeLink.events.on("close", () => {
+      if (this.attached.get(client) === nodeLink) {
+        this.attached.delete(client);
+      }
+    });
   }
 
   private async createServer(

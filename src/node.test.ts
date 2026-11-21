@@ -342,7 +342,7 @@ describe("Node", () => {
       server.close();
     });
 
-    await node.connect(`tcp://127.0.0.1:${port}`);
+    node.addSeed(`tcp://127.0.0.1:${port}`);
     await waitFor(() => chunks.length > 0);
 
     const before = Buffer.concat(chunks).length;
@@ -919,11 +919,7 @@ setTimeout(() => console.log("survived"), 500);
     const address = await hub.listen("tcp://127.0.0.1:0");
     await peer.connect(`tcp://127.0.0.1:${address.port}`);
 
-    await waitFor(
-      () =>
-        hub.snapshot().links.length === 1 &&
-        hub.snapshot().links[0].peerId !== undefined,
-    );
+    await waitFor(() => hub.snapshot().links.length === 1);
 
     const link = hub.snapshot().links[0];
 
@@ -1081,10 +1077,7 @@ setTimeout(() => console.log("survived"), 500);
 
     await peer.connect(`tcp://127.0.0.1:${address.port}`);
 
-    assert.equal(
-      await waitFor(() => peer.snapshot().links[0]?.peerId !== undefined),
-      true,
-    );
+    assert.equal(peer.snapshot().links[0].peerId, hub.nodeId);
 
     peer.close();
 
@@ -2087,9 +2080,6 @@ for (const protocol of ["tcp", "ws"] as const) {
         });
 
         await connectPair(protocol, hub, peer);
-        await waitFor(() =>
-          peer.snapshot().links.some((link) => link.peerId !== undefined),
-        );
 
         let local = 0;
         let remote = 0;
@@ -2129,9 +2119,6 @@ for (const protocol of ["tcp", "ws"] as const) {
         });
 
         await connectPair(protocol, hub, peer);
-        await waitFor(() =>
-          peer.snapshot().links.some((link) => link.peerId !== undefined),
-        );
 
         let local = 0;
         let remote = 0;
@@ -4190,5 +4177,111 @@ setTimeout(() => console.log("survived"), 500);
         err.kind === "rejected" &&
         err.message === "url does not support a fragment",
     );
+  });
+
+  test("connect resolves only after the peer has authenticated", async (t) => {
+    const host = new Node({ cluster: "connect-ready" });
+    const peer = new Node({ cluster: "connect-ready" });
+    const { port } = await host.listen("tcp://127.0.0.1:0");
+
+    const received = new Promise<unknown>((resolve) =>
+      host.subscribe("news", resolve),
+    );
+
+    t.after(() => {
+      host.close();
+      peer.close();
+    });
+
+    await peer.connect(`tcp://127.0.0.1:${port}`);
+
+    assert.equal(
+      peer.snapshot().links.some((link) => link.peerId === host.nodeId),
+      true,
+    );
+
+    peer.publish("news", { ok: true });
+
+    assert.deepEqual(await received, { ok: true });
+  });
+
+  test("connect rejects when the peer never completes the handshake", async (t) => {
+    const server = createServer();
+    const port = await freePort();
+
+    await new Promise<void>((resolve) =>
+      server.listen(port, "127.0.0.1", resolve),
+    );
+
+    const node = new Node({ cluster: "connect-timeout", handshakeTimeout: 50 });
+
+    t.after(() => {
+      node.close();
+      server.close();
+    });
+
+    await assert.rejects(
+      node.connect(`tcp://127.0.0.1:${port}`),
+      (err: SwarmError) =>
+        err.kind === "timeout" && err.code === "HANDSHAKE_TIMEOUT",
+    );
+  });
+
+  test("stops reconnecting after a handshake timeout", async (t) => {
+    const server = createServer();
+    const port = await freePort();
+    let connections = 0;
+
+    server.on("connection", () => {
+      connections += 1;
+    });
+
+    await new Promise<void>((resolve) =>
+      server.listen(port, "127.0.0.1", resolve),
+    );
+
+    const node = new Node({ cluster: "connect-stop", handshakeTimeout: 50 });
+
+    t.after(() => {
+      node.close();
+      server.close();
+    });
+
+    await assert.rejects(
+      node.connect(`tcp://127.0.0.1:${port}`, { retryDelay: 50 }),
+      (err: SwarmError) => err.code === "HANDSHAKE_TIMEOUT",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    assert.equal(connections, 1);
+  });
+
+  test("connect retries with a fresh handshake after a timeout", async (t) => {
+    const server = createServer();
+    const port = await freePort();
+    let connections = 0;
+
+    server.on("connection", () => {
+      connections += 1;
+    });
+
+    await new Promise<void>((resolve) =>
+      server.listen(port, "127.0.0.1", resolve),
+    );
+
+    const node = new Node({ cluster: "connect-retry", handshakeTimeout: 50 });
+    const url = `tcp://127.0.0.1:${port}`;
+    const timedOut = (err: SwarmError) => err.code === "HANDSHAKE_TIMEOUT";
+
+    t.after(() => {
+      node.close();
+      server.close();
+    });
+
+    await assert.rejects(node.connect(url), timedOut);
+    await assert.rejects(node.connect(url), timedOut);
+
+    assert.equal(connections, 2);
   });
 });

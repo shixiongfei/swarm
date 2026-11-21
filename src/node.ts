@@ -510,7 +510,18 @@ export class Node implements Provider {
 
   async connect(url: string | URL, options?: WsClientOptions) {
     this.checkOpen();
-    await this.transport.connect(url, options);
+
+    const nodeLink = await this.transport.connect(url, options);
+
+    if (nodeLink !== undefined) {
+      try {
+        await nodeLink.ready();
+      } catch (err) {
+        if (nodeLink.closeReason !== "dedupe") {
+          throw err;
+        }
+      }
+    }
 
     return this;
   }
@@ -704,13 +715,9 @@ export class Node implements Provider {
   }
 
   private relay(event: WatchEvent) {
-    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
-      if (nodeLink.peerId === undefined) {
-        continue;
-      }
-
+    this.eachPeerLink((nodeLink) => {
       if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
-        continue;
+        return;
       }
 
       if (event.type === "up") {
@@ -718,7 +725,7 @@ export class Node implements Provider {
       } else {
         nodeLink.unregister(event.instance);
       }
-    }
+    });
   }
 
   private forget(instance: Instance) {
@@ -801,7 +808,11 @@ export class Node implements Provider {
       }
     });
     nodeLink.events.on("close", () => {
-      if (nodeLink.closeCode === "HANDSHAKE_REJECTED" && addr !== undefined) {
+      if (
+        addr !== undefined &&
+        (nodeLink.closeCode === "HANDSHAKE_REJECTED" ||
+          nodeLink.closeCode === "HANDSHAKE_TIMEOUT")
+      ) {
         this.dialer.drop(addr);
         this.transport.drop(addr);
       }
@@ -816,6 +827,8 @@ export class Node implements Provider {
       nodeLink.close("close", "handshake failed");
       throw err;
     }
+
+    return nodeLink;
   }
 
   private dropDialed(nodeLink: NodeLink) {
@@ -927,14 +940,18 @@ export class Node implements Provider {
     }
   }
 
+  private eachPeerLink(visit: (nodeLink: NodeLink, peerId: string) => void) {
+    this.eachLink((nodeLink) => {
+      if (nodeLink.peerId !== undefined) {
+        visit(nodeLink, nodeLink.peerId);
+      }
+    });
+  }
+
   private linkedPeers() {
     const linked = new Set<string>();
 
-    this.eachLink((nodeLink) => {
-      if (nodeLink.peerId !== undefined) {
-        linked.add(nodeLink.peerId);
-      }
-    });
+    this.eachPeerLink((_nodeLink, peerId) => linked.add(peerId));
 
     return linked;
   }
@@ -943,11 +960,7 @@ export class Node implements Provider {
     let toLocal: NodeMember[] | undefined;
     let toRemote: NodeMember[] | undefined;
 
-    this.eachLink((nodeLink) => {
-      if (nodeLink.peerId === undefined) {
-        return;
-      }
-
+    this.eachPeerLink((nodeLink) => {
       if (nodeLink.local) {
         toLocal ??= this.membership.shared(true);
         nodeLink.peers(toLocal);

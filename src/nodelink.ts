@@ -299,6 +299,35 @@ export class NodeLink implements Observable {
     return this.peer;
   }
 
+  ready() {
+    if (this.peer !== undefined) {
+      return Promise.resolve();
+    }
+
+    if (this.closed) {
+      return Promise.reject(this.closeError());
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const offs = [
+        this.events.on("open", () => {
+          for (const off of offs) {
+            off();
+          }
+
+          resolve();
+        }),
+        this.events.on("close", () => {
+          for (const off of offs) {
+            off();
+          }
+
+          reject(this.closeError());
+        }),
+      ];
+    });
+  }
+
   get closeReason() {
     return this.reason;
   }
@@ -721,5 +750,16 @@ export class NodeLink implements Observable {
 
     this.events.emit("close");
     this.registry.close();
+  }
+
+  private closeError() {
+    const kind =
+      this.reason === "timeout"
+        ? "timeout"
+        : this.reasonCode === "HANDSHAKE_REJECTED"
+          ? "rejected"
+          : "failed";
+
+    return new SwarmError(kind, this.reasonCode, this.reasonMessage);
   }
 }

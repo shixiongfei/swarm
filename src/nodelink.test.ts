@@ -1353,3 +1353,62 @@ describe("NodeLink", () => {
     assert.deepEqual(timeouts, [60000, 5000, 60000]);
   });
 });
+
+describe("ready", () => {
+  const makeLink = () => {
+    const link = new StubLink();
+
+    return {
+      link,
+      nodeLink: new NodeLink(link, {
+        provider: new NodeLocal("local-node"),
+        startup: 1,
+        secret: "",
+        heartbeatInterval: 15000,
+        heartbeatTimeout: 45000,
+      }),
+    };
+  };
+
+  test("resolves after the handshake completes", async () => {
+    const { link, nodeLink } = makeLink();
+    const ready = nodeLink.ready();
+
+    link.events.emit("envelope", {
+      t: "hello",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-node"),
+    });
+
+    await ready;
+
+    assert.equal(nodeLink.peerId, "peer-node");
+
+    nodeLink.close();
+  });
+
+  test("rejects when the link closes before the peer answers", async () => {
+    const { nodeLink } = makeLink();
+    const ready = nodeLink.ready();
+
+    nodeLink.close();
+
+    await assert.rejects(
+      ready,
+      (err: SwarmError) => err.kind === "failed" && err.code === "CLOSED",
+    );
+  });
+
+  test("rejects when it is called on a closed link", async () => {
+    const { nodeLink } = makeLink();
+
+    nodeLink.close();
+
+    await assert.rejects(
+      nodeLink.ready(),
+      (err: SwarmError) => err.kind === "failed" && err.code === "CLOSED",
+    );
+  });
+});

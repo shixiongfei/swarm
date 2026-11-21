@@ -35,8 +35,9 @@ function makeTransport() {
   const transport = new Transport({
     nodeId: "node-1",
     join: (link) => joins.push(link),
-    attach: (link, secret, expected, addr, auto) =>
-      attaches.push({ link, secret, expected, addr, auto }),
+    attach: (link, secret, expected, addr, auto) => {
+      attaches.push({ link, secret, expected, addr, auto });
+    },
     onError: (error) => errors.push(error),
   });
 
