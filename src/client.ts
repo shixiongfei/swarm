@@ -24,6 +24,7 @@ export type ClientOptions = {
   maxRetryDelay?: number;
   connectTimeout?: number;
   secret?: string;
+  signal?: AbortSignal;
 };
 
 const defaultConnectTimeout = 15000;
@@ -40,6 +41,8 @@ export abstract class Client<S = any> {
   private readonly retryDelay: number;
   private readonly maxRetryDelay: number;
   private readonly connectTimeout: number;
+  private readonly signal: AbortSignal | undefined;
+  private readonly onAbort = () => this.close();
 
   private timer: ReturnType<typeof setTimeout> | undefined;
   private attempt = 0;
@@ -57,6 +60,11 @@ export abstract class Client<S = any> {
       options.connectTimeout !== undefined
         ? options.connectTimeout
         : defaultConnectTimeout;
+    this.signal = options.signal;
+
+    if (this.signal !== undefined) {
+      this.signal.addEventListener("abort", this.onAbort, { once: true });
+    }
   }
 
   protected get isClosed() {
@@ -64,6 +72,12 @@ export abstract class Client<S = any> {
   }
 
   async connect(): Promise<this> {
+    if (this.signal !== undefined && this.signal.aborted) {
+      this.close();
+
+      throw connectCancelled();
+    }
+
     if (this.closed) {
       throw new SwarmError("rejected", "CLOSED", "client is closed", false);
     }
@@ -100,6 +114,10 @@ export abstract class Client<S = any> {
         }),
       ]);
     } catch (err) {
+      if (this.signal !== undefined && this.signal.aborted) {
+        throw connectCancelled();
+      }
+
       this.scheduleReconnect();
       throw err;
     } finally {
@@ -120,6 +138,10 @@ export abstract class Client<S = any> {
 
     this.closed = true;
     this.clearTimer();
+
+    if (this.signal !== undefined) {
+      this.signal.removeEventListener("abort", this.onAbort);
+    }
 
     if (this.socket !== undefined) {
       this.destroy(this.socket);
@@ -169,4 +191,13 @@ export abstract class Client<S = any> {
       this.timer = undefined;
     }
   }
+}
+
+function connectCancelled() {
+  return new SwarmError(
+    "cancelled",
+    "CANCELLED",
+    "connect was cancelled",
+    false,
+  );
 }

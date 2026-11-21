@@ -10,12 +10,14 @@
  */
 
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import { test } from "node:test";
 import { SwarmError } from "./errors.ts";
 import { maxEnvelopeSize } from "./codec.ts";
 import { WsClient } from "./wsclient.ts";
 import { WsServer } from "./wsserver.ts";
-import { waitFor, within } from "./testutil.ts";
+import { freePort, waitFor, within } from "./testutil.ts";
+import type { AddressInfo, Socket } from "node:net";
 import type { WebSocket as ServerSocket } from "ws";
 
 const host = "127.0.0.1";
@@ -198,4 +200,118 @@ test("connect rejects when the server is unavailable", async () => {
   );
 
   client.close();
+});
+
+test("abort cancels a pending connect", async (t) => {
+  const sockets: Socket[] = [];
+  const server = createServer((socket) => sockets.push(socket));
+
+  await new Promise<void>((resolve) => server.listen(0, host, resolve));
+
+  const address = server.address() as AddressInfo;
+  const controller = new AbortController();
+  const client = new WsClient(`ws://${host}:${address.port}`, {
+    reconnect: false,
+    signal: controller.signal,
+  });
+
+  t.after(() => {
+    client.close();
+
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+
+    server.close();
+  });
+
+  const connecting = client.connect();
+
+  await waitFor(() => client.socket !== undefined);
+
+  controller.abort();
+
+  await assert.rejects(
+    connecting,
+    (error: unknown) =>
+      error instanceof SwarmError && error.code === "CANCELLED",
+  );
+
+  assert.equal(client.socket, undefined);
+});
+
+test("abort stops reconnect after a failed connect", async (t) => {
+  const port = await freePort();
+  const controller = new AbortController();
+  const client = new WsClient(`ws://${host}:${port}`, {
+    retryDelay: 10,
+    maxRetryDelay: 10,
+    signal: controller.signal,
+  });
+
+  await assert.rejects(
+    () => client.connect(),
+    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
+  );
+
+  controller.abort();
+
+  const server = new WsServer(host, port);
+
+  t.after(() => {
+    client.close();
+    server.close();
+  });
+
+  await server.listen();
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+  assert.equal(server.size, 0);
+});
+
+test("connect rejects immediately when the signal is already aborted", async () => {
+  const controller = new AbortController();
+  const client = new WsClient(`ws://${host}:1`, {
+    reconnect: false,
+    signal: controller.signal,
+  });
+
+  controller.abort();
+
+  await assert.rejects(
+    () => client.connect(),
+    (error: unknown) =>
+      error instanceof SwarmError && error.code === "CANCELLED",
+  );
+
+  client.close();
+});
+
+test("abort closes an established connection", async (t) => {
+  const server = new WsServer(host, 0);
+
+  await server.listen();
+
+  const controller = new AbortController();
+  const client = new WsClient(`ws://${host}:${server.port}`, {
+    reconnect: false,
+    signal: controller.signal,
+  });
+
+  t.after(() => {
+    client.close();
+    server.close();
+  });
+
+  const offline = new Promise<WebSocket>((resolve) => {
+    client.events.once("offline", resolve);
+  });
+
+  await client.connect();
+
+  controller.abort();
+
+  assert.ok(await within(offline, 2000));
+  assert.equal(client.socket, undefined);
 });
