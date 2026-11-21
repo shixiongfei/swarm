@@ -164,6 +164,22 @@ export class Node implements Provider {
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
     this.maxInflight = config.maxInflight;
 
+    if (!Number.isSafeInteger(this.maxHops) || this.maxHops < 1) {
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        "maxHops must be a positive integer",
+      );
+    }
+
+    if (!Number.isSafeInteger(dialTtl) || dialTtl < 1) {
+      throw new SwarmError(
+        "rejected",
+        "INVALID_TIMEOUT",
+        "dialTtl must be a positive integer",
+      );
+    }
+
     this.heartbeatInterval =
       config.heartbeatInterval !== undefined
         ? config.heartbeatInterval
@@ -208,12 +224,20 @@ export class Node implements Provider {
     this.handshakeTimeout = config.handshakeTimeout;
     this.maxInboundTimeout = config.maxInboundTimeout;
 
+    if (this.handshakeTimeout !== undefined) {
+      assertTimeout(this.handshakeTimeout);
+    }
+
+    if (this.maxInboundTimeout !== undefined) {
+      assertTimeout(this.maxInboundTimeout);
+    }
+
     this.transport = new Transport({
       nodeId: this.nodeId,
       join: (nodeLink, secret) => this.nodeHub.join(nodeLink, secret),
       attach: (nodeLink, secret, expected, addr, auto) =>
         this.attachLink(nodeLink, secret, expected, addr, auto),
-      onError: (error) => this.events.emit("error", error),
+      onError: (error) => reportError(this.events, error),
     });
 
     this.dialer = new Dialer({
@@ -266,7 +290,7 @@ export class Node implements Provider {
       join: (link) => this.nodeHub.join(link, this.secret),
       attach: (link, auto) =>
         this.attachLink(link, this.secret, undefined, undefined, auto),
-      onError: (error) => this.events.emit("error", error),
+      onError: (error) => reportError(this.events, error),
       onReady: (directory) => this.events.emit("discovery", directory),
     });
 
@@ -448,7 +472,8 @@ export class Node implements Provider {
         : advertised.host;
       const advertisedPath =
         advertised.path !== "/" ? advertised.path : listenPath;
-      const suffix = advertisedPath === "/" ? "" : advertisedPath;
+      const suffix =
+        scheme === "tcp:" || advertisedPath === "/" ? "" : advertisedPath;
       const self = {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,

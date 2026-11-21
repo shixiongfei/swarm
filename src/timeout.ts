@@ -27,11 +27,11 @@ export function assertTimeout(timeout: number): void {
 }
 
 export function withCancel<T>(
-  promise: Promise<T>,
+  promise: T | Promise<T>,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<Awaited<T>> {
   if (signal === undefined) {
-    return promise;
+    return Promise.resolve(promise) as Promise<Awaited<T>>;
   }
 
   if (signal.aborted) {
@@ -46,7 +46,7 @@ export function withCancel<T>(
 
     signal.addEventListener("abort", onAbort, { once: true });
 
-    promise.then(
+    Promise.resolve(promise).then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
         resolve(value);

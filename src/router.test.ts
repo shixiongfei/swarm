@@ -122,6 +122,29 @@ describe("Router", () => {
     assert.equal(link.calls.length, 0);
   });
 
+  test("withCancel resolves a synchronous local handler", async () => {
+    const local = new NodeLocal("self");
+
+    local.register("math", { add: () => 42 });
+
+    const { router } = makeRouter({ local });
+    const controller = new AbortController();
+
+    assert.equal(
+      await router.invoke(
+        "math",
+        "add",
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        controller.signal,
+      ),
+      42,
+    );
+  });
+
   test("does not forward a not-found thrown by a local handler", () => {
     const local = new NodeLocal("self");
 

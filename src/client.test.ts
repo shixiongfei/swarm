@@ -13,13 +13,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 import { Client } from "./client.ts";
+import { SwarmError } from "./errors.ts";
 import type { ClientOptions } from "./client.ts";
 
 class StubClient extends Client<number> {
   private failures: number;
 
-  constructor(failures: number) {
-    super({ retryDelay: 10, maxRetryDelay: 10 });
+  constructor(failures: number, options: ClientOptions = {}) {
+    super({ retryDelay: 10, maxRetryDelay: 10, ...options });
     this.failures = failures;
   }
 
@@ -36,6 +37,30 @@ class StubClient extends Client<number> {
 }
 
 describe("Client", () => {
+  test("rejects invalid connection delays", () => {
+    for (const connectTimeout of [0, -1, NaN, Infinity]) {
+      assert.throws(
+        () => new StubClient(0, { connectTimeout }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+      );
+    }
+
+    for (const [retryDelay, maxRetryDelay] of [
+      [0, 1000],
+      [NaN, 1000],
+      [Infinity, 1000],
+      [1000, 0],
+      [1000, NaN],
+    ]) {
+      assert.throws(
+        () => new StubClient(0, { retryDelay, maxRetryDelay }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+      );
+    }
+  });
+
   test(
     "retries after the initial connection fails",
     { timeout: 1000 },

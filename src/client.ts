@@ -12,6 +12,7 @@
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
 import { rethrowAsync } from "./events.ts";
+import { assertTimeout } from "./timeout.ts";
 
 export type ClientEvents<S = any> = {
   online: (socket: S) => void;
@@ -63,6 +64,21 @@ export abstract class Client<S = any> {
         ? options.connectTimeout
         : defaultConnectTimeout;
     this.signal = options.signal;
+
+    assertTimeout(this.connectTimeout);
+
+    if (
+      !Number.isFinite(this.retryDelay) ||
+      this.retryDelay <= 0 ||
+      !Number.isFinite(this.maxRetryDelay) ||
+      this.maxRetryDelay < this.retryDelay
+    ) {
+      throw new SwarmError(
+        "rejected",
+        "INVALID_TIMEOUT",
+        "invalid retry delay",
+      );
+    }
 
     if (this.signal !== undefined) {
       this.signal.addEventListener("abort", this.onAbort, { once: true });

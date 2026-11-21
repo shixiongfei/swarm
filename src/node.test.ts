@@ -3185,6 +3185,32 @@ describe("Node transport and mesh", () => {
     assert.equal(await consumer.call("math", "add", [1, 2]), 3);
   });
 
+  test("tcp advertise does not inherit a websocket listen path", async (t) => {
+    const provider = new Node({ cluster: "mixed-advertise" });
+    const http = createHttpServer();
+    const port = await freePort();
+
+    await new Promise<void>((resolve) =>
+      http.listen(port, "127.0.0.1", resolve),
+    );
+
+    t.after(() => {
+      provider.close();
+      http.close();
+    });
+
+    await provider.listen(`ws://127.0.0.1:${port}/swarm`, {
+      advertise: `tcp://127.0.0.1:0`,
+      ws: { server: http },
+    });
+
+    const advertised = [
+      ...(provider as unknown as NodeInternals).membership.members.values(),
+    ][0];
+
+    assert.equal(advertised.addr, `tcp://127.0.0.1:${port}`);
+  });
+
   test("listen advertises the configured address", async (t) => {
     const port = await freePort();
     const node = new Node({ cluster: "advertise-on" });
@@ -3885,6 +3911,64 @@ describe("Node transport and mesh", () => {
         () => new Node({ cluster: "node", maxInflight }),
         (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
       );
+    }
+  });
+
+  test("a multicast failure crashes the process when nobody listens", () => {
+    const script = `
+import { Node } from "./node.ts";
+
+const node = new Node({
+  cluster: "no-error-listener",
+  multicast: { group: "not-an-ip" },
+});
+
+await node.listen("tcp://127.0.0.1:0", {
+  advertise: "tcp://127.0.0.1:0",
+});
+
+setTimeout(() => console.log("survived"), 500);
+`;
+
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /MULTICAST_UNAVAILABLE/);
+    assert.doesNotMatch(result.stdout, /survived/);
+  });
+
+  test("rejects invalid hop, dial and handshake configuration", () => {
+    for (const maxHops of [0, -1, 1.5, NaN, Infinity]) {
+      assert.throws(
+        () => new Node({ cluster: "node", maxHops }),
+        (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
+      );
+    }
+
+    for (const dialTtl of [0, -1, 1.5, NaN, Infinity]) {
+      assert.throws(
+        () => new Node({ cluster: "node", dialTtl }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+      );
+    }
+
+    for (const key of ["handshakeTimeout", "maxInboundTimeout"] as const) {
+      for (const value of [0, -1, NaN, Infinity]) {
+        assert.throws(
+          () => new Node({ cluster: "node", [key]: value }),
+          (err: SwarmError) =>
+            err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+        );
+      }
     }
   });
 
