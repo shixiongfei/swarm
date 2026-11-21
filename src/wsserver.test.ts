@@ -185,6 +185,20 @@ test("close stops listening and drops every connection", async () => {
   await closed;
 });
 
+test("terminates a socket that is already closing", () => {
+  const server = new WsServer(host, 0);
+  let terminated = false;
+
+  (server as unknown as { destroy(socket: unknown): void }).destroy({
+    readyState: WebSocket.CLOSING,
+    terminate: () => (terminated = true),
+  });
+
+  server.close();
+
+  assert.equal(terminated, true);
+});
+
 test("listen rejects when the port is already in use", async () => {
   const first = new WsServer(host, 0);
 

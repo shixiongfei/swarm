@@ -184,7 +184,7 @@ export class WsServer extends Server<WebSocket> {
   }
 
   protected destroy(socket: WebSocket) {
-    if (socket.readyState !== WebSocket.OPEN) {
+    if (socket.readyState === WebSocket.CLOSED) {
       return;
     }
 
