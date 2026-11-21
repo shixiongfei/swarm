@@ -311,7 +311,7 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "b", addr: "tcp://[::1]:2" }]);
+    assert.deepEqual(entries, [{ id: "b", addr: "tcp://[::1]:2", startup: 2 }]);
   });
 
   test("close is idempotent", async (t) => {
