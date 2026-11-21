@@ -12,9 +12,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SwarmError } from "./errors.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import { WsClient } from "./wsclient.ts";
 import { WsServer } from "./wsserver.ts";
-import { waitFor } from "./testutil.ts";
+import { waitFor, within } from "./testutil.ts";
 import type { WebSocket as ServerSocket } from "ws";
 
 const host = "127.0.0.1";
@@ -148,6 +149,35 @@ test("close during the tls connect rejects with CLOSED and never emits online", 
   assert.equal(client.socket, undefined);
   assert.equal(server.size, 0);
 
+  server.close();
+});
+
+test("caps the tls payload at the envelope size", async () => {
+  const server = new WsServer(host, 0);
+
+  await server.listen();
+
+  const client = new WsClient(`ws://${host}:${server.port}`, {
+    tls: {},
+    reconnect: false,
+  });
+
+  await client.connect();
+  await waitFor(() => server.size === 1);
+
+  const accepted = server.connections[0];
+
+  assert.ok(accepted);
+
+  const offline = new Promise<boolean>((resolve) => {
+    client.events.on("offline", () => resolve(true));
+  });
+
+  accepted.send("x".repeat(maxEnvelopeSize + 1));
+
+  assert.equal(await within(offline, 2000), true);
+
+  client.close();
   server.close();
 });
 

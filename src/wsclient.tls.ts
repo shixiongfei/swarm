@@ -9,10 +9,14 @@
  * https://github.com/shixiongfei/swarm
  */
 
+import { maxEnvelopeSize } from "./codec.ts";
 import type { WsTlsOptions } from "./wsclient.ts";
 
 export async function openTls(url: string | URL, tls: WsTlsOptions) {
   const { WebSocket: WsSocket } = await import("ws");
 
-  return new WsSocket(url, undefined, tls) as unknown as WebSocket;
+  return new WsSocket(url, undefined, {
+    ...tls,
+    maxPayload: maxEnvelopeSize,
+  }) as unknown as WebSocket;
 }
