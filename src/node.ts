@@ -26,6 +26,7 @@ import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { isMetaData } from "./registry.ts";
+import { assertEncodable } from "./codec.ts";
 import type { LinkCloseReason } from "./nodelink.ts";
 import type { NodeMember } from "./membership.ts";
 import type { ListenOptions } from "./transport.ts";
@@ -314,26 +315,24 @@ export class Node implements Provider {
   register(service: string, methods: Methods, meta?: MetaData) {
     this.checkOpen();
 
-    let ownedMeta: MetaData | undefined;
-
     if (meta !== undefined) {
+      if (!isMetaData(meta)) {
+        throw new SwarmError("rejected", "meta is not a plain object");
+      }
+
       try {
-        ownedMeta = structuredClone(meta);
+        assertEncodable(meta);
       } catch (err) {
         throw new SwarmError(
           "rejected",
-          "meta is not cloneable",
+          "meta is not encodable",
           false,
           "CLONE_FAILED",
         );
       }
-
-      if (!isMetaData(ownedMeta)) {
-        throw new SwarmError("rejected", "meta is not a plain object");
-      }
     }
 
-    this.nodeLocal.register(service, methods, ownedMeta);
+    this.nodeLocal.register(service, methods, meta);
 
     return this;
   }

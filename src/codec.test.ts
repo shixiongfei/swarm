@@ -174,6 +174,89 @@ describe("codec", () => {
     }
   });
 
+  test("rejects values that cannot round-trip", () => {
+    const values: Envelope[] = [
+      {
+        t: "call",
+        id: "call-1",
+        from: "node-a",
+        to: "node-b",
+        service: "math",
+        method: "add",
+        args: [new Map([[{ id: 1 }, 2]])],
+      },
+      {
+        t: "call",
+        id: "call-2",
+        from: "node-a",
+        to: "node-b",
+        service: "math",
+        method: "add",
+        args: [new Set([1])],
+      },
+    ];
+
+    for (const value of values) {
+      assert.throws(
+        () => encode(value),
+        (err: SwarmError) =>
+          err.kind === "failed" &&
+          err.message === "maps and sets cannot be encoded",
+      );
+    }
+
+    const kept: Envelope = {
+      t: "call",
+      id: "call-3",
+      from: "node-a",
+      to: "node-b",
+      service: "math",
+      method: "add",
+      args: [new Date(0), { nested: [1] }],
+    };
+    const binary: Envelope = {
+      ...kept,
+      args: [new Uint8Array([1, 2])],
+    } as Envelope;
+
+    assert.deepEqual(decode(encode(kept)), kept);
+    assert.doesNotThrow(() => encode(binary));
+  });
+
+  test("rejects circular payloads but keeps shared references", () => {
+    const args: Record<string, unknown> = { build: 1 };
+    const shared = { build: 1 };
+
+    args.self = args;
+
+    assert.throws(
+      () =>
+        encode({
+          t: "call",
+          id: "call-1",
+          from: "node-a",
+          to: "node-b",
+          service: "math",
+          method: "add",
+          args: [args],
+        }),
+      (err: SwarmError) =>
+        err.kind === "failed" && err.message === "envelope is not encodable",
+    );
+
+    assert.doesNotThrow(() =>
+      encode({
+        t: "call",
+        id: "call-2",
+        from: "node-a",
+        to: "node-b",
+        service: "math",
+        method: "add",
+        args: [{ a: shared }, { b: shared }],
+      }),
+    );
+  });
+
   test("rejects envelopes that cannot be encoded", () => {
     const values: Envelope[] = [
       {

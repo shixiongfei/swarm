@@ -314,16 +314,25 @@ setTimeout(() => console.log("survived"), 500);
     assert.doesNotMatch(result.stdout, /survived/);
   });
 
-  test("register rejects metadata that cannot be cloned", async () => {
+  test("register rejects metadata that cannot be encoded", async () => {
     const node = makeNode();
 
-    assert.throws(
-      () => node.register("math", { add: () => 0 }, { build: () => {} }),
-      (err: SwarmError) =>
-        err.kind === "rejected" &&
-        err.message === "meta is not cloneable" &&
-        err.code === "CLONE_FAILED",
-    );
+    const cyclic: MetaData = { build: 1 };
+    const values: MetaData[] = [
+      { build: () => {} },
+      { tags: new Set(["a"]) },
+      Object.assign(cyclic, { self: cyclic }),
+    ];
+
+    for (const meta of values) {
+      assert.throws(
+        () => node.register("math", { add: () => 0 }, meta),
+        (err: SwarmError) =>
+          err.kind === "rejected" &&
+          err.message === "meta is not encodable" &&
+          err.code === "CLONE_FAILED",
+      );
+    }
 
     await assert.rejects(
       node.call("math", "add"),
@@ -1107,6 +1116,34 @@ setTimeout(() => console.log("survived"), 500);
 
     assert.equal(local, 1);
     assert.equal(remote, 0);
+  });
+
+  test("call rejects arguments that cannot round-trip", async (t) => {
+    const a = new Node({ cluster: "codec-a" });
+    const b = new Node({ cluster: "codec-b" });
+
+    t.after(() => {
+      a.close();
+      b.close();
+    });
+
+    b.register("math", { add: (x: number, y: number) => x + y });
+
+    const address = await b.listen("tcp://127.0.0.1:0");
+
+    await a.connect(`tcp://127.0.0.1:${address.port}`);
+    await waitFor(() => a.snapshot().services.length === 1);
+
+    const started = Date.now();
+
+    await assert.rejects(
+      a.call("math", "add", [new Map([[{}, 1]]), 2], { timeout: 200 }),
+      (err: SwarmError) =>
+        err.kind === "failed" && err.code === "ENVELOPE_INVALID",
+    );
+
+    assert.ok(Date.now() - started < 500);
+    assert.equal(await a.call("math", "add", [1, 2]), 3);
   });
 
   test("routes to another link after the first link closes", async (t) => {

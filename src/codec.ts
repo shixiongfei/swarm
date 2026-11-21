@@ -25,7 +25,67 @@ const packr = new Packr({
 
 const unpackr = new Unpackr({ useRecords: false });
 
+export function assertEncodable(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): void {
+  if (typeof value === "function" || typeof value === "symbol") {
+    throw new SwarmError(
+      "failed",
+      "envelope is not encodable",
+      false,
+      "ENVELOPE_INVALID",
+    );
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+
+  if (value instanceof Map || value instanceof Set) {
+    throw new SwarmError(
+      "failed",
+      "maps and sets cannot be encoded",
+      false,
+      "ENVELOPE_INVALID",
+    );
+  }
+
+  if (
+    value instanceof Date ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value)
+  ) {
+    return;
+  }
+
+  if (seen.has(value)) {
+    throw new SwarmError(
+      "failed",
+      "envelope is not encodable",
+      false,
+      "ENVELOPE_INVALID",
+    );
+  }
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertEncodable(item, seen);
+    }
+  } else {
+    for (const key of Object.keys(value)) {
+      assertEncodable((value as Record<string, unknown>)[key], seen);
+    }
+  }
+
+  seen.delete(value);
+}
+
 export function encode(message: Envelope): Uint8Array {
+  assertEncodable(message);
+
   try {
     return packr.pack(message);
   } catch (err) {
