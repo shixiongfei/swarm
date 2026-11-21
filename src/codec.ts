@@ -33,9 +33,9 @@ export function assertEncodable(
   if (typeof value === "function" || typeof value === "symbol") {
     throw new SwarmError(
       "failed",
+      "ENVELOPE_INVALID",
       "envelope is not encodable",
       false,
-      "ENVELOPE_INVALID",
     );
   }
 
@@ -46,9 +46,9 @@ export function assertEncodable(
   if (value instanceof Map || value instanceof Set) {
     throw new SwarmError(
       "failed",
+      "ENVELOPE_INVALID",
       "maps and sets cannot be encoded",
       false,
-      "ENVELOPE_INVALID",
     );
   }
 
@@ -63,18 +63,18 @@ export function assertEncodable(
   if (!Array.isArray(value) && !isPlainObject(value)) {
     throw new SwarmError(
       "failed",
+      "ENVELOPE_INVALID",
       "only plain objects, dates and buffers can be encoded",
       false,
-      "ENVELOPE_INVALID",
     );
   }
 
   if (seen.has(value)) {
     throw new SwarmError(
       "failed",
+      "ENVELOPE_INVALID",
       "envelope is not encodable",
       false,
-      "ENVELOPE_INVALID",
     );
   }
 
@@ -105,9 +105,9 @@ export function encode(message: Envelope): Uint8Array {
 
     throw new SwarmError(
       "failed",
+      "ENVELOPE_INVALID",
       "envelope is not encodable",
       false,
-      "ENVELOPE_INVALID",
     );
   }
 }

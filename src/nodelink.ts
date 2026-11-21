@@ -15,6 +15,7 @@ import { protocolVersion } from "./envelope.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
+import type { ErrorCode } from "./errors.ts";
 import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
 import type { Envelope, PeerEntry } from "./envelope.ts";
@@ -89,7 +90,7 @@ export class NodeLink implements Observable {
   private closed = false;
   private opened = false;
   private reason: LinkCloseReason = "close";
-  private reasonCode = "CLOSED";
+  private reasonCode: ErrorCode = "CLOSED";
   private reasonMessage = "link is closed";
   private lastSeen = Date.now();
   private heartbeat?: ReturnType<typeof setInterval>;
@@ -191,9 +192,9 @@ export class NodeLink implements Observable {
             message.id,
             new SwarmError(
               message.kind,
+              message.code,
               message.message,
               message.retriable,
-              message.code,
             ),
           );
         }
@@ -370,7 +371,7 @@ export class NodeLink implements Observable {
     }
 
     if (handler === undefined) {
-      throw new SwarmError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "REJECTED", "watch handler is required");
     }
 
     return this.registry.watch(service, handler);
@@ -388,7 +389,7 @@ export class NodeLink implements Observable {
   ) {
     if (this.closed) {
       return Promise.reject(
-        new SwarmError("failed", "link is closed", true, "CLOSED"),
+        new SwarmError("failed", "CLOSED", "link is closed", true),
       );
     }
 
@@ -399,9 +400,9 @@ export class NodeLink implements Observable {
       return Promise.reject(
         new SwarmError(
           "rejected",
+          "CONGESTED",
           "too many in-flight calls",
           true,
-          "CONGESTED",
         ),
       );
     }
@@ -412,22 +413,27 @@ export class NodeLink implements Observable {
           this.link.call(id, to, service, method, args, timeout, ttl, target),
         ),
       timeout,
-      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
+      () =>
+        new SwarmError(
+          "timeout",
+          "TIMEOUT",
+          `call timed out: ${service}.${method}`,
+        ),
       (cause) =>
         cause instanceof Error && cause.name === "DataCloneError"
           ? new SwarmError(
               "failed",
+              "CLONE_FAILED",
               "arguments are not cloneable",
               false,
-              "CLONE_FAILED",
             )
           : cause instanceof SwarmError
             ? cause
             : new SwarmError(
                 "failed",
+                "CLOSED",
                 cause instanceof Error ? cause.message : String(cause),
                 true,
-                "CLOSED",
               ),
       signal,
     );
@@ -606,7 +612,7 @@ export class NodeLink implements Observable {
     return true;
   }
 
-  private get sendCloseCode() {
+  private get sendCloseCode(): ErrorCode {
     return this.opened ? "CLOSED" : "HANDSHAKE_FAILED";
   }
 
@@ -660,9 +666,9 @@ export class NodeLink implements Observable {
             to,
             new SwarmError(
               "failed",
+              "CLONE_FAILED",
               "reply is not cloneable",
               false,
-              "CLONE_FAILED",
             ),
           ),
         );
@@ -683,7 +689,7 @@ export class NodeLink implements Observable {
   private dispose(
     message: string,
     reason: LinkCloseReason = "close",
-    code = "CLOSED",
+    code: ErrorCode = "CLOSED",
   ) {
     if (this.closed) {
       return;
@@ -704,7 +710,7 @@ export class NodeLink implements Observable {
       this.heartbeat = undefined;
     }
 
-    this.pending.clear(() => new SwarmError("failed", message, false, code));
+    this.pending.clear(() => new SwarmError("failed", code, message, false));
 
     for (const dispose of this.disposes) {
       dispose();

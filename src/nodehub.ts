@@ -91,7 +91,7 @@ export class NodeHub implements Observable {
     }
 
     if (handler === undefined) {
-      throw new SwarmError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "REJECTED", "watch handler is required");
     }
 
     return this.watcher.watch(service, handler);

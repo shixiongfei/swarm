@@ -101,14 +101,14 @@ export class LinkWs extends Link {
     if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError(
         "failed",
+        "ENVELOPE_INVALID",
         "envelope is too large",
         false,
-        "ENVELOPE_INVALID",
       );
     }
 
     if (this.socket.bufferedAmount > maxQueueSize) {
-      throw new SwarmError("failed", "link is congested", true, "CONGESTED");
+      throw new SwarmError("failed", "CONGESTED", "link is congested", true);
     }
 
     this.socket.send(payload as Uint8Array<ArrayBuffer>);

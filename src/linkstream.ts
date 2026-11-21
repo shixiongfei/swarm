@@ -121,9 +121,9 @@ export class LinkStream extends Link {
     if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError(
         "failed",
+        "ENVELOPE_INVALID",
         "envelope is too large",
         false,
-        "ENVELOPE_INVALID",
       );
     }
 
@@ -134,7 +134,7 @@ export class LinkStream extends Link {
 
     if (this.writable === false) {
       if (this.queued + frame.byteLength > maxQueueSize) {
-        throw new SwarmError("failed", "link is congested", true, "CONGESTED");
+        throw new SwarmError("failed", "CONGESTED", "link is congested", true);
       }
 
       this.queued += frame.byteLength;

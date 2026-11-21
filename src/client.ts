@@ -65,11 +65,11 @@ export abstract class Client<S = any> {
 
   async connect(): Promise<this> {
     if (this.closed) {
-      throw new SwarmError("rejected", "client is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "client is closed", false);
     }
 
     if (this.connecting) {
-      throw new SwarmError("rejected", "client is connecting");
+      throw new SwarmError("rejected", "REJECTED", "client is connecting");
     }
 
     if (this.socket !== undefined) {
@@ -95,7 +95,7 @@ export abstract class Client<S = any> {
               this.socket = undefined;
             }
 
-            reject(new SwarmError("timeout", "connect timed out"));
+            reject(new SwarmError("timeout", "TIMEOUT", "connect timed out"));
           }, this.connectTimeout);
         }),
       ]);

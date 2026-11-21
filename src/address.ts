@@ -27,7 +27,7 @@ export function parseUrl(url: string | URL): ParsedUrl {
   try {
     parsed = new URL(url);
   } catch {
-    throw new SwarmError("rejected", "invalid url");
+    throw new SwarmError("rejected", "REJECTED", "invalid url");
   }
 
   if (
@@ -39,6 +39,7 @@ export function parseUrl(url: string | URL): ParsedUrl {
   ) {
     throw new SwarmError(
       "rejected",
+      "REJECTED",
       `invalid url: ${parsed.protocol}//${parsed.host}`,
     );
   }
@@ -51,17 +52,29 @@ export function parseUrl(url: string | URL): ParsedUrl {
     : Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
-    throw new SwarmError("rejected", `invalid port: ${parsed.hostname}`);
+    throw new SwarmError(
+      "rejected",
+      "REJECTED",
+      `invalid port: ${parsed.hostname}`,
+    );
   }
 
   const path = normalizePath(parsed.pathname);
 
   if (parsed.protocol === "tcp:" && path !== "/") {
-    throw new SwarmError("rejected", "tcp url does not support a path");
+    throw new SwarmError(
+      "rejected",
+      "REJECTED",
+      "tcp url does not support a path",
+    );
   }
 
   if (parsed.hash !== "") {
-    throw new SwarmError("rejected", "url does not support a fragment");
+    throw new SwarmError(
+      "rejected",
+      "REJECTED",
+      "url does not support a fragment",
+    );
   }
 
   let secret = "";
@@ -70,7 +83,7 @@ export function parseUrl(url: string | URL): ParsedUrl {
     try {
       secret = decodeURIComponent(parsed.password);
     } catch {
-      throw new SwarmError("rejected", "invalid secret");
+      throw new SwarmError("rejected", "REJECTED", "invalid secret");
     }
   }
 

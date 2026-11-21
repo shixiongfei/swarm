@@ -10,8 +10,9 @@
  */
 
 import { isMetaData } from "./registry.ts";
-import { errorKinds } from "./errors.ts";
-import type { ErrorKind } from "./errors.ts";
+import { isTimeout } from "./timeout.ts";
+import { errorCodes, errorKinds } from "./errors.ts";
+import type { ErrorCode, ErrorKind } from "./errors.ts";
 import type { MetaData } from "./registry.ts";
 
 const majorVersion = 1;
@@ -59,7 +60,7 @@ export type Envelope =
       from: string;
       to: string;
       kind: ErrorKind;
-      code: string;
+      code: ErrorCode;
       retriable: boolean;
       message: string;
     }
@@ -134,8 +135,7 @@ function isCall(
     typeof message.service !== "string" ||
     typeof message.method !== "string" ||
     !Array.isArray(message.args) ||
-    (message.timeout !== undefined &&
-      (!Number.isFinite(message.timeout) || message.timeout <= 0)) ||
+    (message.timeout !== undefined && !isTimeout(message.timeout)) ||
     (message.ttl !== undefined &&
       (!Number.isInteger(message.ttl) || message.ttl < 0))
   ) {
@@ -167,7 +167,7 @@ function isError(
     typeof message.from !== "string" ||
     typeof message.to !== "string" ||
     !errorKinds.includes(message.kind) ||
-    typeof message.code !== "string" ||
+    !errorCodes.includes(message.code) ||
     typeof message.retriable !== "boolean" ||
     typeof message.message !== "string"
   ) {

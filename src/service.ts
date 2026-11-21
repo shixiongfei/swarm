@@ -66,9 +66,9 @@ class ServiceImpl<M extends Methods> implements Service<M> {
     if (this.node !== undefined) {
       throw new SwarmError(
         "rejected",
+        "SERVICE_ATTACHED",
         `service ${this.name} is already attached`,
         false,
-        "SERVICE_ATTACHED",
       );
     }
 
@@ -227,9 +227,9 @@ class ServiceImpl<M extends Methods> implements Service<M> {
         ? error
         : new SwarmError(
             "failed",
+            "SETUP_FAILED",
             error instanceof Error ? error.message : String(error),
             false,
-            "SETUP_FAILED",
           );
 
     this.detach();

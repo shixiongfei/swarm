@@ -69,7 +69,12 @@ export class Local {
     const methods = this.services.get(service);
 
     if (methods === undefined) {
-      throw new SwarmError("not-found", `service not found: ${service}`, true);
+      throw new SwarmError(
+        "not-found",
+        "NOT_FOUND",
+        `service not found: ${service}`,
+        true,
+      );
     }
 
     const handler = hasOwn(methods, method) ? methods[method] : undefined;
@@ -77,6 +82,7 @@ export class Local {
     if (typeof handler !== "function") {
       throw new SwarmError(
         "not-found",
+        "NOT_FOUND",
         `method not found: ${service}.${method}`,
         true,
       );
@@ -91,7 +97,12 @@ export class Local {
     return withTimeout(
       value,
       timeout,
-      () => new SwarmError("timeout", `call timed out: ${service}.${method}`),
+      () =>
+        new SwarmError(
+          "timeout",
+          "TIMEOUT",
+          `call timed out: ${service}.${method}`,
+        ),
     );
   }
 
@@ -117,7 +128,7 @@ export class Local {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "local is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "local is closed", false);
     }
   }
 }

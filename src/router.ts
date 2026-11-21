@@ -78,7 +78,12 @@ export class Router {
     const remaining = ttl === undefined ? this.maxHops : ttl;
 
     if (remaining <= 0) {
-      throw new SwarmError("not-found", `service not found: ${service}`, true);
+      throw new SwarmError(
+        "not-found",
+        "NOT_FOUND",
+        `service not found: ${service}`,
+        true,
+      );
     }
 
     const outbound = this.links();
@@ -118,12 +123,14 @@ export class Router {
     }
 
     if (signal.aborted) {
-      return Promise.reject(new SwarmError("cancelled", "call was cancelled"));
+      return Promise.reject(
+        new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+      );
     }
 
     return new Promise((resolve, reject) => {
       const onAbort = () =>
-        reject(new SwarmError("cancelled", "call was cancelled"));
+        reject(new SwarmError("cancelled", "CANCELLED", "call was cancelled"));
 
       signal.addEventListener("abort", onAbort, { once: true });
 
@@ -155,6 +162,7 @@ export class Router {
     if (instances.length === 0) {
       throw new SwarmError(
         "not-found",
+        "NOT_FOUND",
         `service ${service} is not available`,
         true,
       );

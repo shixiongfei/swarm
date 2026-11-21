@@ -113,9 +113,9 @@ test("disposes the link when the handshake announcement fails", () => {
   link.failSendType = "up";
   link.nextError = new SwarmError(
     "failed",
+    "CONGESTED",
     "link is congested",
     true,
-    "CONGESTED",
   );
 
   link.events.emit("envelope", {
@@ -148,9 +148,9 @@ test("does not leak an unhandled rejection when a failure reply is congested", a
   link.failNextSend = true;
   link.nextError = new SwarmError(
     "failed",
+    "CONGESTED",
     "link is congested",
     true,
-    "CONGESTED",
   );
 
   link.events.emit("envelope", {
@@ -182,9 +182,9 @@ test("reports a reply that cannot be encoded", async (t) => {
   link.failNextSend = true;
   link.nextError = new SwarmError(
     "failed",
+    "ENVELOPE_INVALID",
     "envelope is not encodable",
     false,
-    "ENVELOPE_INVALID",
   );
 
   link.events.emit("envelope", {
@@ -256,9 +256,9 @@ test("closes the link when a state update cannot be sent", (t) => {
   link.failNextSend = true;
   link.nextError = new SwarmError(
     "failed",
+    "CONGESTED",
     "link is congested",
     true,
-    "CONGESTED",
   );
 
   nodeLink.register({ service: "math", nodeId: "other-node" });
@@ -280,9 +280,9 @@ test("drops a state update that cannot be encoded", (t) => {
   link.failNextSend = true;
   link.nextError = new SwarmError(
     "failed",
+    "ENVELOPE_INVALID",
     "envelope is not encodable",
     false,
-    "ENVELOPE_INVALID",
   );
 
   nodeLink.register({ service: "math", nodeId: "other-node" });
@@ -296,9 +296,9 @@ test("closes the link after repeated send failures", (t) => {
   const { link, nodeLink } = attachStub(local);
   const congested = new SwarmError(
     "failed",
+    "CONGESTED",
     "link is congested",
     true,
-    "CONGESTED",
   );
 
   t.after(() => {
@@ -442,7 +442,7 @@ describe("NodeLink", () => {
 
     a.register("boom", {
       fail: () => {
-        throw new SwarmError("rejected", "denied");
+        throw new SwarmError("rejected", "REJECTED", "denied");
       },
     });
 
@@ -471,7 +471,7 @@ describe("NodeLink", () => {
 
     a.register("boom", {
       fail: () => {
-        throw new SwarmError("failed", "peer is gone", true, "ECONNRESET");
+        throw new SwarmError("failed", "CONGESTED", "peer is gone", true);
       },
     });
 
@@ -486,7 +486,7 @@ describe("NodeLink", () => {
       b.call("boom", "fail"),
       (err: SwarmError) =>
         err.kind === "failed" &&
-        err.code === "ECONNRESET" &&
+        err.code === "CONGESTED" &&
         err.retriable === true &&
         err.message === "peer is gone",
     );

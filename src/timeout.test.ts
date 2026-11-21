@@ -17,7 +17,11 @@ import { withTimeout } from "./timeout.ts";
 describe("withTimeout", () => {
   test("resolves a value before the deadline", async () => {
     assert.equal(
-      await withTimeout(7, 50, () => new SwarmError("timeout", "late")),
+      await withTimeout(
+        7,
+        50,
+        () => new SwarmError("timeout", "TIMEOUT", "late"),
+      ),
       7,
     );
   });
@@ -27,7 +31,7 @@ describe("withTimeout", () => {
       await withTimeout(
         Promise.resolve(7),
         50,
-        () => new SwarmError("timeout", "late"),
+        () => new SwarmError("timeout", "TIMEOUT", "late"),
       ),
       7,
     );
@@ -40,7 +44,7 @@ describe("withTimeout", () => {
       withTimeout(
         Promise.reject(failure),
         50,
-        () => new SwarmError("timeout", "late"),
+        () => new SwarmError("timeout", "TIMEOUT", "late"),
       ),
       (err: Error) => err === failure,
     );
@@ -53,7 +57,7 @@ describe("withTimeout", () => {
       await withTimeout(
         7,
         20,
-        () => new SwarmError("timeout", "late"),
+        () => new SwarmError("timeout", "TIMEOUT", "late"),
         () => {
           calls += 1;
         },
@@ -73,7 +77,7 @@ describe("withTimeout", () => {
       withTimeout(
         new Promise<never>(() => {}),
         20,
-        () => new SwarmError("timeout", "late"),
+        () => new SwarmError("timeout", "TIMEOUT", "late"),
         () => {
           calls += 1;
         },

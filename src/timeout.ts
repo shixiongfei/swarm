@@ -9,7 +9,22 @@
  * https://github.com/shixiongfei/swarm
  */
 
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
+
+export function isTimeout(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export function assertTimeout(timeout: number): void {
+  if (!isTimeout(timeout)) {
+    throw new SwarmError(
+      "rejected",
+      "INVALID_TIMEOUT",
+      `invalid timeout: ${timeout}`,
+      false,
+    );
+  }
+}
 
 export function withTimeout<T>(
   value: T | Promise<T>,

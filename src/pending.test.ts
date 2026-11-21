@@ -24,9 +24,14 @@ function makePending() {
     ids.push(id);
   };
 
-  const timeoutError = () => new SwarmError("timeout", "call timed out");
+  const timeoutError = () =>
+    new SwarmError("timeout", "TIMEOUT", "call timed out");
   const sendError = (cause: unknown) =>
-    new SwarmError("failed", cause instanceof Error ? cause.message : "failed");
+    new SwarmError(
+      "failed",
+      "FAILED",
+      cause instanceof Error ? cause.message : "failed",
+    );
 
   return { pending, ids, send, timeoutError, sendError };
 }
@@ -47,7 +52,7 @@ describe("PendingCalls", () => {
   test("rejects a call by id", async () => {
     const { pending, ids, send, timeoutError, sendError } = makePending();
     const reply = pending.call(send, 1000, timeoutError, sendError);
-    const failure = new SwarmError("failed", "boom");
+    const failure = new SwarmError("failed", "FAILED", "boom");
 
     pending.reject(ids[0], failure);
 
@@ -60,7 +65,7 @@ describe("PendingCalls", () => {
 
     assert.doesNotThrow(() => pending.settle("missing", 1));
     assert.doesNotThrow(() =>
-      pending.reject("missing", new SwarmError("failed", "boom")),
+      pending.reject("missing", new SwarmError("failed", "FAILED", "boom")),
     );
     assert.equal(pending.size, 0);
   });
@@ -146,7 +151,7 @@ describe("PendingCalls", () => {
     const { pending, send, timeoutError, sendError } = makePending();
     const first = pending.call(send, 1000, timeoutError, sendError);
     const second = pending.call(send, 1000, timeoutError, sendError);
-    const failure = new SwarmError("failed", "node is closed");
+    const failure = new SwarmError("failed", "FAILED", "node is closed");
 
     assert.equal(pending.size, 2);
 
@@ -189,7 +194,7 @@ describe("PendingCalls", () => {
       controller.signal,
     );
 
-    pending.reject(ids[0], new SwarmError("failed", "boom"));
+    pending.reject(ids[0], new SwarmError("failed", "FAILED", "boom"));
 
     await assert.rejects(reply, (err: SwarmErrorType) => err.kind === "failed");
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
@@ -233,7 +238,7 @@ describe("PendingCalls", () => {
 
     assert.equal(getEventListeners(controller.signal, "abort").length, 2);
 
-    pending.clear(() => new SwarmError("failed", "node is closed"));
+    pending.clear(() => new SwarmError("failed", "FAILED", "node is closed"));
 
     await assert.rejects(first);
     await assert.rejects(second);

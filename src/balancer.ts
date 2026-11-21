@@ -110,27 +110,36 @@ export class Balancer {
     const links = this.order(service, ...sets);
 
     if (links.length === 0) {
-      throw new SwarmError("not-found", `service not found: ${service}`, true);
+      throw new SwarmError(
+        "not-found",
+        "NOT_FOUND",
+        `service not found: ${service}`,
+        true,
+      );
     }
 
     const started = Date.now();
 
     const attempt = async (index: number): Promise<unknown> => {
       if (signal !== undefined && signal.aborted) {
-        throw new SwarmError("cancelled", "call was cancelled");
+        throw new SwarmError("cancelled", "CANCELLED", "call was cancelled");
       }
 
       const link = links[index];
       const peer = link.peerId;
 
       if (peer === undefined) {
-        throw new SwarmError("failed", "link is not connected", true, "CLOSED");
+        throw new SwarmError("failed", "CLOSED", "link is not connected", true);
       }
 
       const remaining = timeout - (Date.now() - started);
 
       if (remaining <= 0) {
-        throw new SwarmError("timeout", `call timed out: ${service}.${method}`);
+        throw new SwarmError(
+          "timeout",
+          "TIMEOUT",
+          `call timed out: ${service}.${method}`,
+        );
       }
 
       try {

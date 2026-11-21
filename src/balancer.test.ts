@@ -151,7 +151,12 @@ describe("Balancer", () => {
   test("invoke retries the next link when a peer misses the service", async () => {
     const balancer = new Balancer();
     const stale = link("stale", async () => {
-      throw new SwarmError("not-found", "service not found: math", true);
+      throw new SwarmError(
+        "not-found",
+        "NOT_FOUND",
+        "service not found: math",
+        true,
+      );
     });
     const healthy = link("healthy", async () => 7);
 
@@ -175,7 +180,7 @@ describe("Balancer", () => {
     let calls = 0;
     const rejecting = link("rejecting", async () => {
       calls += 1;
-      throw new SwarmError("rejected", "bad arguments");
+      throw new SwarmError("rejected", "REJECTED", "bad arguments");
     });
     const healthy = link("healthy", async () => 7);
 
@@ -194,7 +199,7 @@ describe("Balancer", () => {
     let calls = 0;
     const slow = link("slow", async () => {
       calls += 1;
-      throw new SwarmError("timeout", "call timed out: math.add");
+      throw new SwarmError("timeout", "TIMEOUT", "call timed out: math.add");
     });
     const healthy = link("healthy", async () => {
       calls += 1;
@@ -216,7 +221,7 @@ describe("Balancer", () => {
     const seen: number[] = [];
     const slow = {
       ...link("slow", async () => {
-        throw new SwarmError("failed", "link is closed", true, "CLOSED");
+        throw new SwarmError("failed", "CLOSED", "link is closed", true);
       }),
       call: (...args: unknown[]) => {
         seen.push(args[4] as number);
@@ -224,7 +229,7 @@ describe("Balancer", () => {
           setTimeout(
             () =>
               reject(
-                new SwarmError("failed", "link is closed", true, "CLOSED"),
+                new SwarmError("failed", "CLOSED", "link is closed", true),
               ),
             20,
           );
@@ -264,7 +269,14 @@ describe("Balancer", () => {
         new Promise<never>((_resolve, reject) => {
           calls += 1;
           setTimeout(
-            () => reject(new SwarmError("timeout", "call timed out: math.add")),
+            () =>
+              reject(
+                new SwarmError(
+                  "timeout",
+                  "TIMEOUT",
+                  "call timed out: math.add",
+                ),
+              ),
             50,
           );
         }),
@@ -289,7 +301,7 @@ describe("Balancer", () => {
     let calls = 0;
     const slow = link("slow", async () => {
       calls += 1;
-      throw new SwarmError("timeout", "call timed out: math.add");
+      throw new SwarmError("timeout", "TIMEOUT", "call timed out: math.add");
     });
     const healthy = link("healthy", async () => {
       calls += 1;

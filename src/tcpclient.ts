@@ -40,8 +40,8 @@ export class TcpClient extends Client<Socket> {
 
         reject(
           this.isClosed
-            ? new SwarmError("rejected", "client is closed", false, "CLOSED")
-            : new SwarmError("failed", error.message),
+            ? new SwarmError("rejected", "CLOSED", "client is closed", false)
+            : new SwarmError("failed", "FAILED", error.message),
         );
       };
 
@@ -50,8 +50,12 @@ export class TcpClient extends Client<Socket> {
 
         reject(
           this.isClosed
-            ? new SwarmError("rejected", "client is closed", false, "CLOSED")
-            : new SwarmError("failed", "connection closed before connect"),
+            ? new SwarmError("rejected", "CLOSED", "client is closed", false)
+            : new SwarmError(
+                "failed",
+                "FAILED",
+                "connection closed before connect",
+              ),
         );
       };
 

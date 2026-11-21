@@ -127,9 +127,9 @@ export class Discovery {
       this.onError(
         new SwarmError(
           "failed",
+          "MULTICAST_UNAVAILABLE",
           `multicast is unavailable: ${err instanceof Error ? err.message : String(err)}`,
           false,
-          "MULTICAST_UNAVAILABLE",
         ),
       );
     }

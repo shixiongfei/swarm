@@ -10,7 +10,7 @@
  */
 
 import { eventlite } from "eventlite.js";
-import { errorCode, SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
 import type { Instance } from "./registry.ts";
 import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
@@ -108,7 +108,7 @@ export abstract class Link implements Enveloper {
 
   fail(id: string, to: string, error: unknown) {
     const kind = error instanceof SwarmError ? error.kind : "failed";
-    const code = errorCode(error);
+    const code = error instanceof SwarmError ? error.code : "FAILED";
     const retriable = error instanceof SwarmError ? error.retriable : false;
     const message = error instanceof Error ? error.message : String(error);
 

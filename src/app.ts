@@ -48,7 +48,7 @@ class AppImpl implements App {
   start(): Promise<App> {
     if (this.stopped) {
       return Promise.reject(
-        new SwarmError("rejected", "app is stopped", false, "APP_CLOSED"),
+        new SwarmError("rejected", "APP_CLOSED", "app is stopped", false),
       );
     }
 

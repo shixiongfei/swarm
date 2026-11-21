@@ -25,8 +25,10 @@ import { PubSub } from "./pubsub.ts";
 import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
+import { assertTimeout } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable } from "./codec.ts";
+import type { ErrorCode } from "./errors.ts";
 import type { LinkCloseReason } from "./nodelink.ts";
 import type { NodeMember } from "./membership.ts";
 import type { ListenOptions } from "./transport.ts";
@@ -92,7 +94,7 @@ export type NodeSnapshot = {
 
 export type NodeLinkDown = NodeLinkInfo & {
   reason: LinkCloseReason;
-  code: string;
+  code: ErrorCode;
   message: string;
 };
 
@@ -149,6 +151,8 @@ export class Node implements Provider {
 
     this.callTimeout =
       config.callTimeout !== undefined ? config.callTimeout : 5000;
+
+    assertTimeout(this.callTimeout);
 
     const memberTtl = config.memberTtl !== undefined ? config.memberTtl : 60000;
     const dialTtl =
@@ -319,7 +323,11 @@ export class Node implements Provider {
 
     if (meta !== undefined) {
       if (!isMetaData(meta)) {
-        throw new SwarmError("rejected", "meta is not a plain object");
+        throw new SwarmError(
+          "rejected",
+          "REJECTED",
+          "meta is not a plain object",
+        );
       }
 
       try {
@@ -328,9 +336,9 @@ export class Node implements Provider {
       } catch (err) {
         throw new SwarmError(
           "rejected",
+          "CLONE_FAILED",
           "meta is not encodable",
           false,
-          "CLONE_FAILED",
         );
       }
     }
@@ -375,6 +383,7 @@ export class Node implements Provider {
     if (advertised !== undefined && !isAdvertisable(advertised.host)) {
       throw new SwarmError(
         "rejected",
+        "REJECTED",
         `invalid advertise host: ${advertised.host}`,
       );
     }
@@ -383,7 +392,7 @@ export class Node implements Provider {
 
     if (this.closed) {
       this.transport.close(server);
-      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "node is closed", false);
     }
 
     if (advertised !== undefined) {
@@ -502,6 +511,10 @@ export class Node implements Provider {
     target?: string,
     signal?: AbortSignal,
   ) {
+    if (timeout !== undefined) {
+      assertTimeout(timeout);
+    }
+
     return this.router.invoke(
       service,
       method,
@@ -593,6 +606,10 @@ export class Node implements Provider {
   ) {
     this.checkOpen();
 
+    assertTimeout(
+      options.timeout === undefined ? this.callTimeout : options.timeout,
+    );
+
     return this.router.callAll(service, method, args, options);
   }
 
@@ -620,7 +637,7 @@ export class Node implements Provider {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "node is closed", false);
     }
   }
 

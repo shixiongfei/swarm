@@ -42,7 +42,7 @@ export class PendingCalls {
 
       if (signal !== undefined && signal.aborted) {
         this.entries.delete(id);
-        reject(new SwarmError("cancelled", "call was cancelled"));
+        reject(new SwarmError("cancelled", "CANCELLED", "call was cancelled"));
         return;
       }
 
@@ -63,7 +63,9 @@ export class PendingCalls {
           }
 
           this.entries.delete(id);
-          current.reject(new SwarmError("cancelled", "call was cancelled"));
+          current.reject(
+            new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+          );
         };
 
         signal.addEventListener("abort", onAbort, { once: true });

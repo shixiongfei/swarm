@@ -203,7 +203,7 @@ export class Transport {
 
     if (this.disposed) {
       client.close();
-      throw new SwarmError("rejected", "node is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "node is closed", false);
     }
 
     this.track(client, addr);
@@ -233,12 +233,20 @@ export class Transport {
       ws !== undefined && ws.path !== undefined ? normalizePath(ws.path) : path;
 
     if (secure && server === undefined && tls === undefined) {
-      throw new SwarmError("rejected", "wss listen requires tls options");
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        "wss listen requires tls options",
+      );
     }
 
     if (protocol === "tcp:") {
       if (ws !== undefined) {
-        throw new SwarmError("rejected", "tcp listen does not support http");
+        throw new SwarmError(
+          "rejected",
+          "REJECTED",
+          "tcp listen does not support http",
+        );
       }
 
       const { TcpServer } = await import("./tcpserver.ts");

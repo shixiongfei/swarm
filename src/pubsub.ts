@@ -73,7 +73,7 @@ export class PubSub {
             nodeLink.publish(topic, data, source, pubId, remaining - 1);
           } catch (err) {
             if (err instanceof Error && err.name === "DataCloneError") {
-              throw new SwarmError("failed", "data is not cloneable");
+              throw new SwarmError("failed", "FAILED", "data is not cloneable");
             }
 
             if (err instanceof SwarmError && err.code === "ENVELOPE_INVALID") {

@@ -210,6 +210,44 @@ describe("Node", () => {
     );
   });
 
+  test("call rejects a timeout that is not a positive finite number", async (t) => {
+    const node = makeNode();
+
+    t.after(() => node.close());
+
+    node.register("math", { add: (a: number, b: number) => a + b });
+
+    const rejected = (err: SwarmError) =>
+      err.kind === "rejected" && err.code === "INVALID_TIMEOUT";
+
+    for (const timeout of [Infinity, NaN, 0, -1]) {
+      await assert.rejects(
+        node.call("math", "add", [1, 2], { timeout }),
+        rejected,
+      );
+      await assert.rejects(
+        node.callTo(node.nodeId, "math", "add", [1, 2], { timeout }),
+        rejected,
+      );
+      await assert.rejects(
+        node.callAll("math", "add", [1, 2], { timeout }),
+        rejected,
+      );
+    }
+
+    assert.equal(await node.call("math", "add", [1, 2]), 3);
+  });
+
+  test("a node rejects an invalid default call timeout", () => {
+    for (const callTimeout of [Infinity, NaN, 0, -1]) {
+      assert.throws(
+        () => new Node({ cluster: "test", callTimeout }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
+      );
+    }
+  });
+
   test("a closed node reports the CLOSED code", async () => {
     const node = makeNode();
 
@@ -3550,7 +3588,7 @@ test("relays a cancelled failure instead of timing out", async (t) => {
   second.attach(port2);
   second.register("svc", {
     boom: () => {
-      throw new SwarmError("cancelled", "stop");
+      throw new SwarmError("cancelled", "CANCELLED", "stop");
     },
   });
 

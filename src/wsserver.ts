@@ -119,7 +119,7 @@ export class WsServer extends Server<WebSocket> {
 
   async listen() {
     if (this.isClosed) {
-      throw new SwarmError("rejected", "ws server is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "ws server is closed", false);
     }
 
     if (this.http.listening) {
@@ -127,12 +127,16 @@ export class WsServer extends Server<WebSocket> {
     }
 
     if (!this.owned) {
-      throw new SwarmError("rejected", "http server is not listening");
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        "http server is not listening",
+      );
     }
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
-        reject(new SwarmError("failed", error.message));
+        reject(new SwarmError("failed", "FAILED", error.message));
       };
 
       this.http.once("error", onError);
@@ -151,7 +155,7 @@ export class WsServer extends Server<WebSocket> {
 
     if (this.isClosed) {
       this.http.close();
-      throw new SwarmError("rejected", "ws server is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "ws server is closed", false);
     }
 
     this.http.on("error", (error) => this.events.emit("error", error));

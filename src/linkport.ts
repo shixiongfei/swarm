@@ -28,7 +28,7 @@ export class LinkPort extends Link {
     super(nodeId);
 
     if (linked.has(port)) {
-      throw new SwarmError("rejected", "port is already linked");
+      throw new SwarmError("rejected", "REJECTED", "port is already linked");
     }
 
     linked.add(port);
@@ -88,9 +88,9 @@ export class LinkPort extends Link {
 
       throw new SwarmError(
         "failed",
+        "CLOSED",
         err instanceof Error ? err.message : String(err),
         true,
-        "CLOSED",
       );
     }
   }

@@ -148,7 +148,7 @@ export class Registry implements Observable {
     }
 
     if (handler === undefined) {
-      throw new SwarmError("rejected", "watch handler is required");
+      throw new SwarmError("rejected", "REJECTED", "watch handler is required");
     }
 
     return this.watchService(service, handler);
@@ -243,7 +243,7 @@ export class Registry implements Observable {
 
   private checkOpen() {
     if (this.closed) {
-      throw new SwarmError("rejected", "registry is closed", false, "CLOSED");
+      throw new SwarmError("rejected", "CLOSED", "registry is closed", false);
     }
   }
 }
