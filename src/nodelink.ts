@@ -251,7 +251,7 @@ export class NodeLink implements Observable {
       case "bye":
         if (this.peer !== undefined && message.from === this.peer) {
           this.events.emit("bye");
-          this.close("bye");
+          this.close("bye", "peer said goodbye");
         }
         return;
     }
@@ -459,8 +459,8 @@ export class NodeLink implements Observable {
     }
   }
 
-  close(reason: LinkCloseReason = "close") {
-    this.dispose("node is closed", reason);
+  close(reason: LinkCloseReason = "close", message = "node is closed") {
+    this.dispose(message, reason);
     this.link.close();
   }
 

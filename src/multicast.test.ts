@@ -157,6 +157,24 @@ describe("Multicast", () => {
       "239.83.104.105",
     );
 
+    sender.send(
+      JSON.stringify({
+        t: "advertise",
+        cluster: "multicast",
+        from: "fractional-startup",
+        addr: "tcp://127.0.0.1:1",
+        startup: 1.5,
+        sig: sign("", {
+          cluster: "multicast",
+          from: "fractional-startup",
+          addr: "tcp://127.0.0.1:1",
+          startup: 1.5,
+        }),
+      }),
+      port,
+      "239.83.104.105",
+    );
+
     assert.equal(await within(leaked, 300), undefined);
 
     const received = new Promise<PeerEntry[]>((resolve) =>

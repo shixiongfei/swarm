@@ -710,7 +710,7 @@ export class Node implements Provider {
 
     nodeLink.events.on("open", (peer) => {
       if (expected !== undefined && peer !== expected) {
-        nodeLink.close("error");
+        nodeLink.close("error", "peer id mismatch");
 
         if (addr !== undefined) {
           this.membership.forget(expected, addr);
@@ -761,7 +761,7 @@ export class Node implements Provider {
       nodeLink.hello();
     } catch (err) {
       this.detach(nodeLink);
-      nodeLink.close();
+      nodeLink.close("close", "handshake failed");
       throw err;
     }
   }
@@ -773,7 +773,7 @@ export class Node implements Provider {
       return;
     }
 
-    nodeLink.close("dedupe");
+    nodeLink.close("dedupe", "duplicate link");
     this.dialer.drop(addr);
     this.transport.drop(addr);
   }
@@ -781,7 +781,7 @@ export class Node implements Provider {
   private dropOutbound(nodeLink: NodeLink) {
     const addr = this.dialed.get(nodeLink);
 
-    nodeLink.close("dedupe");
+    nodeLink.close("dedupe", "duplicate link");
 
     if (addr !== undefined) {
       this.dialer.drop(addr);
@@ -840,7 +840,7 @@ export class Node implements Provider {
 
       const addr = this.dialed.get(nodeLink);
 
-      nodeLink.close();
+      nodeLink.close("close", "peer removed");
 
       if (addr !== undefined) {
         this.dialer.drop(addr);

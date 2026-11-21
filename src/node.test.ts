@@ -19,6 +19,8 @@ import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
+import { NodeLink } from "./nodelink.ts";
+import { LinkPort } from "./linkport.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
@@ -839,8 +841,8 @@ setTimeout(() => console.log("survived"), 500);
 
     await hub.listen(`tcp://127.0.0.1:${port}`);
 
-    const reason = new Promise<string>((resolve) =>
-      hub.events.on("link-down", (link) => resolve(link.reason)),
+    const down = new Promise<NodeLinkDown>((resolve) =>
+      hub.events.on("link-down", resolve),
     );
 
     await peer.connect(`tcp://127.0.0.1:${port}`);
@@ -849,7 +851,79 @@ setTimeout(() => console.log("survived"), 500);
 
     peer.close();
 
-    assert.equal(await within(reason, 2000), "bye");
+    const info = await within(down, 2000);
+
+    assert.equal(info?.reason, "bye");
+    assert.equal(info?.message, "peer said goodbye");
+  });
+
+  test("closes an outbound link with a peer id mismatch message", async (t) => {
+    const node = new Node({ cluster: "peer-id-mismatch" });
+    const { port1, port2 } = new MessageChannel();
+    const internals = node as unknown as {
+      attachLink: (link: LinkPort, secret?: string, expected?: string) => void;
+      nodeLinks: NodeLink[];
+    };
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    internals.attachLink(
+      new LinkPort(port1, node.nodeId),
+      undefined,
+      "expected-peer",
+    );
+
+    const link = internals.nodeLinks[0];
+
+    port2.start();
+    port2.postMessage({
+      t: "hello",
+      from: "other-peer",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "other-peer"),
+    });
+
+    assert.equal(
+      await waitFor(() => link.closeMessage === "peer id mismatch"),
+      true,
+    );
+  });
+
+  test("reports a failed hello as a handshake failure", (t) => {
+    const node = new Node({ cluster: "hello-failure" });
+    const { port1, port2 } = new MessageChannel();
+    const hello = NodeLink.prototype.hello;
+    const close = NodeLink.prototype.close;
+    let seen: { reason: string; message: string } | undefined;
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    NodeLink.prototype.hello = () => {
+      throw new Error("send failed");
+    };
+    NodeLink.prototype.close = function (
+      reason = "close",
+      message = "node is closed",
+    ) {
+      seen = { reason, message };
+      close.call(this, reason, message);
+    };
+
+    try {
+      assert.throws(() => node.attach(port1), /send failed/);
+    } finally {
+      NodeLink.prototype.hello = hello;
+      NodeLink.prototype.close = close;
+    }
+
+    assert.deepEqual(seen, { reason: "close", message: "handshake failed" });
   });
 
   test("close emits link-down for an outbound link", async (t) => {
@@ -2533,12 +2607,51 @@ test("rejects a seed that points back at the node itself", async (t) => {
   assert.equal(clients.length, 0);
 });
 
+test("dedupe closes dialed links with a duplicate link message", (t) => {
+  const node = new Node({ cluster: "dedupe-message" });
+  const internals = node as unknown as {
+    attachLink: (
+      link: LinkPort,
+      secret?: string,
+      expected?: string,
+      addr?: string,
+    ) => void;
+    dropDialed: (link: NodeLink) => void;
+    dropOutbound: (link: NodeLink) => void;
+    nodeLinks: NodeLink[];
+  };
+
+  t.after(() => node.close());
+
+  for (const [index, method] of ["dropDialed", "dropOutbound"].entries()) {
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => port2.close());
+
+    internals.attachLink(
+      new LinkPort(port1, node.nodeId),
+      undefined,
+      undefined,
+      `tcp://127.0.0.1:${10000 + index}`,
+    );
+
+    const link = internals.nodeLinks[internals.nodeLinks.length - 1];
+
+    assert.notEqual(link, undefined);
+    internals[method as "dropDialed" | "dropOutbound"](link);
+
+    assert.equal(link.closeReason, "dedupe");
+    assert.equal(link.closeMessage, "duplicate link");
+  }
+});
+
 test("leave drops the outbound client instead of letting it reconnect", async (t) => {
   const hub = new Node({ cluster: "leave-outbound" });
   const peer = new Node({ cluster: "leave-outbound-peer" });
   const port = await freePort();
   const url = `tcp://127.0.0.1:${port}`;
   let ups = 0;
+  const messages: string[] = [];
 
   t.after(() => {
     hub.close();
@@ -2548,6 +2661,7 @@ test("leave drops the outbound client instead of letting it reconnect", async (t
   await hub.listen(url);
 
   hub.events.on("link-up", () => (ups += 1));
+  peer.events.on("link-down", (link) => messages.push(link.message));
 
   await peer.connect(url, { retryDelay: 20 });
   await waitFor(() => ups === 1);
@@ -2555,6 +2669,12 @@ test("leave drops the outbound client instead of letting it reconnect", async (t
   peer.leave(hub.nodeId);
 
   await waitFor(() => peer.snapshot().links.length === 0);
+  assert.equal(
+    await waitFor(
+      () => messages.length === 1 && messages[0] === "peer removed",
+    ),
+    true,
+  );
 
   await new Promise<void>((resolve) => setTimeout(resolve, 300));
 

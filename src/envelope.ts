@@ -92,7 +92,7 @@ function isHandshake(
     typeof message.from !== "string" ||
     typeof message.token !== "string" ||
     typeof message.version !== "number" ||
-    typeof message.startup !== "number" ||
+    !Number.isInteger(message.startup) ||
     !Number.isInteger(message.version) ||
     message.version < 1
   ) {
@@ -203,7 +203,7 @@ function isPeerEntry(entry: unknown): boolean {
     typeof peer.id === "string" &&
     typeof peer.addr === "string" &&
     peer.addr.length <= maxPeerAddrLength &&
-    typeof peer.startup === "number"
+    Number.isInteger(peer.startup)
   );
 }
 

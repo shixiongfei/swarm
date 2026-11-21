@@ -256,6 +256,39 @@ describe("parseEnvelope", () => {
     }
   });
 
+  test("rejects non-integer startup values", () => {
+    for (const startup of [NaN, Infinity, 1.5]) {
+      assert.equal(
+        parseEnvelope({
+          t: "hello",
+          from: "node-a",
+          version: 1,
+          startup,
+          token: "token-value",
+        }),
+        undefined,
+      );
+      assert.equal(
+        parseEnvelope({
+          t: "accept",
+          from: "node-a",
+          version: 1,
+          startup,
+          token: "token-value",
+        }),
+        undefined,
+      );
+      assert.equal(
+        parseEnvelope({
+          t: "peers",
+          from: "node-a",
+          members: [{ id: "node-b", addr: "tcp://127.0.0.1:9000", startup }],
+        }),
+        undefined,
+      );
+    }
+  });
+
   test("accepts a large peers frame and rejects an oversized address", () => {
     const entry = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 };
     const many = Array.from({ length: 8000 }, (_, index) => ({

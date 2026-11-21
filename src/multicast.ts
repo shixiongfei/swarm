@@ -259,7 +259,7 @@ export class Multicast {
       typeof value.cluster !== "string" ||
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
-      typeof value.startup !== "number" ||
+      !Number.isInteger(value.startup) ||
       typeof value.sig !== "string" ||
       value.from === this.nodeId ||
       value.cluster !== this.cluster
@@ -295,7 +295,7 @@ export class Multicast {
     }
 
     this.events.emit("peers", [
-      { id: value.from, addr: value.addr, startup: value.startup },
+      { id: value.from, addr: value.addr, startup: value.startup as number },
     ]);
   }
 }
