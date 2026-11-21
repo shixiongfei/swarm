@@ -14,8 +14,9 @@ import { describe, test } from "node:test";
 import { Worker } from "node:worker_threads";
 import type { Transferable } from "node:worker_threads";
 import { Node } from "./node.ts";
-import { waitFor } from "./testutil.ts";
+import { waitFor, within } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
+import type { NodeLink } from "./nodelink.ts";
 import type { WatchEvent } from "./registry.ts";
 
 const source = new URL("./index.ts", import.meta.url).href;
@@ -269,6 +270,38 @@ describe("NodeHub", () => {
       assert.equal(await node.call("self", "ping"), 1);
     },
   );
+
+  test("closes the links it owns", async (t) => {
+    const node = new Node({ cluster: "hub-own" });
+    const hub = (
+      node as unknown as {
+        nodeHub: { links: readonly NodeLink[]; close(): void };
+      }
+    ).nodeHub;
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      node.close();
+      port1.close();
+      port2.close();
+    });
+
+    node.join(port1);
+
+    await waitFor(() => hub.links.length === 1);
+
+    const link = hub.links[0];
+    const closed = new Promise<boolean>((resolve) => {
+      link.events.on("close", () => resolve(true));
+    });
+
+    t.after(() => link.close());
+
+    hub.close();
+
+    assert.equal(await within(closed, 1000), true);
+    assert.equal(hub.links.length, 0);
+  });
 
   test("forwards the original publisher when relaying topics", async (t) => {
     const hub = new Node({ cluster: "origin-hub" });

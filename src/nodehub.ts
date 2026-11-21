@@ -104,8 +104,14 @@ export class NodeHub implements Observable {
 
     this.closed = true;
 
+    const links = [...this.nodeLinks];
+
     this.nodeLinks.length = 0;
     this.watcher.close();
+
+    for (const link of links) {
+      link.close();
+    }
   }
 
   private detach(link: NodeLink) {
