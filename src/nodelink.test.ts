@@ -14,11 +14,13 @@ import { describe, mock, test } from "node:test";
 import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
-import { Link, pubFrame } from "./link.ts";
+import { Link } from "./link.ts";
+import { pubFrame, upFrame } from "./frame.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
+import type { Frame } from "./frame.ts";
 import type { Envelope } from "./envelope.ts";
 import type { WatchEvent } from "./registry.ts";
 
@@ -35,7 +37,9 @@ class StubLink extends Link {
     super("stub-node");
   }
 
-  send(message: Envelope) {
+  send(frame: Frame) {
+    const message = frame.message;
+
     if (this.failNextSend || this.failSendType === message.t) {
       this.failNextSend = false;
       throw this.nextError !== undefined ? this.nextError : new Error("boom");
@@ -301,7 +305,7 @@ describe("handshake helpers", () => {
       true,
     );
 
-    nodeLink.register({ service: "math", nodeId: "other-node" });
+    nodeLink.notify(upFrame({ service: "math", nodeId: "other-node" }));
 
     assert.equal(link.closed, true);
     assert.equal(closes, 1);
@@ -325,7 +329,7 @@ describe("handshake helpers", () => {
       false,
     );
 
-    nodeLink.register({ service: "math", nodeId: "other-node" });
+    nodeLink.notify(upFrame({ service: "math", nodeId: "other-node" }));
 
     assert.equal(link.closed, false);
     assert.equal(nodeLink.peerId, "peer-node");

@@ -14,13 +14,14 @@ import { describe, test } from "node:test";
 import { connect, createServer } from "node:net";
 import { LinkStream } from "./linkstream.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
+import { frame } from "./frame.ts";
 import { waitFor } from "./testutil.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
 
 const host = "127.0.0.1";
 
-function frame(envelope: Envelope) {
+function packet(envelope: Envelope) {
   const payload = encode(envelope);
   const bytes = new Uint8Array(4 + payload.byteLength);
 
@@ -68,24 +69,28 @@ describe("LinkStream", () => {
       server.close();
     });
 
-    client.send({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 1,
-    });
-    client.send({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    });
+    client.send(
+      frame({
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 1,
+      }),
+    );
+    client.send(
+      frame({
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 2,
+      }),
+    );
 
     await waitFor(() => received.length === 2);
 
@@ -181,8 +186,8 @@ describe("LinkStream", () => {
       topic: "news",
       data: 2,
     };
-    const firstFrame = frame(first);
-    const secondFrame = frame(second);
+    const firstFrame = packet(first);
+    const secondFrame = packet(second);
     const combined = new Uint8Array(
       firstFrame.byteLength + secondFrame.byteLength,
     );
@@ -259,15 +264,17 @@ describe("LinkStream", () => {
     client.close();
 
     assert.doesNotThrow(() => {
-      client.send({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      });
+      client.send(
+        frame({
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "client-node",
+          origin: "client-node",
+          topic: "news",
+          data: 1,
+        }),
+      );
     });
   });
 
@@ -303,8 +310,8 @@ describe("LinkStream", () => {
       data: 2,
     };
 
-    socket.write(frame(large));
-    socket.write(frame(small));
+    socket.write(packet(large));
+    socket.write(packet(small));
 
     await waitFor(() => received.length === 2);
 
@@ -367,8 +374,8 @@ describe("LinkStream", () => {
 
     assert.equal(encode(large).byteLength, maxEnvelopeSize);
 
-    const largeFrame = frame(large);
-    const smallFrame = frame(small);
+    const largeFrame = packet(large);
+    const smallFrame = packet(small);
     const tail = new Uint8Array(1 + smallFrame.byteLength);
 
     tail.set(largeFrame.subarray(largeFrame.byteLength - 1));
@@ -415,8 +422,8 @@ describe("LinkStream", () => {
 
     t.after(() => link.close());
 
-    link.send({ t: "bye", from: "client-node" });
-    link.send({ t: "pong", from: "client-node" });
+    link.send(frame({ t: "bye", from: "client-node" }));
+    link.send(frame({ t: "pong", from: "client-node" }));
 
     assert.equal(written.length, 1);
 

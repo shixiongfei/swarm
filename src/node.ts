@@ -28,6 +28,8 @@ import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable } from "./codec.ts";
+import { downFrame, peersFrame, upFrame } from "./frame.ts";
+import type { Frame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
 import type { LinkCloseReason } from "./nodelink.ts";
 import type { NodeMember } from "./membership.ts";
@@ -344,7 +346,9 @@ export class Node implements Provider {
           this.forget(instance);
         }
       });
-      nodeLink.peers(this.membership.shared(nodeLink.local));
+      nodeLink.notify(
+        peersFrame(this.nodeId, this.membership.shared(nodeLink.local)),
+      );
     });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
       this.membership.learn(members, nodeLink.local),
@@ -715,15 +719,12 @@ export class Node implements Provider {
   }
 
   private relay(event: WatchEvent) {
-    this.eachPeerLink((nodeLink) => {
-      if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
-        return;
-      }
+    const message =
+      event.type === "up" ? upFrame(event.instance) : downFrame(event.instance);
 
-      if (event.type === "up") {
-        nodeLink.register(event.instance);
-      } else {
-        nodeLink.unregister(event.instance);
+    this.eachPeerLink((nodeLink) => {
+      if (!nodeLink.has(event.instance.service, event.instance.nodeId)) {
+        nodeLink.notify(message);
       }
     });
   }
@@ -794,7 +795,9 @@ export class Node implements Provider {
         return;
       }
 
-      nodeLink.peers(this.membership.shared(nodeLink.local));
+      nodeLink.notify(
+        peersFrame(this.nodeId, this.membership.shared(nodeLink.local)),
+      );
     });
     nodeLink.events.on("peers", (members) =>
       this.membership.learn(members, nodeLink.local),
@@ -957,16 +960,16 @@ export class Node implements Provider {
   }
 
   private broadcastPeers() {
-    let toLocal: NodeMember[] | undefined;
-    let toRemote: NodeMember[] | undefined;
+    let toLocal: Frame | undefined;
+    let toRemote: Frame | undefined;
 
     this.eachPeerLink((nodeLink) => {
       if (nodeLink.local) {
-        toLocal ??= this.membership.shared(true);
-        nodeLink.peers(toLocal);
+        toLocal ??= peersFrame(this.nodeId, this.membership.shared(true));
+        nodeLink.notify(toLocal);
       } else {
-        toRemote ??= this.membership.shared(false);
-        nodeLink.peers(toRemote);
+        toRemote ??= peersFrame(this.nodeId, this.membership.shared(false));
+        nodeLink.notify(toRemote);
       }
     });
   }

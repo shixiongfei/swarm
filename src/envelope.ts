@@ -80,11 +80,6 @@ export type Envelope =
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
-export interface Enveloper {
-  send(message: Envelope): void;
-  close(): void;
-}
-
 function isHandshake(
   message: Extract<Envelope, { t: "hello" | "accept" }>,
 ): Envelope | undefined {

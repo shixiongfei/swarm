@@ -15,8 +15,10 @@ import { protocolVersion } from "./envelope.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
+import { frame, upFrame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
-import type { Link, PubFrame } from "./link.ts";
+import type { Frame } from "./frame.ts";
+import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
 import type { Envelope, PeerEntry } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
@@ -219,7 +221,7 @@ export class NodeLink implements Observable {
         if (this.peer !== undefined && message.from === this.peer) {
           try {
             this.transmit(() =>
-              this.link.send({ t: "pong", from: this.link.nodeId }),
+              this.link.send(frame({ t: "pong", from: this.link.nodeId })),
             );
           } catch {
             // The pong is best-effort; the link health tracks the failure.
@@ -356,12 +358,8 @@ export class NodeLink implements Observable {
     this.transmit(() => this.link.hello(this.startup, this.token()));
   }
 
-  register(instance: Instance) {
-    this.sync(() => this.link.register(instance));
-  }
-
-  unregister(instance: Instance) {
-    this.sync(() => this.link.unregister(instance));
+  notify(frame: Frame) {
+    this.sync(() => this.link.send(frame));
   }
 
   forget(instance: Instance) {
@@ -460,18 +458,12 @@ export class NodeLink implements Observable {
     );
   }
 
-  publish(frame: PubFrame) {
+  publish(frame: Frame) {
     if (this.peer === undefined && this.transport !== "port") {
       return;
     }
 
-    this.transmit(() => this.link.publish(frame));
-  }
-
-  peers(members: PeerEntry[]) {
-    this.sync(() =>
-      this.link.send({ t: "peers", from: this.link.nodeId, members }),
-    );
+    this.transmit(() => this.link.send(frame));
   }
 
   bye() {
@@ -480,7 +472,9 @@ export class NodeLink implements Observable {
     }
 
     try {
-      this.transmit(() => this.link.send({ t: "bye", from: this.link.nodeId }));
+      this.transmit(() =>
+        this.link.send(frame({ t: "bye", from: this.link.nodeId })),
+      );
     } catch {
       // The link is closed or congested; goodbye is best-effort.
     }
@@ -555,7 +549,7 @@ export class NodeLink implements Observable {
 
     try {
       this.transmit(() =>
-        this.link.send({ t: "ping", from: this.link.nodeId }),
+        this.link.send(frame({ t: "ping", from: this.link.nodeId })),
       );
     } catch {
       this.pingAt = undefined;
@@ -610,7 +604,7 @@ export class NodeLink implements Observable {
         continue;
       }
 
-      this.register(instance);
+      this.notify(upFrame(instance));
     }
   }
 

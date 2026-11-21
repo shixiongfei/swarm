@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { LinkPort } from "./linkport.ts";
+import { frame } from "./frame.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -74,15 +75,17 @@ describe("LinkPort", () => {
 
     assert.doesNotThrow(() => {
       link.close();
-      link.send({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "node-a",
-        origin: "node-a",
-        topic: "news",
-        data: 1,
-      });
+      link.send(
+        frame({
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "node-a",
+          origin: "node-a",
+          topic: "news",
+          data: 1,
+        }),
+      );
     });
   });
 
@@ -212,15 +215,17 @@ describe("LinkPort", () => {
 
     assert.throws(
       () =>
-        link.send({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "node-a",
-          origin: "node-a",
-          topic: "news",
-          data: () => {},
-        }),
+        link.send(
+          frame({
+            t: "pub",
+            id: "pub-1",
+            ttl: 8,
+            from: "node-a",
+            origin: "node-a",
+            topic: "news",
+            data: () => {},
+          }),
+        ),
       (err: Error) => err.name === "DataCloneError",
     );
   });
@@ -238,15 +243,17 @@ describe("LinkPort", () => {
     port1.close();
 
     assert.doesNotThrow(() =>
-      link.send({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "node-a",
-        origin: "node-a",
-        topic: "news",
-        data: 1,
-      }),
+      link.send(
+        frame({
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "node-a",
+          origin: "node-a",
+          topic: "news",
+          data: 1,
+        }),
+      ),
     );
   });
 

@@ -11,10 +11,10 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
-import { encode } from "./codec.ts";
+import { frame } from "./frame.ts";
 import { protocolVersion } from "./envelope.ts";
-import type { Instance } from "./registry.ts";
-import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
+import type { Frame } from "./frame.ts";
+import type { Envelope, EnvelopeHandler } from "./envelope.ts";
 
 export type LinkEvents = {
   envelope: EnvelopeHandler;
@@ -23,42 +23,7 @@ export type LinkEvents = {
 
 export type LinkTransport = "port" | "socket" | "websocket";
 
-export type PubFrame = {
-  readonly message: Extract<Envelope, { t: "pub" }>;
-  bytes(): Uint8Array;
-};
-
-export function pubFrame(
-  nodeId: string,
-  topic: string,
-  data: unknown,
-  origin: string,
-  id: string,
-  ttl: number,
-): PubFrame {
-  const message: Extract<Envelope, { t: "pub" }> = {
-    t: "pub",
-    from: nodeId,
-    origin,
-    topic,
-    id,
-    ttl,
-    data,
-  };
-
-  let payload: Uint8Array | undefined;
-
-  return {
-    message,
-    bytes() {
-      payload ??= encode(message);
-
-      return payload;
-    },
-  };
-}
-
-export abstract class Link implements Enveloper {
+export abstract class Link {
   readonly nodeId: string;
   abstract readonly transport: LinkTransport;
   abstract readonly local: boolean;
@@ -67,7 +32,7 @@ export abstract class Link implements Enveloper {
     isolate: true,
   });
 
-  abstract send(message: Envelope): void;
+  abstract send(frame: Frame): void;
   abstract close(): void;
 
   constructor(nodeId: string) {
@@ -83,27 +48,15 @@ export abstract class Link implements Enveloper {
   }
 
   private handshake(t: "hello" | "accept", startup: number, token: string) {
-    this.send({
-      t,
-      from: this.nodeId,
-      version: protocolVersion,
-      startup,
-      token,
-    } as Envelope);
-  }
-
-  register(instance: Instance) {
-    const { nodeId, service, meta } = instance;
-
     this.send(
-      meta === undefined
-        ? { t: "up", from: nodeId, service }
-        : { t: "up", from: nodeId, service, meta },
+      frame({
+        t,
+        from: this.nodeId,
+        version: protocolVersion,
+        startup,
+        token,
+      } as Envelope),
     );
-  }
-
-  unregister(instance: Instance) {
-    this.send({ t: "down", from: instance.nodeId, service: instance.service });
   }
 
   call(
@@ -135,11 +88,11 @@ export abstract class Link implements Enveloper {
       message.ttl = ttl;
     }
 
-    this.send(message);
+    this.send(frame(message));
   }
 
   reply(id: string, to: string, value: unknown) {
-    this.send({ t: "reply", id, from: this.nodeId, to, value });
+    this.send(frame({ t: "reply", id, from: this.nodeId, to, value }));
   }
 
   fail(id: string, to: string, error: unknown) {
@@ -148,23 +101,17 @@ export abstract class Link implements Enveloper {
     const retriable = error instanceof SwarmError ? error.retriable : false;
     const message = error instanceof Error ? error.message : String(error);
 
-    this.send({
-      t: "error",
-      id,
-      from: this.nodeId,
-      to,
-      kind,
-      code,
-      retriable,
-      message,
-    });
-  }
-
-  publish(frame: PubFrame) {
-    this.sendPayload(frame);
-  }
-
-  protected sendPayload(frame: PubFrame) {
-    this.send(frame.message);
+    this.send(
+      frame({
+        t: "error",
+        id,
+        from: this.nodeId,
+        to,
+        kind,
+        code,
+        retriable,
+        message,
+      }),
+    );
   }
 }

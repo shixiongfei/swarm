@@ -11,9 +11,8 @@
 
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
-import { decode, encode, maxEnvelopeSize } from "./codec.ts";
-import type { Envelope } from "./envelope.ts";
-import type { PubFrame } from "./link.ts";
+import { decode, maxEnvelopeSize } from "./codec.ts";
+import type { Frame } from "./frame.ts";
 
 const maxQueueSize = maxEnvelopeSize * 2;
 
@@ -92,15 +91,7 @@ export class LinkWs extends Link {
     socket.addEventListener("close", this.onClose);
   }
 
-  send(message: Envelope) {
-    if (this.closed) {
-      return;
-    }
-
-    this.write(encode(message));
-  }
-
-  protected sendPayload(frame: PubFrame) {
+  send(frame: Frame) {
     if (this.closed) {
       return;
     }

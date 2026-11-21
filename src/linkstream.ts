@@ -12,10 +12,9 @@
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
 import { isLoopback } from "./address.ts";
-import { decode, encode, maxEnvelopeSize } from "./codec.ts";
+import { decode, maxEnvelopeSize } from "./codec.ts";
 import type { Socket } from "node:net";
-import type { Envelope } from "./envelope.ts";
-import type { PubFrame } from "./link.ts";
+import type { Frame } from "./frame.ts";
 
 const headerSize = 4;
 const minBufferSize = 16;
@@ -88,14 +87,14 @@ export class LinkStream extends Link {
     this.writable = true;
 
     while (this.writable && this.queue.length > 0) {
-      const frame = this.queue.shift();
+      const packet = this.queue.shift();
 
-      if (frame === undefined) {
+      if (packet === undefined) {
         break;
       }
 
-      this.queued -= frame.byteLength;
-      this.writable = this.socket.write(frame) !== false;
+      this.queued -= packet.byteLength;
+      this.writable = this.socket.write(packet) !== false;
     }
   };
 
@@ -112,15 +111,7 @@ export class LinkStream extends Link {
     socket.on("drain", this.onDrain);
   }
 
-  send(message: Envelope) {
-    if (this.closed) {
-      return;
-    }
-
-    this.write(encode(message));
-  }
-
-  protected sendPayload(frame: PubFrame) {
+  send(frame: Frame) {
     if (this.closed) {
       return;
     }
@@ -138,22 +129,22 @@ export class LinkStream extends Link {
       );
     }
 
-    const frame = new Uint8Array(headerSize + payload.byteLength);
+    const packet = new Uint8Array(headerSize + payload.byteLength);
 
-    new DataView(frame.buffer).setUint32(0, payload.byteLength, false);
-    frame.set(payload, headerSize);
+    new DataView(packet.buffer).setUint32(0, payload.byteLength, false);
+    packet.set(payload, headerSize);
 
     if (this.writable === false) {
-      if (this.queued + frame.byteLength > maxQueueSize) {
+      if (this.queued + packet.byteLength > maxQueueSize) {
         throw new SwarmError("failed", "CONGESTED", "link is congested", true);
       }
 
-      this.queued += frame.byteLength;
-      this.queue.push(frame);
+      this.queued += packet.byteLength;
+      this.queue.push(packet);
       return;
     }
 
-    this.writable = this.socket.write(frame) !== false;
+    this.writable = this.socket.write(packet) !== false;
   }
 
   close() {
@@ -180,10 +171,10 @@ export class LinkStream extends Link {
     this.socket.once("error", () => this.socket.destroy());
 
     while (this.queue.length > 0) {
-      const frame = this.queue.shift();
+      const packet = this.queue.shift();
 
-      if (frame !== undefined) {
-        this.socket.write(frame);
+      if (packet !== undefined) {
+        this.socket.write(packet);
       }
     }
 

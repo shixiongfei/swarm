@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { PubSub } from "./pubsub.ts";
 import { SwarmError } from "./errors.ts";
-import type { PubFrame } from "./link.ts";
+import type { Frame } from "./frame.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 type Sent = {
@@ -27,9 +27,13 @@ type Sent = {
 function makeLink(peerId: string, sent: Sent[], fail?: Error) {
   return {
     peerId,
-    publish(frame: PubFrame) {
+    publish(frame: Frame) {
       if (fail !== undefined) {
         throw fail;
+      }
+
+      if (frame.message.t !== "pub") {
+        return;
       }
 
       const { topic, data, origin, id, ttl } = frame.message;

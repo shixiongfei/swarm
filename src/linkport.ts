@@ -12,7 +12,7 @@
 import { Link } from "./link.ts";
 import { SwarmError } from "./errors.ts";
 import { parseEnvelope } from "./envelope.ts";
-import type { Envelope } from "./envelope.ts";
+import type { Frame } from "./frame.ts";
 
 const linked = new WeakSet<MessagePort>();
 
@@ -74,13 +74,13 @@ export class LinkPort extends Link {
     this.port.start();
   }
 
-  send(message: Envelope) {
+  send(frame: Frame) {
     if (this.closed) {
       return;
     }
 
     try {
-      this.port.postMessage(message);
+      this.port.postMessage(frame.message);
     } catch (err) {
       if (err instanceof Error && err.name === "DataCloneError") {
         throw err;

@@ -11,7 +11,7 @@
 
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
-import { pubFrame } from "./link.ts";
+import { pubFrame } from "./frame.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 const maxSeenPubs = 1024;

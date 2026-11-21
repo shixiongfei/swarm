@@ -21,10 +21,12 @@ import { WebSocket } from "ws";
 import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { LinkPort } from "./linkport.ts";
+import { Link } from "./link.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import { SwarmError } from "./errors.ts";
+import type { Frame } from "./frame.ts";
 import type { NodeLinkDown } from "./node.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
@@ -77,6 +79,21 @@ kReN6WwvUPN4NJ2QndOu8RP/XXzGLEEoyBcbS5QvNHMTcY0VySLBvXSwvn4mGsdK
 mJTnKt8LKtGnmhK7vIGP5kth9i5duTSYnhdEA/AG9D0D3+NnsVH58Pj09mTg
 -----END CERTIFICATE-----
 `;
+
+class FrameLink extends Link {
+  readonly transport = "port";
+  readonly local = true;
+  readonly frames: Frame[] = [];
+  closed = false;
+
+  send(frame: Frame) {
+    this.frames.push(frame);
+  }
+
+  close() {
+    this.closed = true;
+  }
+}
 
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
@@ -688,6 +705,51 @@ setTimeout(() => console.log("survived"), 500);
       ),
       true,
     );
+  });
+
+  test("encodes a broadcast once for every link", (t) => {
+    const node = new Node({ cluster: "frame-share" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      broadcastPeers: () => void;
+    };
+    const links = ["peer-a", "peer-b", "peer-c"].map((peerId) => {
+      const link = new FrameLink(node.nodeId);
+
+      internals.attachLink(link);
+      link.events.emit("envelope", {
+        t: "hello",
+        from: peerId,
+        version: protocolVersion,
+        startup: 1,
+        token: signToken("", peerId),
+      });
+
+      return link;
+    });
+
+    t.after(() => node.close());
+
+    node.register("math", { add: () => 1 });
+
+    const updates = links.map((link) => link.frames.at(-1));
+    const up = updates[0];
+
+    assert.equal(up?.message.t, "up");
+    assert.equal(updates[1], up);
+    assert.equal(updates[2], up);
+    assert.equal(updates[1]?.bytes(), up?.bytes());
+    assert.equal(updates[2]?.bytes(), up?.bytes());
+
+    internals.broadcastPeers();
+
+    const peers = links.map((link) => link.frames.at(-1));
+
+    assert.equal(peers[0]?.message.t, "peers");
+    assert.equal(peers[1], peers[0]);
+    assert.equal(peers[2], peers[0]);
+    assert.equal(peers[1]?.bytes(), peers[0]?.bytes());
+    assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
   });
 
   test("a broken path keeps an instance reachable through another peer", async (t) => {

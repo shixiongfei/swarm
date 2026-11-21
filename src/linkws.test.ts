@@ -14,6 +14,7 @@ import { describe, test } from "node:test";
 import { WebSocket as WsWebSocket, WebSocketServer } from "ws";
 import { LinkWs } from "./linkws.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
+import { frame } from "./frame.ts";
 import { waitFor } from "./testutil.ts";
 import type { AddressInfo } from "node:net";
 import type { Envelope } from "./envelope.ts";
@@ -106,24 +107,28 @@ describe("LinkWS", () => {
       server.close();
     });
 
-    client.send({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 1,
-    });
-    client.send({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    });
+    client.send(
+      frame({
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 1,
+      }),
+    );
+    client.send(
+      frame({
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 2,
+      }),
+    );
 
     await waitFor(() => received.length === 2);
 
@@ -193,15 +198,17 @@ describe("LinkWS", () => {
 
     assert.throws(
       () =>
-        link.send({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "client-node",
-          origin: "client-node",
-          topic: "news",
-          data: 1,
-        }),
+        link.send(
+          frame({
+            t: "pub",
+            id: "pub-1",
+            ttl: 8,
+            from: "client-node",
+            origin: "client-node",
+            topic: "news",
+            data: 1,
+          }),
+        ),
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "link is congested",
     );
@@ -225,15 +232,17 @@ describe("LinkWS", () => {
     client.close();
 
     assert.doesNotThrow(() => {
-      client.send({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      });
+      client.send(
+        frame({
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "client-node",
+          origin: "client-node",
+          topic: "news",
+          data: 1,
+        }),
+      );
     });
   });
 
@@ -321,7 +330,7 @@ describe("LinkWS", () => {
     );
 
     assert.throws(
-      () => link.send(pubEnvelope("x".repeat(maxEnvelopeSize))),
+      () => link.send(frame(pubEnvelope("x".repeat(maxEnvelopeSize)))),
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "envelope is too large",
     );
