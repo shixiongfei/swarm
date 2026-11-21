@@ -63,6 +63,20 @@ export class Local {
     return this.services.has(service);
   }
 
+  hasMethod(service: string, method: string) {
+    if (this.closed) {
+      return false;
+    }
+
+    const methods = this.services.get(service);
+
+    return (
+      methods !== undefined &&
+      hasOwn(methods, method) &&
+      typeof methods[method] === "function"
+    );
+  }
+
   invoke(service: string, method: string, args: unknown[], timeout?: number) {
     this.checkOpen();
 

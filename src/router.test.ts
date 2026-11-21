@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { NodeLocal } from "./nodelocal.ts";
 import { Router } from "./router.ts";
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
 import type { NodeLink } from "./nodelink.ts";
 import type { Instance } from "./registry.ts";
 
@@ -120,6 +120,26 @@ describe("Router", () => {
       7,
     );
     assert.equal(link.calls.length, 0);
+  });
+
+  test("does not forward a not-found thrown by a local handler", () => {
+    const local = new NodeLocal("self");
+
+    local.register("boom", {
+      fail: () => {
+        throw new SwarmError("not-found", "NOT_FOUND", "business missing");
+      },
+    });
+
+    const remote = fakeLink("peer", ["boom"], () => "remote-success");
+    const { router } = makeRouter({ local, links: [remote] });
+
+    assert.throws(
+      () => router.invoke("boom", "fail", []),
+      (err: SwarmError) =>
+        err.kind === "not-found" && err.message === "business missing",
+    );
+    assert.equal(remote.calls.length, 0);
   });
 
   test("throws not-found when nothing serves the service", () => {

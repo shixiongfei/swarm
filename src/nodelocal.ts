@@ -42,6 +42,10 @@ export class NodeLocal implements Observable, Provider {
     return this.local.has(service);
   }
 
+  hasMethod(service: string, method: string) {
+    return this.local.hasMethod(service, method);
+  }
+
   invoke(service: string, method: string, args: unknown[], timeout?: number) {
     return this.local.invoke(service, method, args, timeout);
   }

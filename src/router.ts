@@ -69,17 +69,11 @@ export class Router {
       );
     }
 
-    if (target === undefined && this.local.has(service)) {
-      try {
-        return withCancel(
-          this.local.invoke(service, method, args, timeout),
-          signal,
-        );
-      } catch (err) {
-        if (!(err instanceof SwarmError) || err.kind !== "not-found") {
-          throw err;
-        }
-      }
+    if (target === undefined && this.local.hasMethod(service, method)) {
+      return withCancel(
+        this.local.invoke(service, method, args, timeout),
+        signal,
+      );
     }
 
     const remaining = ttl === undefined ? this.maxHops : ttl;
