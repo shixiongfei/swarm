@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createServer as createHttpServer } from "node:http";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { WebSocket } from "ws";
 import { SwarmError } from "./errors.ts";
 import { WsServer } from "./wsserver.ts";
@@ -30,193 +30,195 @@ function openSocket(port: number, path = "/") {
   });
 }
 
-test("accept emits online and tracks the connection", async () => {
-  const server = new WsServer(host, 0);
-  const online = new Promise<WebSocket>((resolve) => {
-    server.events.once("online", resolve);
-  });
-
-  await server.listen();
-
-  assert.notEqual(server.port, 0);
-
-  const client = await openSocket(server.port);
-  const accepted = await online;
-
-  assert.equal(server.size, 1);
-  assert.equal(server.connections.length, 1);
-  assert.equal(server.connections[0], accepted);
-
-  const offline = new Promise<WebSocket>((resolve) => {
-    server.events.once("offline", resolve);
-  });
-
-  client.terminate();
-
-  assert.equal(await offline, accepted);
-  assert.equal(server.size, 0);
-
-  server.close();
-});
-
-test("attaches to an existing http server on a path", async (t) => {
-  const http = createHttpServer((_request, response) => response.end("ok"));
-  const port = await new Promise<number>((resolve) => {
-    http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
-  });
-  const server = new WsServer(host, 0, { server: http, path: "/swarm" });
-  const online = new Promise<WebSocket>((resolve) => {
-    server.events.once("online", resolve);
-  });
-
-  t.after(() => {
-    server.close();
-    http.close();
-  });
-
-  await server.listen();
-
-  assert.equal(server.port, port);
-  assert.equal(server.host, host);
-
-  const client = await openSocket(port, "/swarm");
-  const accepted = await online;
-
-  assert.equal(server.size, 1);
-  assert.equal(server.connections[0], accepted);
-
-  await assert.rejects(() => openSocket(port, "/other"));
-
-  server.close();
-  client.terminate();
-
-  assert.equal(http.listening, true);
-});
-
-test("closes an unmatched path when servers share an http server", async (t) => {
-  const http = createHttpServer((_request, response) => response.end("ok"));
-  const port = await new Promise<number>((resolve) => {
-    http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
-  });
-  const alpha = new WsServer(host, 0, { server: http, path: "/alpha" });
-  const beta = new WsServer(host, 0, { server: http, path: "/beta" });
-
-  t.after(() => {
-    alpha.close();
-    beta.close();
-    http.close();
-  });
-
-  await alpha.listen();
-  await beta.listen();
-
-  const first = await openSocket(port, "/alpha");
-  const second = await openSocket(port, "/beta");
-
-  assert.equal(alpha.size, 1);
-  assert.equal(beta.size, 1);
-
-  first.terminate();
-  second.terminate();
-
-  const outcome = await within(
-    openSocket(port, "/gamma").then(
-      () => "open",
-      () => "rejected",
-    ),
-    1000,
-  );
-
-  assert.equal(outcome, "rejected");
-  assert.equal(http.listenerCount("upgrade"), 1);
-});
-
-test("listen rejects when the attached http server is not listening", async () => {
-  const http = createHttpServer();
-  const server = new WsServer(host, 0, { server: http });
-
-  await assert.rejects(
-    () => server.listen(),
-    (error: unknown) =>
-      error instanceof SwarmError && error.kind === "rejected",
-  );
-
-  server.close();
-});
-
-test("close stops listening and drops every connection", async () => {
-  const server = new WsServer(host, 0);
-  const accepted: WebSocket[] = [];
-
-  server.events.on("online", (socket) => accepted.push(socket));
-
-  await server.listen();
-
-  const first = await openSocket(server.port);
-  const second = await openSocket(server.port);
-
-  await waitFor(() => server.size === 2);
-
-  const closed = Promise.all([
-    new Promise<void>((resolve) => first.once("close", () => resolve())),
-    new Promise<void>((resolve) => second.once("close", () => resolve())),
-  ]);
-
-  const offline: WebSocket[] = [];
-  const dropped = new Promise<void>((resolve) => {
-    server.events.on("offline", (socket) => {
-      offline.push(socket);
-
-      if (offline.length === 2) {
-        resolve();
-      }
+describe("WsServer", () => {
+  test("accept emits online and tracks the connection", async () => {
+    const server = new WsServer(host, 0);
+    const online = new Promise<WebSocket>((resolve) => {
+      server.events.once("online", resolve);
     });
+
+    await server.listen();
+
+    assert.notEqual(server.port, 0);
+
+    const client = await openSocket(server.port);
+    const accepted = await online;
+
+    assert.equal(server.size, 1);
+    assert.equal(server.connections.length, 1);
+    assert.equal(server.connections[0], accepted);
+
+    const offline = new Promise<WebSocket>((resolve) => {
+      server.events.once("offline", resolve);
+    });
+
+    client.terminate();
+
+    assert.equal(await offline, accepted);
+    assert.equal(server.size, 0);
+
+    server.close();
   });
 
-  server.close();
+  test("attaches to an existing http server on a path", async (t) => {
+    const http = createHttpServer((_request, response) => response.end("ok"));
+    const port = await new Promise<number>((resolve) => {
+      http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
+    });
+    const server = new WsServer(host, 0, { server: http, path: "/swarm" });
+    const online = new Promise<WebSocket>((resolve) => {
+      server.events.once("online", resolve);
+    });
 
-  assert.equal(server.size, 0);
-  assert.equal(accepted.length, 2);
+    t.after(() => {
+      server.close();
+      http.close();
+    });
 
-  await dropped;
+    await server.listen();
 
-  assert.equal(offline.length, 2);
+    assert.equal(server.port, port);
+    assert.equal(server.host, host);
 
-  await closed;
-});
+    const client = await openSocket(port, "/swarm");
+    const accepted = await online;
 
-test("terminates a socket that is already closing", () => {
-  const server = new WsServer(host, 0);
-  let terminated = false;
+    assert.equal(server.size, 1);
+    assert.equal(server.connections[0], accepted);
 
-  (server as unknown as { destroy(socket: unknown): void }).destroy({
-    readyState: WebSocket.CLOSING,
-    terminate: () => (terminated = true),
+    await assert.rejects(() => openSocket(port, "/other"));
+
+    server.close();
+    client.terminate();
+
+    assert.equal(http.listening, true);
   });
 
-  server.close();
+  test("closes an unmatched path when servers share an http server", async (t) => {
+    const http = createHttpServer((_request, response) => response.end("ok"));
+    const port = await new Promise<number>((resolve) => {
+      http.listen(0, host, () => resolve((http.address() as AddressInfo).port));
+    });
+    const alpha = new WsServer(host, 0, { server: http, path: "/alpha" });
+    const beta = new WsServer(host, 0, { server: http, path: "/beta" });
 
-  assert.equal(terminated, true);
-});
+    t.after(() => {
+      alpha.close();
+      beta.close();
+      http.close();
+    });
 
-test("listen rejects when the port is already in use", async () => {
-  const first = new WsServer(host, 0);
+    await alpha.listen();
+    await beta.listen();
 
-  await first.listen();
+    const first = await openSocket(port, "/alpha");
+    const second = await openSocket(port, "/beta");
 
-  const second = new WsServer(host, first.port);
+    assert.equal(alpha.size, 1);
+    assert.equal(beta.size, 1);
 
-  await assert.rejects(
-    () => second.listen(),
-    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
-  );
+    first.terminate();
+    second.terminate();
 
-  first.close();
-  second.close();
-});
+    const outcome = await within(
+      openSocket(port, "/gamma").then(
+        () => "open",
+        () => "rejected",
+      ),
+      1000,
+    );
 
-test("a throwing event handler crashes the process", () => {
-  const script = `
+    assert.equal(outcome, "rejected");
+    assert.equal(http.listenerCount("upgrade"), 1);
+  });
+
+  test("listen rejects when the attached http server is not listening", async () => {
+    const http = createHttpServer();
+    const server = new WsServer(host, 0, { server: http });
+
+    await assert.rejects(
+      () => server.listen(),
+      (error: unknown) =>
+        error instanceof SwarmError && error.kind === "rejected",
+    );
+
+    server.close();
+  });
+
+  test("close stops listening and drops every connection", async () => {
+    const server = new WsServer(host, 0);
+    const accepted: WebSocket[] = [];
+
+    server.events.on("online", (socket) => accepted.push(socket));
+
+    await server.listen();
+
+    const first = await openSocket(server.port);
+    const second = await openSocket(server.port);
+
+    await waitFor(() => server.size === 2);
+
+    const closed = Promise.all([
+      new Promise<void>((resolve) => first.once("close", () => resolve())),
+      new Promise<void>((resolve) => second.once("close", () => resolve())),
+    ]);
+
+    const offline: WebSocket[] = [];
+    const dropped = new Promise<void>((resolve) => {
+      server.events.on("offline", (socket) => {
+        offline.push(socket);
+
+        if (offline.length === 2) {
+          resolve();
+        }
+      });
+    });
+
+    server.close();
+
+    assert.equal(server.size, 0);
+    assert.equal(accepted.length, 2);
+
+    await dropped;
+
+    assert.equal(offline.length, 2);
+
+    await closed;
+  });
+
+  test("terminates a socket that is already closing", () => {
+    const server = new WsServer(host, 0);
+    let terminated = false;
+
+    (server as unknown as { destroy(socket: unknown): void }).destroy({
+      readyState: WebSocket.CLOSING,
+      terminate: () => (terminated = true),
+    });
+
+    server.close();
+
+    assert.equal(terminated, true);
+  });
+
+  test("listen rejects when the port is already in use", async () => {
+    const first = new WsServer(host, 0);
+
+    await first.listen();
+
+    const second = new WsServer(host, first.port);
+
+    await assert.rejects(
+      () => second.listen(),
+      (error: unknown) =>
+        error instanceof SwarmError && error.kind === "failed",
+    );
+
+    first.close();
+    second.close();
+  });
+
+  test("a throwing event handler crashes the process", () => {
+    const script = `
 import { WsServer } from "./wsserver.ts";
 import { WsClient } from "./wsclient.ts";
 
@@ -235,17 +237,18 @@ await client.connect();
 setTimeout(() => console.log("survived"), 100);
 `;
 
-  const result = spawnSync(
-    process.execPath,
-    ["--input-type=module", "-e", script],
-    {
-      cwd: new URL(".", import.meta.url),
-      encoding: "utf8",
-      timeout: 10000,
-    },
-  );
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: new URL(".", import.meta.url),
+        encoding: "utf8",
+        timeout: 10000,
+      },
+    );
 
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /boom-server/);
-  assert.doesNotMatch(result.stdout, /survived/);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /boom-server/);
+    assert.doesNotMatch(result.stdout, /survived/);
+  });
 });

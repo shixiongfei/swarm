@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { connect, createServer } from "node:net";
 import { LinkStream } from "./linkstream.ts";
 import { encode, maxEnvelopeSize } from "./codec.ts";
@@ -53,211 +53,21 @@ function createPair() {
   );
 }
 
-test("sends envelopes over a socket", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const client = new LinkStream(socket, "client-node");
-  const remote = new LinkStream(peer, "peer-node");
-  const received: Envelope[] = [];
+describe("LinkStream", () => {
+  test("sends envelopes over a socket", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const client = new LinkStream(socket, "client-node");
+    const remote = new LinkStream(peer, "peer-node");
+    const received: Envelope[] = [];
 
-  remote.events.on("envelope", (message) => received.push(message));
+    remote.events.on("envelope", (message) => received.push(message));
 
-  t.after(() => {
-    client.close();
-    remote.close();
-    server.close();
-  });
+    t.after(() => {
+      client.close();
+      remote.close();
+      server.close();
+    });
 
-  client.send({
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 1,
-  });
-  client.send({
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 2,
-  });
-
-  await waitFor(() => received.length === 2);
-
-  assert.deepEqual(received, [
-    {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 1,
-    },
-    {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    },
-  ]);
-});
-
-test("decodes a frame split across chunks", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const remote = new LinkStream(peer, "peer-node");
-  const received: Envelope[] = [];
-
-  remote.events.on("envelope", (message) => received.push(message));
-
-  t.after(() => {
-    socket.destroy();
-    remote.close();
-    server.close();
-  });
-
-  const envelope: Envelope = {
-    t: "call",
-    id: "call-1",
-    from: "client-node",
-    to: "peer-node",
-    service: "math",
-    method: "add",
-    args: [1, 2],
-  };
-  const payload = encode(envelope);
-  const header = new Uint8Array(4);
-
-  new DataView(header.buffer).setUint32(0, payload.byteLength, false);
-
-  socket.write(header);
-  socket.write(payload.subarray(0, 2));
-
-  await new Promise<void>((resolve) => setTimeout(resolve, 10));
-
-  socket.write(payload.subarray(2));
-
-  await waitFor(() => received.length === 1);
-
-  assert.deepEqual(received[0], envelope);
-});
-
-test("decodes a whole frame followed by a partial frame", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const remote = new LinkStream(peer, "peer-node");
-  const received: Envelope[] = [];
-
-  remote.events.on("envelope", (message) => received.push(message));
-
-  t.after(() => {
-    socket.destroy();
-    remote.close();
-    server.close();
-  });
-
-  const first: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 1,
-  };
-  const second: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 2,
-  };
-  const firstFrame = frame(first);
-  const secondFrame = frame(second);
-  const combined = new Uint8Array(
-    firstFrame.byteLength + secondFrame.byteLength,
-  );
-
-  combined.set(firstFrame, 0);
-  combined.set(secondFrame, firstFrame.byteLength);
-
-  socket.write(combined.subarray(0, combined.byteLength - 2));
-
-  await waitFor(() => received.length === 1);
-
-  socket.write(combined.subarray(combined.byteLength - 2));
-
-  await waitFor(() => received.length === 2);
-
-  assert.deepEqual(received, [first, second]);
-});
-
-test("closes when a frame header exceeds the envelope limit", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const remote = new LinkStream(peer, "peer-node");
-  let closes = 0;
-
-  remote.events.on("close", () => {
-    closes += 1;
-  });
-
-  t.after(() => {
-    socket.destroy();
-    server.close();
-  });
-
-  const header = new Uint8Array(4);
-
-  new DataView(header.buffer).setUint32(0, maxEnvelopeSize + 1, false);
-
-  socket.write(header);
-
-  await waitFor(() => closes === 1);
-});
-
-test("emits close once when the peer closes", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const client = new LinkStream(socket, "client-node");
-  let closes = 0;
-
-  client.events.on("close", () => {
-    closes += 1;
-  });
-
-  t.after(() => {
-    client.close();
-    peer.destroy();
-    server.close();
-  });
-
-  peer.destroy();
-
-  await waitFor(() => closes === 1);
-  await new Promise<void>((resolve) => setTimeout(resolve, 20));
-
-  assert.equal(closes, 1);
-});
-
-test("ignores a send after close", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const client = new LinkStream(socket, "client-node");
-
-  t.after(() => {
-    peer.destroy();
-    server.close();
-  });
-
-  client.close();
-
-  assert.doesNotThrow(() => {
     client.send({
       t: "pub",
       id: "pub-1",
@@ -267,165 +77,357 @@ test("ignores a send after close", async (t) => {
       topic: "news",
       data: 1,
     });
-  });
-});
+    client.send({
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    });
 
-test("decodes a small frame after a large payload", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const remote = new LinkStream(peer, "peer-node");
-  const received: Envelope[] = [];
+    await waitFor(() => received.length === 2);
 
-  remote.events.on("envelope", (message) => received.push(message));
-
-  t.after(() => {
-    socket.destroy();
-    remote.close();
-    server.close();
-  });
-
-  const large: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: "a".repeat(1024 * 1024),
-  };
-  const small: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 2,
-  };
-
-  socket.write(frame(large));
-  socket.write(frame(small));
-
-  await waitFor(() => received.length === 2);
-
-  assert.deepEqual(received, [large, small]);
-});
-
-test("decodes a trailing frame after a near-maximum frame", async (t) => {
-  const { server, socket, peer } = await createPair();
-  const remote = new LinkStream(peer, "peer-node");
-  const received: string[] = [];
-  let closes = 0;
-
-  remote.events.on("envelope", (message) => {
-    const pub = message as { t: string; data: unknown };
-
-    received.push(pub.t === "pub" && pub.data === 2 ? "small" : "large");
-  });
-  remote.events.on("close", () => {
-    closes += 1;
+    assert.deepEqual(received, [
+      {
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 1,
+      },
+      {
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 2,
+      },
+    ]);
   });
 
-  t.after(() => {
-    socket.destroy();
-    remote.close();
-    server.close();
+  test("decodes a frame split across chunks", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    const received: Envelope[] = [];
+
+    remote.events.on("envelope", (message) => received.push(message));
+
+    t.after(() => {
+      socket.destroy();
+      remote.close();
+      server.close();
+    });
+
+    const envelope: Envelope = {
+      t: "call",
+      id: "call-1",
+      from: "client-node",
+      to: "peer-node",
+      service: "math",
+      method: "add",
+      args: [1, 2],
+    };
+    const payload = encode(envelope);
+    const header = new Uint8Array(4);
+
+    new DataView(header.buffer).setUint32(0, payload.byteLength, false);
+
+    socket.write(header);
+    socket.write(payload.subarray(0, 2));
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    socket.write(payload.subarray(2));
+
+    await waitFor(() => received.length === 1);
+
+    assert.deepEqual(received[0], envelope);
   });
 
-  const large: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: "",
-  };
-  const small: Envelope = {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data: 2,
-  };
+  test("decodes a whole frame followed by a partial frame", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    const received: Envelope[] = [];
 
-  let size = maxEnvelopeSize - 1024;
+    remote.events.on("envelope", (message) => received.push(message));
 
-  for (let i = 0; i < 8; i += 1) {
-    large.data = "a".repeat(size);
+    t.after(() => {
+      socket.destroy();
+      remote.close();
+      server.close();
+    });
 
-    const length = encode(large).byteLength;
+    const first: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 1,
+    };
+    const second: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    };
+    const firstFrame = frame(first);
+    const secondFrame = frame(second);
+    const combined = new Uint8Array(
+      firstFrame.byteLength + secondFrame.byteLength,
+    );
 
-    if (length === maxEnvelopeSize) {
-      break;
+    combined.set(firstFrame, 0);
+    combined.set(secondFrame, firstFrame.byteLength);
+
+    socket.write(combined.subarray(0, combined.byteLength - 2));
+
+    await waitFor(() => received.length === 1);
+
+    socket.write(combined.subarray(combined.byteLength - 2));
+
+    await waitFor(() => received.length === 2);
+
+    assert.deepEqual(received, [first, second]);
+  });
+
+  test("closes when a frame header exceeds the envelope limit", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    let closes = 0;
+
+    remote.events.on("close", () => {
+      closes += 1;
+    });
+
+    t.after(() => {
+      socket.destroy();
+      server.close();
+    });
+
+    const header = new Uint8Array(4);
+
+    new DataView(header.buffer).setUint32(0, maxEnvelopeSize + 1, false);
+
+    socket.write(header);
+
+    await waitFor(() => closes === 1);
+  });
+
+  test("emits close once when the peer closes", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const client = new LinkStream(socket, "client-node");
+    let closes = 0;
+
+    client.events.on("close", () => {
+      closes += 1;
+    });
+
+    t.after(() => {
+      client.close();
+      peer.destroy();
+      server.close();
+    });
+
+    peer.destroy();
+
+    await waitFor(() => closes === 1);
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(closes, 1);
+  });
+
+  test("ignores a send after close", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const client = new LinkStream(socket, "client-node");
+
+    t.after(() => {
+      peer.destroy();
+      server.close();
+    });
+
+    client.close();
+
+    assert.doesNotThrow(() => {
+      client.send({
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data: 1,
+      });
+    });
+  });
+
+  test("decodes a small frame after a large payload", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    const received: Envelope[] = [];
+
+    remote.events.on("envelope", (message) => received.push(message));
+
+    t.after(() => {
+      socket.destroy();
+      remote.close();
+      server.close();
+    });
+
+    const large: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: "a".repeat(1024 * 1024),
+    };
+    const small: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    };
+
+    socket.write(frame(large));
+    socket.write(frame(small));
+
+    await waitFor(() => received.length === 2);
+
+    assert.deepEqual(received, [large, small]);
+  });
+
+  test("decodes a trailing frame after a near-maximum frame", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    const received: string[] = [];
+    let closes = 0;
+
+    remote.events.on("envelope", (message) => {
+      const pub = message as { t: string; data: unknown };
+
+      received.push(pub.t === "pub" && pub.data === 2 ? "small" : "large");
+    });
+    remote.events.on("close", () => {
+      closes += 1;
+    });
+
+    t.after(() => {
+      socket.destroy();
+      remote.close();
+      server.close();
+    });
+
+    const large: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: "",
+    };
+    const small: Envelope = {
+      t: "pub",
+      id: "pub-1",
+      ttl: 8,
+      from: "client-node",
+      origin: "client-node",
+      topic: "news",
+      data: 2,
+    };
+
+    let size = maxEnvelopeSize - 1024;
+
+    for (let i = 0; i < 8; i += 1) {
+      large.data = "a".repeat(size);
+
+      const length = encode(large).byteLength;
+
+      if (length === maxEnvelopeSize) {
+        break;
+      }
+
+      size += maxEnvelopeSize - length;
     }
 
-    size += maxEnvelopeSize - length;
-  }
+    assert.equal(encode(large).byteLength, maxEnvelopeSize);
 
-  assert.equal(encode(large).byteLength, maxEnvelopeSize);
+    const largeFrame = frame(large);
+    const smallFrame = frame(small);
+    const tail = new Uint8Array(1 + smallFrame.byteLength);
 
-  const largeFrame = frame(large);
-  const smallFrame = frame(small);
-  const tail = new Uint8Array(1 + smallFrame.byteLength);
+    tail.set(largeFrame.subarray(largeFrame.byteLength - 1));
+    tail.set(smallFrame, 1);
 
-  tail.set(largeFrame.subarray(largeFrame.byteLength - 1));
-  tail.set(smallFrame, 1);
+    assert.ok(tail.byteLength > 4);
 
-  assert.ok(tail.byteLength > 4);
+    socket.write(largeFrame.subarray(0, largeFrame.byteLength - 1));
 
-  socket.write(largeFrame.subarray(0, largeFrame.byteLength - 1));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    socket.write(tail);
 
-  socket.write(tail);
+    await waitFor(() => received.length === 2);
 
-  await waitFor(() => received.length === 2);
+    assert.deepEqual(received, ["large", "small"]);
+    assert.equal(closes, 0);
+  });
 
-  assert.deepEqual(received, ["large", "small"]);
-  assert.equal(closes, 0);
-});
+  test("close drains queued frames and ends the socket", async (t) => {
+    const written: Uint8Array[] = [];
+    let ended = 0;
+    let destroyed = 0;
 
-test("close drains queued frames and ends the socket", async (t) => {
-  const written: Uint8Array[] = [];
-  let ended = 0;
-  let destroyed = 0;
+    const socket = {
+      remoteAddress: "127.0.0.1",
+      setNoDelay() {},
+      on() {},
+      once() {},
+      off() {},
+      write(frame: Uint8Array) {
+        written.push(frame);
+        return false;
+      },
+      end() {
+        ended += 1;
+      },
+      destroy() {
+        destroyed += 1;
+      },
+    } as unknown as Socket;
 
-  const socket = {
-    remoteAddress: "127.0.0.1",
-    setNoDelay() {},
-    on() {},
-    once() {},
-    off() {},
-    write(frame: Uint8Array) {
-      written.push(frame);
-      return false;
-    },
-    end() {
-      ended += 1;
-    },
-    destroy() {
-      destroyed += 1;
-    },
-  } as unknown as Socket;
+    const link = new LinkStream(socket, "client-node");
 
-  const link = new LinkStream(socket, "client-node");
+    t.after(() => link.close());
 
-  t.after(() => link.close());
+    link.send({ t: "bye", from: "client-node" });
+    link.send({ t: "pong", from: "client-node" });
 
-  link.send({ t: "bye", from: "client-node" });
-  link.send({ t: "pong", from: "client-node" });
+    assert.equal(written.length, 1);
 
-  assert.equal(written.length, 1);
+    link.close();
 
-  link.close();
+    assert.equal(written.length, 2);
+    assert.equal(ended, 1);
+    assert.equal(destroyed, 0);
 
-  assert.equal(written.length, 2);
-  assert.equal(ended, 1);
-  assert.equal(destroyed, 0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 150));
-
-  assert.equal(destroyed, 1);
+    assert.equal(destroyed, 1);
+  });
 });

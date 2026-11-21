@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { connect } from "node:net";
 import { SwarmError } from "./errors.ts";
 import { TcpServer } from "./tcpserver.ts";
@@ -28,88 +28,91 @@ function openSocket(port: number) {
   });
 }
 
-test("accept emits online and tracks the connection", async () => {
-  const server = new TcpServer(host, 0);
-  const online = new Promise<Socket>((resolve) => {
-    server.events.once("online", resolve);
-  });
-
-  await server.listen();
-
-  assert.notEqual(server.port, 0);
-
-  const client = await openSocket(server.port);
-  const accepted = await online;
-
-  assert.equal(server.size, 1);
-  assert.equal(server.connections.length, 1);
-  assert.equal(server.connections[0], accepted);
-
-  const offline = new Promise<Socket>((resolve) => {
-    server.events.once("offline", resolve);
-  });
-
-  client.destroy();
-
-  assert.equal(await offline, accepted);
-  assert.equal(server.size, 0);
-
-  server.close();
-});
-
-test("close stops listening and drops every connection", async () => {
-  const server = new TcpServer(host, 0);
-  const accepted: Socket[] = [];
-
-  server.events.on("online", (socket) => accepted.push(socket));
-
-  await server.listen();
-
-  const first = await openSocket(server.port);
-  const second = await openSocket(server.port);
-
-  await waitFor(() => server.size === 2);
-
-  const closed = Promise.all([
-    new Promise<void>((resolve) => first.once("close", () => resolve())),
-    new Promise<void>((resolve) => second.once("close", () => resolve())),
-  ]);
-
-  const offline: Socket[] = [];
-  const dropped = new Promise<void>((resolve) => {
-    server.events.on("offline", (socket) => {
-      offline.push(socket);
-
-      if (offline.length === 2) {
-        resolve();
-      }
+describe("TcpServer", () => {
+  test("accept emits online and tracks the connection", async () => {
+    const server = new TcpServer(host, 0);
+    const online = new Promise<Socket>((resolve) => {
+      server.events.once("online", resolve);
     });
+
+    await server.listen();
+
+    assert.notEqual(server.port, 0);
+
+    const client = await openSocket(server.port);
+    const accepted = await online;
+
+    assert.equal(server.size, 1);
+    assert.equal(server.connections.length, 1);
+    assert.equal(server.connections[0], accepted);
+
+    const offline = new Promise<Socket>((resolve) => {
+      server.events.once("offline", resolve);
+    });
+
+    client.destroy();
+
+    assert.equal(await offline, accepted);
+    assert.equal(server.size, 0);
+
+    server.close();
   });
 
-  server.close();
+  test("close stops listening and drops every connection", async () => {
+    const server = new TcpServer(host, 0);
+    const accepted: Socket[] = [];
 
-  assert.equal(server.size, 0);
-  assert.equal(accepted.length, 2);
+    server.events.on("online", (socket) => accepted.push(socket));
 
-  await dropped;
+    await server.listen();
 
-  assert.equal(offline.length, 2);
+    const first = await openSocket(server.port);
+    const second = await openSocket(server.port);
 
-  await closed;
-});
+    await waitFor(() => server.size === 2);
 
-test("listen rejects when the port is already in use", async () => {
-  const first = new TcpServer(host, 0);
+    const closed = Promise.all([
+      new Promise<void>((resolve) => first.once("close", () => resolve())),
+      new Promise<void>((resolve) => second.once("close", () => resolve())),
+    ]);
 
-  await first.listen();
+    const offline: Socket[] = [];
+    const dropped = new Promise<void>((resolve) => {
+      server.events.on("offline", (socket) => {
+        offline.push(socket);
 
-  const second = new TcpServer(host, first.port);
+        if (offline.length === 2) {
+          resolve();
+        }
+      });
+    });
 
-  await assert.rejects(
-    () => second.listen(),
-    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
-  );
+    server.close();
 
-  first.close();
-  second.close();
+    assert.equal(server.size, 0);
+    assert.equal(accepted.length, 2);
+
+    await dropped;
+
+    assert.equal(offline.length, 2);
+
+    await closed;
+  });
+
+  test("listen rejects when the port is already in use", async () => {
+    const first = new TcpServer(host, 0);
+
+    await first.listen();
+
+    const second = new TcpServer(host, first.port);
+
+    await assert.rejects(
+      () => second.listen(),
+      (error: unknown) =>
+        error instanceof SwarmError && error.kind === "failed",
+    );
+
+    first.close();
+    second.close();
+  });
 });

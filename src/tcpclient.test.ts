@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { SwarmError } from "./errors.ts";
 import { TcpClient } from "./tcpclient.ts";
 import { TcpServer } from "./tcpserver.ts";
@@ -19,120 +19,123 @@ import type { Socket } from "node:net";
 
 const host = "127.0.0.1";
 
-test("connect emits online and close emits offline", async () => {
-  const server = new TcpServer(host, 0);
+describe("TcpClient", () => {
+  test("connect emits online and close emits offline", async () => {
+    const server = new TcpServer(host, 0);
 
-  await server.listen();
+    await server.listen();
 
-  const client = new TcpClient(host, server.port, { reconnect: false });
-  const online = new Promise<Socket>((resolve) => {
-    client.events.once("online", resolve);
-  });
-  const offline = new Promise<Socket>((resolve) => {
-    client.events.once("offline", resolve);
-  });
+    const client = new TcpClient(host, server.port, { reconnect: false });
+    const online = new Promise<Socket>((resolve) => {
+      client.events.once("online", resolve);
+    });
+    const offline = new Promise<Socket>((resolve) => {
+      client.events.once("offline", resolve);
+    });
 
-  await client.connect();
+    await client.connect();
 
-  const socket = await online;
+    const socket = await online;
 
-  assert.equal(client.socket, socket);
-  assert.equal(client.connected, true);
+    assert.equal(client.socket, socket);
+    assert.equal(client.connected, true);
 
-  client.close();
+    client.close();
 
-  assert.equal(await offline, socket);
-  assert.equal(client.socket, undefined);
-  assert.equal(client.connected, false);
+    assert.equal(await offline, socket);
+    assert.equal(client.socket, undefined);
+    assert.equal(client.connected, false);
 
-  server.close();
-});
-
-test("reconnects after an unexpected disconnect", async () => {
-  const server = new TcpServer(host, 0);
-  const accepted: Socket[] = [];
-
-  server.events.on("online", (socket) => accepted.push(socket));
-
-  await server.listen();
-
-  const client = new TcpClient(host, server.port, {
-    retryDelay: 10,
-    maxRetryDelay: 20,
+    server.close();
   });
 
-  const online: Socket[] = [];
+  test("reconnects after an unexpected disconnect", async () => {
+    const server = new TcpServer(host, 0);
+    const accepted: Socket[] = [];
 
-  client.events.on("online", (socket) => online.push(socket));
+    server.events.on("online", (socket) => accepted.push(socket));
 
-  await client.connect();
-  await waitFor(() => accepted.length === 1);
+    await server.listen();
 
-  const offline = new Promise<void>((resolve) => {
-    client.events.once("offline", () => resolve());
-  });
-  const reconnected = new Promise<Socket>((resolve) => {
-    client.events.once("online", resolve);
-  });
+    const client = new TcpClient(host, server.port, {
+      retryDelay: 10,
+      maxRetryDelay: 20,
+    });
 
-  accepted[0].destroy();
+    const online: Socket[] = [];
 
-  await offline;
+    client.events.on("online", (socket) => online.push(socket));
 
-  const socket = await reconnected;
+    await client.connect();
+    await waitFor(() => accepted.length === 1);
 
-  assert.equal(online.length, 2);
-  assert.equal(client.socket, socket);
+    const offline = new Promise<void>((resolve) => {
+      client.events.once("offline", () => resolve());
+    });
+    const reconnected = new Promise<Socket>((resolve) => {
+      client.events.once("online", resolve);
+    });
 
-  client.close();
-  server.close();
-});
+    accepted[0].destroy();
 
-test("close stops reconnect", async () => {
-  const server = new TcpServer(host, 0);
-  const accepted: Socket[] = [];
+    await offline;
 
-  server.events.on("online", (socket) => accepted.push(socket));
+    const socket = await reconnected;
 
-  await server.listen();
+    assert.equal(online.length, 2);
+    assert.equal(client.socket, socket);
 
-  const client = new TcpClient(host, server.port, { retryDelay: 10 });
-
-  await client.connect();
-  await waitFor(() => accepted.length === 1);
-
-  const offline = new Promise<void>((resolve) => {
-    client.events.once("offline", () => resolve());
+    client.close();
+    server.close();
   });
 
-  accepted[0].destroy();
+  test("close stops reconnect", async () => {
+    const server = new TcpServer(host, 0);
+    const accepted: Socket[] = [];
 
-  await offline;
+    server.events.on("online", (socket) => accepted.push(socket));
 
-  client.close();
+    await server.listen();
 
-  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    const client = new TcpClient(host, server.port, { retryDelay: 10 });
 
-  assert.equal(accepted.length, 1);
+    await client.connect();
+    await waitFor(() => accepted.length === 1);
 
-  server.close();
-});
+    const offline = new Promise<void>((resolve) => {
+      client.events.once("offline", () => resolve());
+    });
 
-test("connect rejects when the server is unavailable", async () => {
-  const server = new TcpServer(host, 0);
+    accepted[0].destroy();
 
-  await server.listen();
+    await offline;
 
-  const port = server.port;
+    client.close();
 
-  server.close();
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
 
-  const client = new TcpClient(host, port, { reconnect: false });
+    assert.equal(accepted.length, 1);
 
-  await assert.rejects(
-    () => client.connect(),
-    (error: unknown) => error instanceof SwarmError && error.kind === "failed",
-  );
+    server.close();
+  });
 
-  client.close();
+  test("connect rejects when the server is unavailable", async () => {
+    const server = new TcpServer(host, 0);
+
+    await server.listen();
+
+    const port = server.port;
+
+    server.close();
+
+    const client = new TcpClient(host, port, { reconnect: false });
+
+    await assert.rejects(
+      () => client.connect(),
+      (error: unknown) =>
+        error instanceof SwarmError && error.kind === "failed",
+    );
+
+    client.close();
+  });
 });

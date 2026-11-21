@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 import { Dialer } from "./dialer.ts";
 import type { Client } from "./client.ts";
 
@@ -72,196 +72,198 @@ function makeDialer(seeds: Array<string | URL> = []) {
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-test("add ignores a duplicate seed and dials the new one", async (t) => {
-  const { dialer, created } = makeDialer();
-  const seed = "tcp://10.0.0.9:9";
+describe("Dialer", () => {
+  test("add ignores a duplicate seed and dials the new one", async (t) => {
+    const { dialer, created } = makeDialer();
+    const seed = "tcp://10.0.0.9:9";
 
-  t.after(() => dialer.close());
+    t.after(() => dialer.close());
 
-  dialer.add(seed);
-  dialer.add(seed);
+    dialer.add(seed);
+    dialer.add(seed);
 
-  assert.deepEqual(dialer.list(), [seed]);
-  assert.deepEqual(created, [{ addr: seed, id: undefined }]);
-});
-
-test("list omits credentials from seeds", (t) => {
-  const { dialer } = makeDialer([
-    "ws://user:pass@10.0.0.9:9",
-    "tcp://user:pass@10.0.0.9:10",
-  ]);
-
-  t.after(() => dialer.close());
-
-  assert.deepEqual(dialer.list(), ["ws://10.0.0.9:9/", "tcp://10.0.0.9:10"]);
-});
-
-test("remove forgets a seed without dialing", (t) => {
-  const { dialer, created } = makeDialer();
-
-  t.after(() => dialer.close());
-
-  dialer.add("tcp://10.0.0.9:9");
-  dialer.remove("tcp://10.0.0.9:9");
-  dialer.remove("tcp://10.0.0.9:10");
-
-  assert.deepEqual(dialer.list(), []);
-  assert.equal(created.length, 1);
-});
-
-test("discover dials every seed once", async (t) => {
-  const seeds = ["tcp://10.0.0.9:9", "tcp://10.0.0.9:10"];
-  const { dialer, created } = makeDialer(seeds);
-
-  t.after(() => dialer.close());
-
-  dialer.discover();
-  dialer.discover();
-
-  await tick();
-
-  assert.deepEqual(
-    created.map((entry) => entry.addr),
-    seeds,
-  );
-});
-
-test("dial ignores a failed create and retries later", async () => {
-  const created: string[] = [];
-  let failed = false;
-
-  const dialer = new Dialer({
-    seeds: [],
-    create: (addr) => {
-      created.push(addr);
-
-      if (!failed) {
-        failed = true;
-        return Promise.reject(new Error("boom"));
-      }
-
-      return Promise.resolve(makeClient() as unknown as Client);
-    },
-    track: () => {},
-    untrack: () => {},
-    isClosed: () => false,
+    assert.deepEqual(dialer.list(), [seed]);
+    assert.deepEqual(created, [{ addr: seed, id: undefined }]);
   });
 
-  await dialer.dial("tcp://10.0.0.9:9");
+  test("list omits credentials from seeds", (t) => {
+    const { dialer } = makeDialer([
+      "ws://user:pass@10.0.0.9:9",
+      "tcp://user:pass@10.0.0.9:10",
+    ]);
 
-  assert.equal(dialer.has("tcp://10.0.0.9:9"), false);
+    t.after(() => dialer.close());
 
-  await dialer.dial("tcp://10.0.0.9:9");
-
-  assert.equal(dialer.has("tcp://10.0.0.9:9"), true);
-  assert.equal(created.length, 2);
-
-  dialer.close();
-});
-
-test("drop closes and untracks the client", async (t) => {
-  const { dialer, clients, tracked } = makeDialer();
-
-  t.after(() => dialer.close());
-
-  await dialer.dial("tcp://10.0.0.9:9");
-
-  assert.equal(tracked.length, 1);
-
-  dialer.drop("tcp://10.0.0.9:9");
-
-  assert.equal(clients[0].closeCount, 1);
-  assert.equal(tracked.length, 0);
-  assert.equal(dialer.has("tcp://10.0.0.9:9"), false);
-});
-
-test("a stale create never takes over the dial that replaced it", async () => {
-  const addr = "tcp://10.0.0.9:9";
-  const pending: Array<(client: Client) => void> = [];
-  const tracked: Client[] = [];
-  const dialer = new Dialer({
-    seeds: [],
-    create: () => new Promise<Client>((resolve) => pending.push(resolve)),
-    track: (client) => tracked.push(client),
-    untrack: (client) => {
-      const index = tracked.indexOf(client);
-
-      if (index >= 0) {
-        tracked.splice(index, 1);
-      }
-    },
-    isClosed: () => false,
+    assert.deepEqual(dialer.list(), ["ws://10.0.0.9:9/", "tcp://10.0.0.9:10"]);
   });
 
-  const first = dialer.dial(addr);
+  test("remove forgets a seed without dialing", (t) => {
+    const { dialer, created } = makeDialer();
 
-  dialer.drop(addr);
+    t.after(() => dialer.close());
 
-  const second = dialer.dial(addr);
-  const stale = makeClient();
-  const fresh = makeClient();
+    dialer.add("tcp://10.0.0.9:9");
+    dialer.remove("tcp://10.0.0.9:9");
+    dialer.remove("tcp://10.0.0.9:10");
 
-  pending[0](stale as unknown as Client);
-  await first;
+    assert.deepEqual(dialer.list(), []);
+    assert.equal(created.length, 1);
+  });
 
-  pending[1](fresh as unknown as Client);
-  await second;
+  test("discover dials every seed once", async (t) => {
+    const seeds = ["tcp://10.0.0.9:9", "tcp://10.0.0.9:10"];
+    const { dialer, created } = makeDialer(seeds);
 
-  assert.equal(tracked.length, 1);
-  assert.equal(tracked[0], fresh as unknown as Client);
-  assert.equal(stale.connectCount, 0);
-  assert.equal(stale.closeCount, 1);
-  assert.equal(fresh.closeCount, 0);
+    t.after(() => dialer.close());
 
-  dialer.drop(addr);
+    dialer.discover();
+    dialer.discover();
 
-  assert.equal(fresh.closeCount, 1);
-  assert.equal(tracked.length, 0);
-});
+    await tick();
 
-test("close drops every dial", async (t) => {
-  const { dialer, clients, tracked } = makeDialer();
+    assert.deepEqual(
+      created.map((entry) => entry.addr),
+      seeds,
+    );
+  });
 
-  t.after(() => dialer.close());
+  test("dial ignores a failed create and retries later", async () => {
+    const created: string[] = [];
+    let failed = false;
 
-  await dialer.dial("tcp://10.0.0.9:9");
-  await dialer.dial("tcp://10.0.0.9:10");
+    const dialer = new Dialer({
+      seeds: [],
+      create: (addr) => {
+        created.push(addr);
 
-  dialer.close();
+        if (!failed) {
+          failed = true;
+          return Promise.reject(new Error("boom"));
+        }
 
-  assert.deepEqual(
-    clients.map((client) => client.closeCount),
-    [1, 1],
-  );
-  assert.equal(tracked.length, 0);
-});
+        return Promise.resolve(makeClient() as unknown as Client);
+      },
+      track: () => {},
+      untrack: () => {},
+      isClosed: () => false,
+    });
 
-test("dial closes the client when the dialer is already closed", async (t) => {
-  const { dialer, clients, tracked, close } = makeDialer();
+    await dialer.dial("tcp://10.0.0.9:9");
 
-  t.after(() => dialer.close());
+    assert.equal(dialer.has("tcp://10.0.0.9:9"), false);
 
-  close();
+    await dialer.dial("tcp://10.0.0.9:9");
 
-  await dialer.dial("tcp://10.0.0.9:9");
+    assert.equal(dialer.has("tcp://10.0.0.9:9"), true);
+    assert.equal(created.length, 2);
 
-  assert.equal(clients.length, 1);
-  assert.equal(clients[0].closeCount, 1);
-  assert.equal(tracked.length, 0);
-});
+    dialer.close();
+  });
 
-test("add and remove accept url seeds", (t) => {
-  const { dialer, created } = makeDialer();
-  const seed = new URL("tcp://10.0.0.9:9");
+  test("drop closes and untracks the client", async (t) => {
+    const { dialer, clients, tracked } = makeDialer();
 
-  t.after(() => dialer.close());
+    t.after(() => dialer.close());
 
-  dialer.add(seed);
+    await dialer.dial("tcp://10.0.0.9:9");
 
-  assert.deepEqual(dialer.list(), ["tcp://10.0.0.9:9"]);
-  assert.deepEqual(created, [{ addr: "tcp://10.0.0.9:9", id: undefined }]);
+    assert.equal(tracked.length, 1);
 
-  dialer.remove(seed);
+    dialer.drop("tcp://10.0.0.9:9");
 
-  assert.deepEqual(dialer.list(), []);
+    assert.equal(clients[0].closeCount, 1);
+    assert.equal(tracked.length, 0);
+    assert.equal(dialer.has("tcp://10.0.0.9:9"), false);
+  });
+
+  test("a stale create never takes over the dial that replaced it", async () => {
+    const addr = "tcp://10.0.0.9:9";
+    const pending: Array<(client: Client) => void> = [];
+    const tracked: Client[] = [];
+    const dialer = new Dialer({
+      seeds: [],
+      create: () => new Promise<Client>((resolve) => pending.push(resolve)),
+      track: (client) => tracked.push(client),
+      untrack: (client) => {
+        const index = tracked.indexOf(client);
+
+        if (index >= 0) {
+          tracked.splice(index, 1);
+        }
+      },
+      isClosed: () => false,
+    });
+
+    const first = dialer.dial(addr);
+
+    dialer.drop(addr);
+
+    const second = dialer.dial(addr);
+    const stale = makeClient();
+    const fresh = makeClient();
+
+    pending[0](stale as unknown as Client);
+    await first;
+
+    pending[1](fresh as unknown as Client);
+    await second;
+
+    assert.equal(tracked.length, 1);
+    assert.equal(tracked[0], fresh as unknown as Client);
+    assert.equal(stale.connectCount, 0);
+    assert.equal(stale.closeCount, 1);
+    assert.equal(fresh.closeCount, 0);
+
+    dialer.drop(addr);
+
+    assert.equal(fresh.closeCount, 1);
+    assert.equal(tracked.length, 0);
+  });
+
+  test("close drops every dial", async (t) => {
+    const { dialer, clients, tracked } = makeDialer();
+
+    t.after(() => dialer.close());
+
+    await dialer.dial("tcp://10.0.0.9:9");
+    await dialer.dial("tcp://10.0.0.9:10");
+
+    dialer.close();
+
+    assert.deepEqual(
+      clients.map((client) => client.closeCount),
+      [1, 1],
+    );
+    assert.equal(tracked.length, 0);
+  });
+
+  test("dial closes the client when the dialer is already closed", async (t) => {
+    const { dialer, clients, tracked, close } = makeDialer();
+
+    t.after(() => dialer.close());
+
+    close();
+
+    await dialer.dial("tcp://10.0.0.9:9");
+
+    assert.equal(clients.length, 1);
+    assert.equal(clients[0].closeCount, 1);
+    assert.equal(tracked.length, 0);
+  });
+
+  test("add and remove accept url seeds", (t) => {
+    const { dialer, created } = makeDialer();
+    const seed = new URL("tcp://10.0.0.9:9");
+
+    t.after(() => dialer.close());
+
+    dialer.add(seed);
+
+    assert.deepEqual(dialer.list(), ["tcp://10.0.0.9:9"]);
+    assert.deepEqual(created, [{ addr: "tcp://10.0.0.9:9", id: undefined }]);
+
+    dialer.remove(seed);
+
+    assert.deepEqual(dialer.list(), []);
+  });
 });

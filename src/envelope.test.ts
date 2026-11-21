@@ -15,27 +15,28 @@ import { parseEnvelope } from "./envelope.ts";
 import { errorKinds } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
-test("exposes error kinds as a frozen list", () => {
-  assert.equal(Object.isFrozen(errorKinds), true);
+describe("error helpers", () => {
+  test("exposes error kinds as a frozen list", () => {
+    assert.equal(Object.isFrozen(errorKinds), true);
+  });
+
+  test("accepts every error kind", () => {
+    for (const kind of errorKinds) {
+      const envelope = parseEnvelope({
+        t: "error",
+        from: "node-a",
+        to: "node-b",
+        id: "error-1",
+        kind,
+        message: "boom",
+        code: "FAILED",
+        retriable: false,
+      });
+
+      assert.notEqual(envelope, undefined, kind);
+    }
+  });
 });
-
-test("accepts every error kind", () => {
-  for (const kind of errorKinds) {
-    const envelope = parseEnvelope({
-      t: "error",
-      from: "node-a",
-      to: "node-b",
-      id: "error-1",
-      kind,
-      message: "boom",
-      code: "FAILED",
-      retriable: false,
-    });
-
-    assert.notEqual(envelope, undefined, kind);
-  }
-});
-
 describe("parseEnvelope", () => {
   test("accepts every envelope type", () => {
     const envelopes: Envelope[] = [
