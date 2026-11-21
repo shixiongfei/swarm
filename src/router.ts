@@ -15,6 +15,7 @@ import { Balancer } from "./balancer.ts";
 import type { NodeLocal } from "./nodelocal.ts";
 import type { NodeLink } from "./nodelink.ts";
 import type { Instance } from "./registry.ts";
+import type { CallOptions } from "./node.ts";
 
 export type RouterOptions = {
   nodeId: string;
@@ -76,7 +77,10 @@ export class Router {
       );
     }
 
-    const remaining = ttl === undefined ? this.maxHops : ttl;
+    const remaining = Math.min(
+      ttl === undefined ? this.maxHops : ttl,
+      this.maxHops,
+    );
 
     if (remaining <= 0) {
       throw new SwarmError(
@@ -122,7 +126,7 @@ export class Router {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number; signal?: AbortSignal } = {},
+    options: CallOptions = {},
   ) {
     if (options.signal !== undefined && options.signal.aborted) {
       return Promise.reject(

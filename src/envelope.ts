@@ -192,7 +192,7 @@ function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
   return message;
 }
 
-function isPeerEntry(entry: unknown): boolean {
+function isPeerEntry(entry: unknown) {
   if (typeof entry !== "object" || entry === null) {
     return false;
   }

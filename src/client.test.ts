@@ -77,6 +77,35 @@ describe("Client", () => {
     },
   );
 
+  test("grows the retry delay when a connection flaps", async () => {
+    class FlapClient extends Client<number> {
+      attempts: number[] = [];
+
+      protected async open() {
+        this.attempts.push(Date.now());
+
+        const socket = this.attempts.length;
+
+        this.markOnline(socket);
+
+        queueMicrotask(() => this.markOffline(socket));
+      }
+
+      protected destroy() {}
+    }
+
+    const client = new FlapClient({ retryDelay: 20, maxRetryDelay: 80 });
+
+    await client.connect();
+
+    await new Promise((resolve) => setTimeout(resolve, 220));
+
+    client.close();
+
+    assert.ok(client.attempts.length >= 3, `attempts ${client.attempts.length}`);
+    assert.ok(client.attempts.length <= 6, `attempts ${client.attempts.length}`);
+  });
+
   test("close cancels the retry scheduled by a rejected connect", async () => {
     let attempts = 0;
 

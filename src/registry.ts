@@ -252,7 +252,7 @@ export function isMetaData(value: unknown): value is MetaData | undefined {
   return value === undefined || (isObject(value) && isPlainObject(value));
 }
 
-export function sameMeta(a: unknown, b: unknown): boolean {
+export function sameMeta(a: unknown, b: unknown) {
   if (a === b) {
     return true;
   }

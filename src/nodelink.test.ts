@@ -14,7 +14,7 @@ import { describe, mock, test } from "node:test";
 import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
-import { Link } from "./link.ts";
+import { Link, pubFrame } from "./link.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
@@ -351,7 +351,9 @@ describe("handshake helpers", () => {
       link.nextError = congested;
 
       assert.throws(() =>
-        nodeLink.publish("news", 1, "peer-node", "pub-fail", 1),
+        nodeLink.publish(
+          pubFrame("stub-node", "news", 1, "peer-node", "pub-fail", 1),
+        ),
       );
     };
 
@@ -360,7 +362,9 @@ describe("handshake helpers", () => {
 
     assert.equal(link.closed, false);
 
-    nodeLink.publish("news", 1, "peer-node", "pub-ok", 1);
+    nodeLink.publish(
+      pubFrame("stub-node", "news", 1, "peer-node", "pub-ok", 1),
+    );
 
     fail();
     fail();

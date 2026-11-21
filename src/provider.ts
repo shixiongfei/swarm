@@ -23,7 +23,7 @@ export interface Provider {
     ttl?: number,
     source?: NodeLink,
     target?: string,
-  ): any;
+  ): unknown;
 
   publish(
     topic: string,

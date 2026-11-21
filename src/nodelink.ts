@@ -16,7 +16,7 @@ import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
 import type { ErrorCode } from "./errors.ts";
-import type { Link } from "./link.ts";
+import type { Link, PubFrame } from "./link.ts";
 import type { Provider } from "./provider.ts";
 import type { Envelope, PeerEntry } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
@@ -431,14 +431,12 @@ export class NodeLink implements Observable {
     );
   }
 
-  publish(
-    topic: string,
-    data: unknown,
-    origin: string,
-    id: string,
-    ttl: number,
-  ) {
-    this.transmit(() => this.link.publish(topic, data, origin, id, ttl));
+  publish(frame: PubFrame) {
+    if (this.peer === undefined && this.transport !== "port") {
+      return;
+    }
+
+    this.transmit(() => this.link.publish(frame));
   }
 
   peers(members: PeerEntry[]) {
@@ -448,7 +446,7 @@ export class NodeLink implements Observable {
   }
 
   bye() {
-    if (this.closed) {
+    if (this.closed || this.peer === undefined) {
       return;
     }
 

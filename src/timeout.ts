@@ -15,7 +15,7 @@ export function isTimeout(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-export function assertTimeout(timeout: number): void {
+export function assertTimeout(timeout: number) {
   if (!isTimeout(timeout)) {
     throw new SwarmError(
       "rejected",

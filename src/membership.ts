@@ -32,6 +32,7 @@ export class Membership {
 
   private readonly seen = new Map<string, number>();
   private readonly expiries = new Map<string, number>();
+  private readonly departed = new Set<string>();
   private readonly id: string;
   private readonly memberTtl: number;
   private readonly dialTtl: number;
@@ -61,10 +62,11 @@ export class Membership {
   learn(entries: PeerEntry[], local: boolean) {
     const now = Date.now();
     const advertised = this.members.has(this.id);
+    const linked = this.linked();
     let changed = false;
 
     for (const entry of entries) {
-      if (entry.id === this.id) {
+      if (entry.id === this.id || this.departed.has(entry.id)) {
         continue;
       }
 
@@ -95,7 +97,7 @@ export class Membership {
           existing.startup = entry.startup;
           changed = true;
 
-          if (!this.linked().has(entry.id) && !this.dialing(entry.addr)) {
+          if (!linked.has(entry.id) && !this.dialing(entry.addr)) {
             this.dial(entry.addr, entry.id);
           }
         } else if (existing.startup !== entry.startup) {
@@ -110,7 +112,7 @@ export class Membership {
       changed = true;
       this.onUp(entry);
 
-      if ((!advertised || this.id < entry.id) && !this.linked().has(entry.id)) {
+      if ((!advertised || this.id < entry.id) && !linked.has(entry.id)) {
         this.dial(entry.addr, entry.id);
       }
     }
@@ -184,6 +186,8 @@ export class Membership {
   }
 
   leave(id: string) {
+    this.departed.add(id);
+
     const member = this.members.get(id);
 
     if (member !== undefined) {
@@ -228,6 +232,7 @@ export class Membership {
     this.members.clear();
     this.seen.clear();
     this.expiries.clear();
+    this.departed.clear();
   }
 
   private prune(now: number) {

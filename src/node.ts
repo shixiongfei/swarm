@@ -55,6 +55,11 @@ export type ServiceResult =
   | { nodeId: string; ok: true; value: unknown }
   | { nodeId: string; ok: false; error: unknown };
 
+export type CallOptions = {
+  timeout?: number;
+  signal?: AbortSignal;
+};
+
 export type NodeConfig = {
   cluster: string;
   secret?: string;
@@ -112,7 +117,15 @@ const defaultMaxHops = 8;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 
-function assertArgs(args: unknown) {
+function assertCall(service: unknown, method: unknown, args: unknown) {
+  if (typeof service !== "string") {
+    throw new SwarmError("rejected", "REJECTED", "service must be a string");
+  }
+
+  if (typeof method !== "string") {
+    throw new SwarmError("rejected", "REJECTED", "method must be a string");
+  }
+
   if (!Array.isArray(args)) {
     throw new SwarmError("rejected", "REJECTED", "args must be an array");
   }
@@ -520,7 +533,7 @@ export class Node implements Provider {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number; signal?: AbortSignal } = {},
+    options: CallOptions = {},
   ) {
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
@@ -550,7 +563,7 @@ export class Node implements Provider {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number; signal?: AbortSignal } = {},
+    options: CallOptions = {},
   ) {
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
@@ -585,7 +598,7 @@ export class Node implements Provider {
     target?: string,
     signal?: AbortSignal,
   ) {
-    assertArgs(args);
+    assertCall(service, method, args);
 
     if (timeout !== undefined) {
       assertTimeout(timeout);
@@ -678,11 +691,11 @@ export class Node implements Provider {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number; signal?: AbortSignal } = {},
+    options: CallOptions = {},
   ) {
     this.checkOpen();
 
-    assertArgs(args);
+    assertCall(service, method, args);
     assertTimeout(
       options.timeout === undefined ? this.callTimeout : options.timeout,
     );
@@ -692,6 +705,10 @@ export class Node implements Provider {
 
   private relay(event: WatchEvent) {
     for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      if (nodeLink.peerId === undefined) {
+        continue;
+      }
+
       if (nodeLink.has(event.instance.service, event.instance.nodeId)) {
         continue;
       }
@@ -923,9 +940,20 @@ export class Node implements Provider {
   }
 
   private broadcastPeers() {
+    let toLocal: NodeMember[] | undefined;
+    let toRemote: NodeMember[] | undefined;
+
     this.eachLink((nodeLink) => {
-      if (nodeLink.peerId !== undefined) {
-        nodeLink.peers(this.membership.shared(nodeLink.local));
+      if (nodeLink.peerId === undefined) {
+        return;
+      }
+
+      if (nodeLink.local) {
+        toLocal ??= this.membership.shared(true);
+        nodeLink.peers(toLocal);
+      } else {
+        toRemote ??= this.membership.shared(false);
+        nodeLink.peers(toRemote);
       }
     });
   }

@@ -12,7 +12,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { PubSub } from "./pubsub.ts";
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
+import type { PubFrame } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 type Sent = {
@@ -26,16 +27,12 @@ type Sent = {
 function makeLink(peerId: string, sent: Sent[], fail?: Error) {
   return {
     peerId,
-    publish(
-      topic: string,
-      data: unknown,
-      origin: string,
-      id: string,
-      ttl: number,
-    ) {
+    publish(frame: PubFrame) {
       if (fail !== undefined) {
         throw fail;
       }
+
+      const { topic, data, origin, id, ttl } = frame.message;
 
       sent.push({ topic, data, origin, id, ttl });
     },
@@ -67,6 +64,31 @@ describe("PubSub", () => {
 
     assert.equal(sent.length, 1);
     assert.deepEqual(local, [{ topic: "topic", data: "data", origin: "self" }]);
+  });
+
+  test("publish keeps fanning out when a link rejects the envelope", () => {
+    const sent: Sent[] = [];
+    const invalid = new SwarmError("failed", "ENVELOPE_INVALID", "bad payload");
+    const { pubsub, local } = makePubSub([
+      makeLink("a", [], invalid),
+      makeLink("b", sent),
+    ]);
+
+    assert.throws(
+      () => pubsub.publish("topic", "data", undefined, undefined, "pub-1"),
+      (err: SwarmError) => err.code === "ENVELOPE_INVALID",
+    );
+    assert.equal(sent.length, 1);
+    assert.equal(local.length, 1);
+  });
+
+  test("clamps a ttl above the hop limit", () => {
+    const sent: Sent[] = [];
+    const { pubsub } = makePubSub([makeLink("a", sent)], 3);
+
+    pubsub.publish("topic", "data", undefined, undefined, "pub-1", 1000);
+
+    assert.equal(sent[0].ttl, 2);
   });
 
   test("publish forwards to every link and publishes locally", () => {

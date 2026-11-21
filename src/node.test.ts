@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocket } from "ws";
 import { Node } from "./node.ts";
@@ -268,6 +268,114 @@ describe("Node", () => {
 
     assert.equal(calls, 0);
     assert.equal(await node.call("math", "add", [1, 2]), 3);
+  });
+
+  test("call rejects a service or method that is not a string", async (t) => {
+    const node = makeNode();
+
+    t.after(() => node.close());
+
+    let calls = 0;
+
+    node.register("math", {
+      add: () => {
+        calls += 1;
+        return 0;
+      },
+    });
+
+    const rejected = (err: SwarmError) =>
+      err.kind === "rejected" && err.code === "REJECTED";
+
+    const bad = 7 as unknown as string;
+
+    await assert.rejects(node.call(bad, "add", []), rejected);
+    await assert.rejects(node.call("math", bad, []), rejected);
+    await assert.rejects(node.callTo(node.nodeId, bad, "add", []), rejected);
+    await assert.rejects(node.callTo(node.nodeId, "math", bad, []), rejected);
+    await assert.rejects(node.callAll(bad, "add", []), rejected);
+    await assert.rejects(node.callAll("math", bad, []), rejected);
+
+    assert.equal(calls, 0);
+  });
+
+  test("does not send traffic to a link that has not authenticated", async (t) => {
+    const node = new Node({ cluster: "unauthenticated", secret: "s3cr3t" });
+    const { port } = await node.listen("tcp://127.0.0.1:0");
+    const socket = connect(port, "127.0.0.1");
+    const chunks: Buffer[] = [];
+
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+    t.after(() => {
+      socket.destroy();
+      node.close();
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+
+    node.register("billing", { charge: () => 1 }, { apiKey: "sk-live-999" });
+    node.publish("orders", { orderId: 42 });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(Buffer.concat(chunks).length, 0);
+  });
+
+  test("does not publish to an outbound link that has not authenticated", async (t) => {
+    const node = new Node({ cluster: "unauthenticated", secret: "s3cr3t" });
+    const chunks: Buffer[] = [];
+    const server = createServer((socket) =>
+      socket.on("data", (chunk: Buffer) => chunks.push(chunk)),
+    );
+    const port = await freePort();
+
+    await new Promise<void>((resolve) =>
+      server.listen(port, "127.0.0.1", resolve),
+    );
+
+    t.after(() => {
+      node.close();
+      server.close();
+    });
+
+    await node.connect(`tcp://127.0.0.1:${port}`);
+    await waitFor(() => chunks.length > 0);
+
+    const before = Buffer.concat(chunks).length;
+
+    node.publish("orders", { orderId: 42 });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(Buffer.concat(chunks).length, before);
+  });
+
+  test("does not say goodbye to a link that has not authenticated", async (t) => {
+    const node = new Node({ cluster: "unauthenticated", secret: "s3cr3t" });
+    const { port } = await node.listen("tcp://127.0.0.1:0");
+    const socket = connect(port, "127.0.0.1");
+    const chunks: Buffer[] = [];
+
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+    t.after(() => socket.destroy());
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    node.close();
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(Buffer.concat(chunks).length, 0);
   });
 
   test("a node rejects an invalid default call timeout", () => {
@@ -1979,6 +2087,9 @@ for (const protocol of ["tcp", "ws"] as const) {
         });
 
         await connectPair(protocol, hub, peer);
+        await waitFor(() =>
+          peer.snapshot().links.some((link) => link.peerId !== undefined),
+        );
 
         let local = 0;
         let remote = 0;
@@ -2018,6 +2129,9 @@ for (const protocol of ["tcp", "ws"] as const) {
         });
 
         await connectPair(protocol, hub, peer);
+        await waitFor(() =>
+          peer.snapshot().links.some((link) => link.peerId !== undefined),
+        );
 
         let local = 0;
         let remote = 0;

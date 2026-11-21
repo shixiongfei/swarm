@@ -185,6 +185,15 @@ describe("Router", () => {
     assert.equal(link.calls.length, 0);
   });
 
+  test("clamps a ttl above the hop limit", async () => {
+    const link = fakeLink("peer", ["math"]);
+    const { router } = makeRouter({ links: [link], maxHops: 3 });
+
+    await router.invoke("math", "add", [], undefined, 1000);
+
+    assert.equal(link.calls[0].ttl, 2);
+  });
+
   test("skips the link a call came from", async () => {
     const source = fakeLink("a", ["math"]);
     const other = fakeLink("b", ["math"]);

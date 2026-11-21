@@ -265,6 +265,19 @@ describe("Membership", () => {
     assert.deepEqual(down, [remote]);
   });
 
+  test("leave keeps the member out when gossip repeats it", (t) => {
+    const { membership, dials } = makeMembership();
+
+    t.after(() => membership.close());
+
+    membership.attach(remote.id, remote.addr, remote.startup);
+    membership.leave(remote.id);
+    membership.learn([remote], true);
+
+    assert.deepEqual(membership.snapshot(), []);
+    assert.deepEqual(dials, []);
+  });
+
   test("upsertSelf replaces the member in place and keeps one entry", (t) => {
     const { membership, broadcasts } = makeMembership();
 

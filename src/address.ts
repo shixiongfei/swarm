@@ -52,11 +52,7 @@ export function parseUrl(url: string | URL): ParsedUrl {
     : Number(parsed.port);
 
   if (!Number.isInteger(port) || port > 65535) {
-    throw new SwarmError(
-      "rejected",
-      "REJECTED",
-      `invalid port: ${parsed.hostname}`,
-    );
+    throw new SwarmError("rejected", "REJECTED", `invalid port: ${port}`);
   }
 
   const path = normalizePath(parsed.pathname);

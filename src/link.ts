@@ -11,6 +11,7 @@
 
 import { eventlite } from "eventlite.js";
 import { SwarmError } from "./errors.ts";
+import { encode } from "./codec.ts";
 import { protocolVersion } from "./envelope.ts";
 import type { Instance } from "./registry.ts";
 import type { Envelope, EnvelopeHandler, Enveloper } from "./envelope.ts";
@@ -21,6 +22,41 @@ export type LinkEvents = {
 };
 
 export type LinkTransport = "port" | "socket" | "websocket";
+
+export type PubFrame = {
+  readonly message: Extract<Envelope, { t: "pub" }>;
+  bytes(): Uint8Array;
+};
+
+export function pubFrame(
+  nodeId: string,
+  topic: string,
+  data: unknown,
+  origin: string,
+  id: string,
+  ttl: number,
+): PubFrame {
+  const message: Extract<Envelope, { t: "pub" }> = {
+    t: "pub",
+    from: nodeId,
+    origin,
+    topic,
+    id,
+    ttl,
+    data,
+  };
+
+  let payload: Uint8Array | undefined;
+
+  return {
+    message,
+    bytes() {
+      payload ??= encode(message);
+
+      return payload;
+    },
+  };
+}
 
 export abstract class Link implements Enveloper {
   readonly nodeId: string;
@@ -124,13 +160,11 @@ export abstract class Link implements Enveloper {
     });
   }
 
-  publish(
-    topic: string,
-    data: unknown,
-    origin: string,
-    id: string,
-    ttl: number,
-  ) {
-    this.send({ t: "pub", from: this.nodeId, origin, topic, id, ttl, data });
+  publish(frame: PubFrame) {
+    this.sendPayload(frame);
+  }
+
+  protected sendPayload(frame: PubFrame) {
+    this.send(frame.message);
   }
 }

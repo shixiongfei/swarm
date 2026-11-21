@@ -47,6 +47,7 @@ export abstract class Client<S = any> {
 
   private timer: ReturnType<typeof setTimeout> | undefined;
   private attempt = 0;
+  private onlineAt = 0;
   private connecting = false;
   private closed = false;
   private abandoned = false;
@@ -209,7 +210,7 @@ export abstract class Client<S = any> {
     }
 
     this.socket = socket;
-    this.attempt = 0;
+    this.onlineAt = Date.now();
     this.events.emit("online", socket);
   }
 
@@ -219,6 +220,11 @@ export abstract class Client<S = any> {
     }
 
     this.socket = undefined;
+
+    if (Date.now() - this.onlineAt >= this.backoff()) {
+      this.attempt = 0;
+    }
+
     this.events.emit("offline", socket);
     this.scheduleReconnect();
   }
@@ -233,15 +239,17 @@ export abstract class Client<S = any> {
 
     this.attempt += 1;
 
-    const delay = Math.min(
-      this.retryDelay * 2 ** (this.attempt - 1),
-      this.maxRetryDelay,
-    );
-
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.connect().catch(() => this.scheduleReconnect());
-    }, delay);
+    }, this.backoff());
+  }
+
+  private backoff() {
+    return Math.min(
+      this.retryDelay * 2 ** (Math.max(this.attempt, 1) - 1),
+      this.maxRetryDelay,
+    );
   }
 
   private clearTimer() {

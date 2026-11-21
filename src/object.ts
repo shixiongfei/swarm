@@ -13,7 +13,7 @@ export function isObject(value: unknown): value is object {
   return value !== null && typeof value === "object";
 }
 
-export function isPlainObject(value: object): boolean {
+export function isPlainObject(value: object) {
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }

@@ -15,6 +15,7 @@ import { isLoopback } from "./address.ts";
 import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import type { Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
+import type { PubFrame } from "./link.ts";
 
 const headerSize = 4;
 const minBufferSize = 16;
@@ -116,8 +117,18 @@ export class LinkStream extends Link {
       return;
     }
 
-    const payload = encode(message);
+    this.write(encode(message));
+  }
 
+  protected sendPayload(frame: PubFrame) {
+    if (this.closed) {
+      return;
+    }
+
+    this.write(frame.bytes());
+  }
+
+  private write(payload: Uint8Array) {
     if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError(
         "failed",

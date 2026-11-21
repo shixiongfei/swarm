@@ -29,7 +29,7 @@ const unpackr = new Unpackr({ useRecords: false });
 export function assertEncodable(
   value: unknown,
   seen: WeakSet<object> = new WeakSet(),
-): void {
+) {
   if (typeof value === "function" || typeof value === "symbol") {
     throw new SwarmError(
       "failed",

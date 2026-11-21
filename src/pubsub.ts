@@ -11,6 +11,7 @@
 
 import { randomId } from "./random.ts";
 import { SwarmError } from "./errors.ts";
+import { pubFrame } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 const maxSeenPubs = 1024;
@@ -46,7 +47,8 @@ export class PubSub {
   ) {
     const source = origin !== undefined ? origin : this.nodeId;
     const pubId = id !== undefined ? id : randomId();
-    const remaining = ttl !== undefined ? ttl : this.maxHops;
+    const remaining =
+      ttl !== undefined ? Math.min(ttl, this.maxHops) : this.maxHops;
 
     if (this.seen.has(pubId)) {
       return;
@@ -64,22 +66,41 @@ export class PubSub {
 
     try {
       if (remaining > 0) {
+        const frame = pubFrame(
+          this.nodeId,
+          topic,
+          data,
+          source,
+          pubId,
+          remaining - 1,
+        );
+        let failure: SwarmError | undefined;
+
         for (const nodeLink of this.links()) {
           if (from !== undefined && nodeLink.peerId === from) {
             continue;
           }
 
           try {
-            nodeLink.publish(topic, data, source, pubId, remaining - 1);
+            nodeLink.publish(frame);
           } catch (err) {
             if (err instanceof Error && err.name === "DataCloneError") {
-              throw new SwarmError("failed", "FAILED", "data is not cloneable");
-            }
-
-            if (err instanceof SwarmError && err.code === "ENVELOPE_INVALID") {
-              throw err;
+              failure ??= new SwarmError(
+                "failed",
+                "FAILED",
+                "data is not cloneable",
+              );
+            } else if (
+              err instanceof SwarmError &&
+              err.code === "ENVELOPE_INVALID"
+            ) {
+              failure ??= err;
             }
           }
+        }
+
+        if (failure !== undefined) {
+          throw failure;
         }
       }
     } finally {
