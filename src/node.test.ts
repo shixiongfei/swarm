@@ -752,6 +752,45 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
   });
 
+  test("does not echo a down frame back to its source", (t) => {
+    const node = new Node({ cluster: "frame-echo" });
+    const internals = node as unknown as { attachLink: (link: Link) => void };
+    const links = ["peer-a", "peer-b", "peer-c"].map((peerId) => {
+      const link = new FrameLink(node.nodeId);
+
+      internals.attachLink(link);
+      link.events.emit("envelope", {
+        t: "hello",
+        from: peerId,
+        version: protocolVersion,
+        startup: 1,
+        token: signToken("", peerId),
+      });
+
+      return link;
+    });
+
+    t.after(() => node.close());
+
+    links[0].events.emit("envelope", {
+      t: "up",
+      from: "peer-a",
+      service: "math",
+    });
+    links[0].events.emit("envelope", {
+      t: "down",
+      from: "peer-a",
+      service: "math",
+    });
+
+    assert.deepEqual(
+      links.map(
+        (link) => link.frames.filter((frame) => frame.message.t === "down").length,
+      ),
+      [0, 1, 1],
+    );
+  });
+
   test("a broken path keeps an instance reachable through another peer", async (t) => {
     const a = new Node({ cluster: "echo-path-a" });
     const b = new Node({ cluster: "echo-path-b" });

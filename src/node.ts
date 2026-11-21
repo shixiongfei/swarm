@@ -723,6 +723,10 @@ export class Node implements Provider {
       event.type === "up" ? upFrame(event.instance) : downFrame(event.instance);
 
     this.eachPeerLink((nodeLink) => {
+      if (nodeLink.peerId === event.instance.nodeId) {
+        return;
+      }
+
       if (!nodeLink.has(event.instance.service, event.instance.nodeId)) {
         nodeLink.notify(message);
       }
