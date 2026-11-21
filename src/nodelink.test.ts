@@ -247,6 +247,39 @@ test("clamps the inbound timeout to the link configuration", async (t) => {
   );
 });
 
+test("applies the inbound timeout when a call carries no deadline", async (t) => {
+  const local = new NodeLocal("local-node");
+  const { link, nodeLink } = attachStub(local, 20);
+
+  local.register("slow", {
+    run: () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
+  });
+
+  t.after(() => {
+    nodeLink.close();
+    local.close();
+  });
+
+  link.events.emit("envelope", {
+    t: "call",
+    id: "call-4",
+    from: "peer-node",
+    to: "stub-node",
+    service: "slow",
+    method: "run",
+    args: [],
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 80));
+
+  const error = link.sent.find((message) => message.t === "error");
+
+  assert.equal(
+    error !== undefined && error.t === "error" ? error.kind : undefined,
+    "timeout",
+  );
+});
+
 test("closes the link when a state update cannot be sent", (t) => {
   const local = new NodeLocal("local-node");
   const { link, nodeLink } = attachStub(local);
@@ -1312,6 +1345,6 @@ describe("NodeLink", () => {
 
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(timeouts, [60000, 5000, undefined]);
+    assert.deepEqual(timeouts, [60000, 5000, 60000]);
   });
 });

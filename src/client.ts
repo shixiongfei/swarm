@@ -48,6 +48,8 @@ export abstract class Client<S = any> {
   private attempt = 0;
   private connecting = false;
   private closed = false;
+  private abandoned = false;
+  private inflight: Promise<void> | undefined;
 
   constructor(options: ClientOptions = {}) {
     this.reconnectEnabled =
@@ -82,7 +84,7 @@ export abstract class Client<S = any> {
       throw new SwarmError("rejected", "CLOSED", "client is closed", false);
     }
 
-    if (this.connecting) {
+    if (this.connecting || this.inflight !== undefined) {
       throw new SwarmError("rejected", "REJECTED", "client is connecting");
     }
 
@@ -92,18 +94,46 @@ export abstract class Client<S = any> {
 
     this.clearTimer();
     this.connecting = true;
+    this.abandoned = false;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
       const opening = this.open();
+      const inflight = opening.then(
+        () => undefined,
+        () => undefined,
+      );
 
-      void opening.catch(() => {});
+      this.inflight = inflight;
+
+      void inflight.then(() => {
+        if (this.inflight !== inflight) {
+          return;
+        }
+
+        this.inflight = undefined;
+
+        if (!this.abandoned) {
+          return;
+        }
+
+        this.abandoned = false;
+
+        if (this.socket !== undefined) {
+          this.destroy(this.socket);
+          this.socket = undefined;
+        }
+
+        this.scheduleReconnect();
+      });
 
       await Promise.race([
         opening,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
+            this.abandoned = true;
+
             if (this.socket !== undefined) {
               this.destroy(this.socket);
               this.socket = undefined;
@@ -118,7 +148,10 @@ export abstract class Client<S = any> {
         throw connectCancelled();
       }
 
-      this.scheduleReconnect();
+      if (!this.abandoned) {
+        this.scheduleReconnect();
+      }
+
       throw err;
     } finally {
       if (timer !== undefined) {
@@ -149,6 +182,16 @@ export abstract class Client<S = any> {
   }
 
   protected markOnline(socket: S) {
+    if (this.closed || this.abandoned) {
+      this.destroy(socket);
+
+      if (this.socket === socket) {
+        this.socket = undefined;
+      }
+
+      return;
+    }
+
     this.socket = socket;
     this.attempt = 0;
     this.events.emit("online", socket);

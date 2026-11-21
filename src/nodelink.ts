@@ -147,7 +147,7 @@ export class NodeLink implements Observable {
 
         const timeout =
           message.timeout === undefined
-            ? undefined
+            ? this.maxInboundTimeout
             : Math.min(message.timeout, this.maxInboundTimeout);
 
         Promise.resolve()
@@ -588,6 +588,13 @@ export class NodeLink implements Observable {
   }
 
   private connect(nodeId: string) {
+    if (nodeId === this.link.nodeId) {
+      this.dispose("link connects to itself", "error", "HANDSHAKE_REJECTED");
+      this.link.close();
+
+      return false;
+    }
+
     if (this.peer !== undefined) {
       if (this.peer === nodeId) {
         return true;

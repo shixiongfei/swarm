@@ -813,6 +813,7 @@ export class Node implements Provider {
       nodeLink.close();
 
       if (addr !== undefined) {
+        this.dialer.drop(addr);
         this.transport.drop(addr);
       }
     }

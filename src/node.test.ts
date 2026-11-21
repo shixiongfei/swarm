@@ -2500,6 +2500,24 @@ test("connecting to the same address twice reuses one outbound client", async (t
   assert.equal(peer.snapshot().links.length, 1);
 });
 
+test("rejects a seed that points back at the node itself", async (t) => {
+  const node = new Node({ cluster: "self-seed" });
+  let ups = 0;
+
+  t.after(() => node.close());
+
+  const address = await node.listen("tcp://127.0.0.1:0");
+
+  node.events.on("link-up", () => (ups += 1));
+
+  node.addSeed(`tcp://127.0.0.1:${address.port}`);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 500));
+
+  assert.equal(ups, 0);
+  assert.deepEqual(node.snapshot().links, []);
+});
+
 test("leave drops the outbound client instead of letting it reconnect", async (t) => {
   const hub = new Node({ cluster: "leave-outbound" });
   const peer = new Node({ cluster: "leave-outbound-peer" });
@@ -2527,6 +2545,60 @@ test("leave drops the outbound client instead of letting it reconnect", async (t
 
   assert.equal(ups, 1);
   assert.equal(peer.snapshot().links.length, 0);
+});
+
+test("leave lets discovery dial the seed again", async (t) => {
+  const hub = new Node({ cluster: "leave-seed" });
+  const peer = new Node({ cluster: "leave-seed-peer" });
+  const port = await freePort();
+  const url = `tcp://127.0.0.1:${port}`;
+  let ups = 0;
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  await peer.listen(url);
+
+  hub.events.on("link-up", () => (ups += 1));
+
+  hub.addSeed(url);
+  await waitFor(() => ups === 1);
+
+  hub.leave(peer.nodeId);
+  await waitFor(() => hub.snapshot().links.length === 0);
+
+  await hub.listen("tcp://127.0.0.1:0");
+
+  assert.equal(await waitFor(() => ups === 2), true);
+  assert.equal(hub.snapshot().links.length, 1);
+});
+
+test("removeSeed drops the connection it was maintaining", async (t) => {
+  const hub = new Node({ cluster: "seed-drop" });
+  const peer = new Node({ cluster: "seed-drop-peer" });
+  const port = await freePort();
+  const url = `tcp://127.0.0.1:${port}`;
+
+  t.after(() => {
+    hub.close();
+    peer.close();
+  });
+
+  await peer.listen(url);
+
+  hub.addSeed(url);
+  await waitFor(() => hub.snapshot().links.length === 1);
+
+  hub.removeSeed(url);
+
+  await waitFor(() => hub.snapshot().links.length === 0);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  assert.deepEqual(hub.snapshot().links, []);
+  assert.deepEqual(hub.snapshot().seeds, []);
 });
 
 test("ws and wss default to ports 80 and 443", async (t) => {

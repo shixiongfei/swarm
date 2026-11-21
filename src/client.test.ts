@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { Client } from "./client.ts";
+import type { ClientOptions } from "./client.ts";
 
 class StubClient extends Client<number> {
   private failures: number;
@@ -141,3 +142,105 @@ test("times out when the connection is not established", async () => {
 
   client.close();
 });
+
+class SlowClient extends Client<number> {
+  opened = 0;
+  connects = 0;
+  destroyed: number[] = [];
+  delay = 100;
+
+  constructor(options: ClientOptions = {}) {
+    super(options);
+  }
+
+  async connect() {
+    this.connects += 1;
+
+    return super.connect();
+  }
+
+  protected async open() {
+    this.opened += 1;
+
+    if (this.delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.delay));
+    }
+
+    this.markOnline(this.opened);
+  }
+
+  protected destroy(socket: number) {
+    this.destroyed.push(socket);
+  }
+}
+
+test("discards a socket that settles after the timeout", async () => {
+  const client = new SlowClient({ connectTimeout: 10, reconnect: false });
+  let online = 0;
+
+  client.events.on("online", () => {
+    online += 1;
+  });
+
+  await assert.rejects(client.connect(), /connect timed out/);
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  assert.equal(online, 0);
+  assert.deepEqual(client.destroyed, [1]);
+  assert.equal(client.socket, undefined);
+
+  client.close();
+});
+
+test(
+  "reconnects only after the abandoned attempt settles",
+  { timeout: 3000 },
+  async () => {
+    const client = new SlowClient({
+      connectTimeout: 10,
+      retryDelay: 30,
+      maxRetryDelay: 30,
+    });
+    const online = new Promise<number>((resolve) => {
+      client.events.once("online", resolve);
+    });
+
+    await assert.rejects(client.connect(), /connect timed out/);
+
+    assert.equal(client.opened, 1);
+
+    client.delay = 0;
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    assert.equal(client.opened, 1);
+    assert.equal(await online, 2);
+    assert.equal(client.opened, 2);
+    assert.deepEqual(client.destroyed, [1]);
+
+    client.close();
+  },
+);
+
+test(
+  "does not retry while the timed-out attempt is still settling",
+  { timeout: 1000 },
+  async () => {
+    const client = new SlowClient({
+      connectTimeout: 10,
+      retryDelay: 20,
+      maxRetryDelay: 20,
+    });
+
+    await assert.rejects(client.connect(), /connect timed out/);
+    assert.equal(client.connects, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.equal(client.connects, 1);
+    assert.equal(client.opened, 1);
+
+    client.close();
+  },
+);

@@ -52,6 +52,7 @@ export class Dialer {
 
     if (index >= 0) {
       this.seeds.splice(index, 1);
+      this.drop(target);
     }
   }
 
