@@ -318,6 +318,51 @@ describe("UnixDiscovery", () => {
     },
   );
 
+  test(
+    "close during scan stops it from dialing discovered peers",
+    { skip: isWindows },
+    async (t) => {
+      const dir = await tempDir();
+      const peer = join(dir, `${"f".repeat(16)}.sock`);
+      let connections = 0;
+      const server = createServer((socket) => {
+        connections += 1;
+        socket.destroy();
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(peer, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+
+      const discovery = new UnixDiscovery({
+        nodeId: "0".repeat(16),
+        cluster: "scan-race",
+        secret: "",
+        dir,
+        interval: 60000,
+      });
+      const probe = discovery as unknown as { scan: () => Promise<void> };
+
+      t.after(async () => {
+        discovery.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        await rm(dir, { recursive: true, force: true });
+      });
+
+      const scanning = probe.scan();
+
+      discovery.close();
+      await scanning;
+      await delay(100);
+
+      assert.equal(connections, 0);
+    },
+  );
+
   test("close during open leaves no scan timer", async (t) => {
     const dir = await tempDir();
     const discovery = new UnixDiscovery({

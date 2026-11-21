@@ -28,7 +28,7 @@ export class Dialer {
   private readonly isClosed: DialerOptions["isClosed"];
 
   constructor(options: DialerOptions) {
-    this.seeds = options.seeds;
+    this.seeds = [...options.seeds];
     this.create = options.create;
     this.track = options.track;
     this.untrack = options.untrack;

@@ -251,6 +251,19 @@ describe("Dialer", () => {
     assert.equal(tracked.length, 0);
   });
 
+  test("add and remove leave the caller's seeds untouched", (t) => {
+    const seeds = ["tcp://10.0.0.9:9"];
+    const { dialer } = makeDialer(seeds);
+
+    t.after(() => dialer.close());
+
+    dialer.add("tcp://10.0.0.9:10");
+    dialer.remove(seeds[0]);
+
+    assert.deepEqual(seeds, ["tcp://10.0.0.9:9"]);
+    assert.deepEqual(dialer.list(), ["tcp://10.0.0.9:10"]);
+  });
+
   test("add and remove accept url seeds", (t) => {
     const { dialer, created } = makeDialer();
     const seed = new URL("tcp://10.0.0.9:9");

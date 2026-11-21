@@ -254,6 +254,10 @@ export class UnixDiscovery {
   }
 
   private dial(path: string) {
+    if (this.closed) {
+      return;
+    }
+
     const socket = connect(this.endpoint(path));
 
     this.dials.set(path, socket);
