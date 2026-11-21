@@ -254,6 +254,34 @@ describe("Watcher", () => {
     assert.deepEqual(watcher.instances(), []);
   });
 
+  test("unsubscribing inside a handler does not skip the next one", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+    const service: string[] = [];
+    const global: string[] = [];
+
+    watcher.addSource(source);
+
+    const offService = watcher.watch("math", () => {
+      service.push("first");
+      offService();
+    });
+
+    watcher.watch("math", () => service.push("second"));
+
+    const offGlobal = watcher.watch(() => {
+      global.push("first");
+      offGlobal();
+    });
+
+    watcher.watch(() => global.push("second"));
+
+    source.add("math", "node-a");
+
+    assert.deepEqual(service, ["first", "second"]);
+    assert.deepEqual(global, ["first", "second"]);
+  });
+
   test("addSource ignores a duplicate source", () => {
     const watcher = new Watcher();
     const source = new Registry();

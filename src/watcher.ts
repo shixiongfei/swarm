@@ -241,7 +241,7 @@ export class Watcher implements Observable {
 }
 
 function notify(handlers: WatchHandler[], event: WatchEvent) {
-  for (const handler of handlers) {
+  for (const handler of [...handlers]) {
     try {
       handler(event);
     } catch (error) {
