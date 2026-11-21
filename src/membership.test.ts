@@ -121,6 +121,34 @@ describe("Membership", () => {
     assert.equal(broadcasts(), 2);
   });
 
+  test("learn drops the old address after the relocation grace period", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+
+    const { membership, dials, drops, dialed } = makeMembership({
+      memberTtl: 30,
+      dialTtl: 40,
+    });
+
+    t.after(() => membership.close());
+
+    const first = "tcp://10.0.0.9:1000";
+    const second = "tcp://10.0.0.9:2000";
+
+    membership.learn([{ id: remote.id, addr: first, startup: 1 }], true);
+    membership.learn([{ id: remote.id, addr: second, startup: 2 }], true);
+
+    assert.deepEqual(
+      dials.map((entry) => entry.addr),
+      [first, second],
+    );
+    assert.deepEqual(drops, []);
+
+    t.mock.timers.tick(41);
+
+    assert.deepEqual(drops, [first]);
+    assert.deepEqual([...dialed], [second]);
+  });
+
   test("learn refreshes the startup of a member that restarted in place", (t) => {
     const { membership, broadcasts } = makeMembership();
 

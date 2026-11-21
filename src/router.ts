@@ -122,8 +122,14 @@ export class Router {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number } = {},
+    options: { timeout?: number; signal?: AbortSignal } = {},
   ) {
+    if (options.signal !== undefined && options.signal.aborted) {
+      return Promise.reject(
+        new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+      );
+    }
+
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
     const instances = this.instances().filter(
@@ -139,30 +145,29 @@ export class Router {
       );
     }
 
-    return Promise.all(
-      instances.map((instance) => {
-        const promise =
-          instance.nodeId === this.nodeId
-            ? Promise.resolve().then(() =>
-                this.local.invoke(service, method, args, timeout),
-              )
-            : Promise.resolve().then(() =>
-                this.invoke(
-                  service,
-                  method,
-                  args,
-                  timeout,
-                  this.maxHops,
-                  undefined,
-                  instance.nodeId,
-                ),
-              );
+    return withCancel(
+      Promise.all(
+        instances.map((instance) => {
+          const promise = Promise.resolve().then(() =>
+            this.invoke(
+              service,
+              method,
+              args,
+              timeout,
+              this.maxHops,
+              undefined,
+              instance.nodeId,
+              options.signal,
+            ),
+          );
 
-        return promise.then(
-          (value) => ({ nodeId: instance.nodeId, ok: true as const, value }),
-          (error) => ({ nodeId: instance.nodeId, ok: false as const, error }),
-        );
-      }),
+          return promise.then(
+            (value) => ({ nodeId: instance.nodeId, ok: true as const, value }),
+            (error) => ({ nodeId: instance.nodeId, ok: false as const, error }),
+          );
+        }),
+      ),
+      options.signal,
     );
   }
 }

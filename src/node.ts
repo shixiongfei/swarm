@@ -112,6 +112,12 @@ const defaultMaxHops = 8;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 
+function assertArgs(args: unknown) {
+  if (!Array.isArray(args)) {
+    throw new SwarmError("rejected", "REJECTED", "args must be an array");
+  }
+}
+
 export class Node implements Provider {
   readonly nodeId = randomId();
   readonly startup = Date.now();
@@ -504,6 +510,7 @@ export class Node implements Provider {
   }
 
   removeSeed(seed: string | URL) {
+    this.checkOpen();
     this.dialer.remove(seed);
 
     return this;
@@ -578,6 +585,8 @@ export class Node implements Provider {
     target?: string,
     signal?: AbortSignal,
   ) {
+    assertArgs(args);
+
     if (timeout !== undefined) {
       assertTimeout(timeout);
     }
@@ -669,10 +678,11 @@ export class Node implements Provider {
     service: string,
     method: string,
     args: unknown[] = [],
-    options: { timeout?: number } = {},
+    options: { timeout?: number; signal?: AbortSignal } = {},
   ) {
     this.checkOpen();
 
+    assertArgs(args);
     assertTimeout(
       options.timeout === undefined ? this.callTimeout : options.timeout,
     );

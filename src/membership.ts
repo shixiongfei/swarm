@@ -87,6 +87,10 @@ export class Membership {
 
       if (existing !== undefined) {
         if (existing.addr !== entry.addr) {
+          if (this.dialing(existing.addr)) {
+            this.expiries.set(existing.addr, now + this.dialTtl);
+          }
+
           existing.addr = entry.addr;
           existing.startup = entry.startup;
           changed = true;

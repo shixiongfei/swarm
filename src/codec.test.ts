@@ -244,6 +244,35 @@ describe("codec", () => {
     assert.doesNotThrow(() => encode(binary));
   });
 
+  test("rejects binary values that would lose their bytes on decode", () => {
+    const values: unknown[] = [
+      new ArrayBuffer(2),
+      new Int32Array([1, 2, 3]),
+      new Float32Array([1.5, 2.5]),
+      new Uint8ClampedArray([1]),
+      new DataView(new ArrayBuffer(2)),
+    ];
+
+    for (const value of values) {
+      assert.throws(
+        () =>
+          encode({
+            t: "call",
+            id: "call-binary",
+            from: "node-a",
+            to: "node-b",
+            service: "math",
+            method: "add",
+            args: [value],
+          }),
+        (err: SwarmError) =>
+          err.kind === "failed" &&
+          err.code === "ENVELOPE_INVALID" &&
+          err.message === "only byte arrays can be encoded as binary data",
+      );
+    }
+  });
+
   test("rejects circular payloads but keeps shared references", () => {
     const args: Record<string, unknown> = { build: 1 };
     const shared = { build: 1 };

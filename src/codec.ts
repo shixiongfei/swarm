@@ -52,12 +52,17 @@ export function assertEncodable(
     );
   }
 
-  if (
-    value instanceof Date ||
-    value instanceof ArrayBuffer ||
-    ArrayBuffer.isView(value)
-  ) {
+  if (value instanceof Date || value instanceof Uint8Array) {
     return;
+  }
+
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    throw new SwarmError(
+      "failed",
+      "ENVELOPE_INVALID",
+      "only byte arrays can be encoded as binary data",
+      false,
+    );
   }
 
   if (!Array.isArray(value) && !isPlainObject(value)) {

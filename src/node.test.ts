@@ -240,6 +240,36 @@ describe("Node", () => {
     assert.equal(await node.call("math", "add", [1, 2]), 3);
   });
 
+  test("call rejects args that are not an array", async (t) => {
+    const node = makeNode();
+
+    t.after(() => node.close());
+
+    let calls = 0;
+
+    node.register("math", {
+      add: (...values: number[]) => {
+        calls += 1;
+        return values.reduce((sum, value) => sum + value, 0);
+      },
+    });
+
+    const rejected = (err: SwarmError) =>
+      err.kind === "rejected" && err.code === "REJECTED";
+
+    const malformed = "oops" as unknown as number[];
+
+    await assert.rejects(node.call("math", "add", malformed), rejected);
+    await assert.rejects(
+      node.callTo(node.nodeId, "math", "add", malformed),
+      rejected,
+    );
+    await assert.rejects(node.callAll("math", "add", malformed), rejected);
+
+    assert.equal(calls, 0);
+    assert.equal(await node.call("math", "add", [1, 2]), 3);
+  });
+
   test("a node rejects an invalid default call timeout", () => {
     for (const callTimeout of [Infinity, NaN, 0, -1]) {
       assert.throws(
@@ -492,7 +522,8 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(
       await waitFor(() => {
         const meta = b.snapshot().services[0]?.meta as
-          { build?: number } | undefined;
+          | { build?: number }
+          | undefined;
 
         return meta?.build === 2;
       }),
@@ -1023,6 +1054,35 @@ setTimeout(() => console.log("survived"), 500);
     );
   });
 
+  test("callAll rejects with cancelled when the signal aborts", async (t) => {
+    const node = new Node({ cluster: "cancel-call-all" });
+
+    t.after(() => node.close());
+
+    let calls = 0;
+
+    node.register("slow", {
+      work: () => {
+        calls += 1;
+        return new Promise((resolve) => setTimeout(() => resolve("done"), 20));
+      },
+    });
+
+    const controller = new AbortController();
+    const promise = node.callAll("slow", "work", [], {
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await assert.rejects(
+      promise,
+      (err: SwarmError) => err.kind === "cancelled" && err.code === "CANCELLED",
+    );
+
+    assert.equal(calls, 0);
+  });
+
   test("leave removes a member and closes its link", async (t) => {
     const hub = new Node({ cluster: "leave-hub" });
     const peer = new Node({ cluster: "leave-peer" });
@@ -1132,6 +1192,29 @@ setTimeout(() => console.log("survived"), 500);
 
     node.removeSeed(`tcp://127.0.0.1:${address.port}`);
     assert.deepEqual(node.snapshot().seeds, []);
+  });
+
+  test("rejects invalid seeds and refuses removeSeed after close", (t) => {
+    const node = new Node({ cluster: "seed-validation" });
+
+    t.after(() => node.close());
+
+    const rejected = (err: SwarmError) =>
+      err.kind === "rejected" && err.code === "REJECTED";
+
+    assert.throws(
+      () => new Node({ cluster: "seed-config", seeds: ["not a url"] }),
+      rejected,
+    );
+    assert.throws(() => node.addSeed("not a url"), rejected);
+    assert.deepEqual(node.snapshot().seeds, []);
+
+    node.close();
+
+    assert.throws(
+      () => node.removeSeed("tcp://127.0.0.1:1"),
+      (err: SwarmError) => err.code === "CLOSED",
+    );
   });
 
   test("keeps redundant explicit links to the same peer", async (t) => {

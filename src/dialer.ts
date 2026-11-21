@@ -9,6 +9,7 @@
  * https://github.com/shixiongfei/swarm
  */
 
+import { parseUrl } from "./address.ts";
 import type { Client } from "./client.ts";
 
 export type DialerOptions = {
@@ -28,6 +29,10 @@ export class Dialer {
   private readonly isClosed: DialerOptions["isClosed"];
 
   constructor(options: DialerOptions) {
+    for (const seed of options.seeds) {
+      parseUrl(seed);
+    }
+
     this.seeds = [...options.seeds];
     this.create = options.create;
     this.track = options.track;
@@ -36,6 +41,8 @@ export class Dialer {
   }
 
   add(seed: string | URL) {
+    parseUrl(seed);
+
     if (this.seeds.some((existing) => String(existing) === String(seed))) {
       return;
     }
