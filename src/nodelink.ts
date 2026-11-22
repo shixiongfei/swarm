@@ -166,6 +166,8 @@ export class NodeLink implements Observable {
           return;
         }
 
+        const startedAt = Date.now();
+
         const timeout =
           message.timeout === undefined
             ? this.maxInboundTimeout
@@ -186,6 +188,7 @@ export class NodeLink implements Observable {
               this,
               message.target,
               controller.signal,
+              startedAt,
             ),
           )
           .then(

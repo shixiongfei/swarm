@@ -56,10 +56,26 @@ export class Router {
     source?: NodeLink,
     target?: string,
     signal?: AbortSignal,
+    startedAt?: number,
   ) {
     if (signal !== undefined && signal.aborted) {
       return Promise.reject(
         new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+      );
+    }
+
+    const budget =
+      timeout !== undefined && startedAt !== undefined
+        ? timeout - (Date.now() - startedAt)
+        : timeout;
+
+    if (budget !== undefined && budget <= 0) {
+      return Promise.reject(
+        new SwarmError(
+          "timeout",
+          "TIMEOUT",
+          `call timed out: ${service}.${method}`,
+        ),
       );
     }
 
@@ -69,7 +85,7 @@ export class Router {
         method,
         this.local.context(source, signal),
         args,
-        timeout,
+        budget,
       );
     }
 
@@ -79,7 +95,7 @@ export class Router {
         method,
         this.local.context(source, signal),
         args,
-        timeout,
+        budget,
       );
     }
 
@@ -120,7 +136,7 @@ export class Router {
       service,
       method,
       args,
-      timeout !== undefined ? timeout : this.callTimeout,
+      budget !== undefined ? budget : this.callTimeout,
       remaining - 1,
       target,
       signal,

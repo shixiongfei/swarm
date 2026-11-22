@@ -24,6 +24,7 @@ export interface Provider {
     source?: NodeLink,
     target?: string,
     signal?: AbortSignal,
+    startedAt?: number,
   ): unknown;
 
   publish(

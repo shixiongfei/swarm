@@ -646,6 +646,7 @@ export class Node implements Provider {
     source?: NodeLink,
     target?: string,
     signal?: AbortSignal,
+    startedAt?: number,
   ) {
     this.checkOpen();
 
@@ -664,6 +665,7 @@ export class Node implements Provider {
       source,
       target,
       signal,
+      startedAt,
     );
 
     return this.track(result);

@@ -1304,6 +1304,45 @@ describe("NodeLink", () => {
     );
   });
 
+  test("passes the frame's arrival time so a relayed call keeps its budget", async (t) => {
+    const local = new NodeLocal("local-node");
+    const invoke = local.invoke.bind(local);
+
+    let startedAt: number | undefined;
+
+    local.invoke = ((...args: Parameters<typeof invoke>) => {
+      startedAt = (args as unknown[])[8] as number | undefined;
+      return invoke(...args);
+    }) as typeof local.invoke;
+
+    local.register("math", { add: () => 1 });
+
+    const { link, nodeLink } = attachStub(local);
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    const before = Date.now();
+
+    link.events.emit("envelope", {
+      t: "call",
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+      service: "math",
+      method: "add",
+      args: [],
+      timeout: 200,
+    });
+
+    await Promise.resolve();
+
+    assert.ok(startedAt !== undefined);
+    assert.ok(startedAt >= before);
+  });
+
   test("aborts the handler and skips the reply when the peer cancels", async (t) => {
     const local = new NodeLocal("local-node");
     let seen: { from: string; signal: AbortSignal } | undefined;

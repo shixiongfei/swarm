@@ -315,4 +315,73 @@ describe("Router", () => {
 
     assert.equal(executed, 0);
   });
+
+  test("charges the hop's elapsed time to the relayed call", async () => {
+    const link = fakeLink("peer", ["math"]);
+    const { router } = makeRouter({ links: [link] });
+
+    await router.invoke(
+      "math",
+      "add",
+      [],
+      200,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      Date.now() - 150,
+    );
+
+    assert.ok(link.calls[0].timeout > 0 && link.calls[0].timeout <= 60);
+  });
+
+  test("refuses to relay a call whose budget is already spent", async () => {
+    const link = fakeLink("peer", ["math"]);
+    const { router } = makeRouter({ links: [link] });
+
+    await assert.rejects(
+      router.invoke(
+        "math",
+        "add",
+        [],
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        Date.now() - 500,
+      ),
+      (err: SwarmError) => err.kind === "timeout" && err.code === "TIMEOUT",
+    );
+
+    assert.equal(link.calls.length, 0);
+  });
+
+  test("charges the hop's elapsed time to a local call", async () => {
+    const local = new NodeLocal("self");
+
+    local.register("math", {
+      add: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        return 3;
+      },
+    });
+
+    const { router } = makeRouter({ local });
+
+    await assert.rejects(
+      router.invoke(
+        "math",
+        "add",
+        [],
+        200,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        Date.now() - 150,
+      ),
+      (err: SwarmError) => err.kind === "timeout" && err.code === "TIMEOUT",
+    );
+  });
 });
