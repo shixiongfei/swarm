@@ -72,7 +72,15 @@ export class Watcher implements Observable {
     return this.watchService(service, handler);
   }
 
-  instances() {
+  instances(service?: string) {
+    if (service !== undefined) {
+      const bucket = this.observed.get(service);
+
+      return bucket === undefined
+        ? []
+        : [...bucket.values()].map((observed) => observed.instance);
+    }
+
     const instances: Instance[] = [];
 
     for (const bucket of this.observed.values()) {

@@ -264,6 +264,9 @@ describe("NodeHub", () => {
       node.join(worker.port);
 
       await waitFor(() => ups.length > 0);
+      await new Promise<void>((resolve) => {
+        node.watch("self", () => resolve());
+      });
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
       assert.equal(ups.length, 1);

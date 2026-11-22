@@ -92,6 +92,10 @@ describe("Transport", () => {
       }
 
       for (const socket of wsSockets) {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.on("error", () => {});
+        }
+
         socket.terminate();
       }
 
@@ -115,9 +119,19 @@ describe("Transport", () => {
     await ws.listen();
 
     tcpSockets.push(createConnection({ port: tcp.port, host: "127.0.0.1" }));
-    wsSockets.push(new WebSocket(`ws://127.0.0.1:${ws.port}`));
+
+    const client = new WebSocket(`ws://127.0.0.1:${ws.port}`);
+
+    wsSockets.push(client);
 
     await waitFor(() => joins.length === 2);
+
+    if (client.readyState === WebSocket.CONNECTING) {
+      await new Promise<void>((resolve, reject) => {
+        client.once("open", () => resolve());
+        client.once("error", reject);
+      });
+    }
   });
 
   test("open rejects web socket options on a tcp url", async (t) => {

@@ -24,7 +24,7 @@ export type RouterOptions = {
   callTimeout: number;
   links: () => readonly NodeLink[];
   hubLinks: () => readonly NodeLink[];
-  instances: () => Instance[];
+  instances: (service: string) => Instance[];
 };
 
 export class Router {
@@ -136,9 +136,7 @@ export class Router {
 
     const timeout =
       options.timeout === undefined ? this.callTimeout : options.timeout;
-    const instances = this.instances().filter(
-      (instance) => instance.service === service,
-    );
+    const instances = this.instances(service);
 
     if (instances.length === 0) {
       throw new SwarmError(

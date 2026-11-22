@@ -188,6 +188,20 @@ describe("Watcher", () => {
     ]);
   });
 
+  test("instances reads a single service bucket", () => {
+    const watcher = new Watcher();
+    const source = new Registry();
+
+    watcher.addSource(source);
+    source.add("math", "node-a");
+    source.add("echo", "node-b");
+
+    assert.deepEqual(watcher.instances("math"), [
+      { service: "math", nodeId: "node-a" },
+    ]);
+    assert.deepEqual(watcher.instances("nope"), []);
+  });
+
   test("instances and watch events hand out frozen instances", () => {
     const watcher = new Watcher();
     const source = new Registry();

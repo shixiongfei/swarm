@@ -316,6 +316,22 @@ describe("Membership", () => {
     assert.equal(broadcasts(), 2);
   });
 
+  test("upsertSelf hides itself once it moves to a loopback address", (t) => {
+    const { membership } = makeMembership();
+
+    t.after(() => membership.close());
+
+    const first = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1 };
+
+    membership.upsertSelf(first);
+
+    assert.deepEqual(membership.shared(false), [first]);
+
+    membership.upsertSelf({ id: "self", addr: "tcp://127.0.0.1:1", startup: 1 });
+
+    assert.deepEqual(membership.shared(false), []);
+  });
+
   test("shared hides loopback members from a remote link", (t) => {
     const { membership } = makeMembership();
 
@@ -327,6 +343,34 @@ describe("Membership", () => {
 
     assert.deepEqual(membership.shared(true), [local, remote]);
     assert.deepEqual(membership.shared(false), [remote]);
+  });
+
+  test("shared follows a member that relocates to a loopback address", (t) => {
+    const { membership } = makeMembership();
+
+    t.after(() => membership.close());
+
+    membership.learn([{ ...remote }], true);
+    membership.learn(
+      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2 }],
+      true,
+    );
+
+    assert.deepEqual(membership.shared(false), []);
+  });
+
+  test("learn keeps the member host when it rejects a loopback relocation", (t) => {
+    const { membership } = makeMembership();
+
+    t.after(() => membership.close());
+
+    membership.learn([{ ...remote }], true);
+    membership.learn(
+      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2 }],
+      false,
+    );
+
+    assert.deepEqual(membership.shared(false), [{ ...remote }]);
   });
 
   test("close clears the member table and stops the prune timer", (t) => {

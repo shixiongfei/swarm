@@ -82,7 +82,10 @@ function makeRouter(options: {
     callTimeout: options.callTimeout !== undefined ? options.callTimeout : 1000,
     links: () => options.links ?? [],
     hubLinks: () => options.hubLinks ?? [],
-    instances: () => options.instances ?? [],
+    instances: (service) =>
+      (options.instances ?? []).filter(
+        (instance) => instance.service === service,
+      ),
   });
 
   return { router, local };
@@ -254,6 +257,21 @@ describe("Router", () => {
       { nodeId: "self", ok: false, error: failure },
       { nodeId: "remote", ok: true, value: 3 },
     ]);
+  });
+
+  test("callAll only calls the instances of the requested service", async () => {
+    const link = fakeLink("a", ["math", "echo"]);
+    const { router } = makeRouter({
+      links: [link],
+      instances: [
+        { nodeId: "a", service: "math" },
+        { nodeId: "b", service: "echo" },
+      ],
+    });
+
+    const results = await router.callAll("math", "run", []);
+
+    assert.deepEqual(results, [{ nodeId: "a", ok: true, value: "ok" }]);
   });
 
   test("callAll throws not-found when no instance serves the service", () => {

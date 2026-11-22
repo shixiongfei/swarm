@@ -33,6 +33,7 @@ export class Membership {
   readonly members = new Map<string, NodeMember>();
 
   private readonly seen = new Map<string, number>();
+  private readonly hosts = new Map<string, string>();
   private readonly expiries = new Map<string, number>();
   private readonly departed = new Set<string>();
   private readonly id: string;
@@ -72,10 +73,14 @@ export class Membership {
         continue;
       }
 
+      const existing = this.members.get(entry.id);
       let host: string;
 
       try {
-        host = parseUrl(entry.addr).host;
+        host =
+          existing !== undefined && existing.addr === entry.addr
+            ? this.hostOf(existing)
+            : parseUrl(entry.addr).host;
       } catch {
         continue;
       }
@@ -84,10 +89,9 @@ export class Membership {
         continue;
       }
 
+      this.hosts.set(entry.id, host);
       this.seen.set(entry.id, now);
       this.expiries.delete(entry.addr);
-
-      const existing = this.members.get(entry.id);
 
       if (existing !== undefined) {
         if (existing.addr !== entry.addr) {
@@ -151,6 +155,7 @@ export class Membership {
   }
 
   upsertSelf(member: NodeMember) {
+    this.hosts.delete(member.id);
     this.members.set(member.id, member);
     this.broadcast();
   }
@@ -167,6 +172,7 @@ export class Membership {
     if (member !== undefined) {
       this.members.delete(id);
       this.seen.delete(id);
+      this.hosts.delete(id);
       this.broadcast();
       this.onDown(member);
     }
@@ -221,7 +227,7 @@ export class Membership {
       return members;
     }
 
-    return members.filter((member) => !isLoopback(parseUrl(member.addr).host));
+    return members.filter((member) => !isLoopback(this.hostOf(member)));
   }
 
   snapshot() {
@@ -242,8 +248,23 @@ export class Membership {
 
     this.members.clear();
     this.seen.clear();
+    this.hosts.clear();
     this.expiries.clear();
     this.departed.clear();
+  }
+
+  private hostOf(member: NodeMember) {
+    const cached = this.hosts.get(member.id);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const host = parseUrl(member.addr).host;
+
+    this.hosts.set(member.id, host);
+
+    return host;
   }
 
   private prune(now: number) {
@@ -263,6 +284,7 @@ export class Membership {
 
       this.members.delete(member.id);
       this.seen.delete(member.id);
+      this.hosts.delete(member.id);
       this.onDown(member);
 
       if (this.dialing(member.addr)) {

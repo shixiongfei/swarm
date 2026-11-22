@@ -55,7 +55,7 @@ export interface Observable {
 }
 
 export class Registry implements Observable {
-  private readonly table = new Map<string, Instance[]>();
+  private readonly table = new Map<string, Map<string, Instance>>();
   private readonly events = eventlite<RegistryEvents>({
     allowDuplicate: true,
     isolate: true,
@@ -65,34 +65,19 @@ export class Registry implements Observable {
   add(service: string, nodeId: string, meta?: MetaData) {
     this.checkOpen();
 
-    const instances = this.table.get(service);
+    const bucket = this.table.get(service);
+    const existing = bucket?.get(nodeId);
 
-    if (instances !== undefined) {
-      const index = instances.findIndex((item) => item.nodeId === nodeId);
-
-      if (index >= 0) {
-        const existing = instances[index];
-
-        if (sameMeta(existing.meta, meta)) {
-          return existing;
-        }
-
-        const instance = toInstance(service, nodeId, meta);
-
-        instances[index] = instance;
-
-        this.events.emit(up, instance);
-        this.events.emit(service, { type: "up", instance });
-        return instance;
-      }
+    if (existing !== undefined && sameMeta(existing.meta, meta)) {
+      return existing;
     }
 
     const instance = toInstance(service, nodeId, meta);
 
-    if (instances !== undefined) {
-      instances.push(instance);
+    if (bucket !== undefined) {
+      bucket.set(nodeId, instance);
     } else {
-      this.table.set(service, [instance]);
+      this.table.set(service, new Map([[nodeId, instance]]));
     }
 
     this.events.emit(up, instance);
@@ -106,14 +91,14 @@ export class Registry implements Observable {
   }
 
   lookup(service: string) {
-    const instances = this.table.get(service);
-    return instances === undefined ? [] : instances.slice();
+    const bucket = this.table.get(service);
+    return bucket === undefined ? [] : [...bucket.values()];
   }
 
   has(service: string, nodeId?: string) {
-    const instances = this.table.get(service);
+    const bucket = this.table.get(service);
 
-    if (instances === undefined || instances.length === 0) {
+    if (bucket === undefined) {
       return false;
     }
 
@@ -121,14 +106,16 @@ export class Registry implements Observable {
       return true;
     }
 
-    return instances.some((item) => item.nodeId === nodeId);
+    return bucket.has(nodeId);
   }
 
   snapshot() {
     const instances: Instance[] = [];
 
     for (const bucket of this.table.values()) {
-      instances.push(...bucket);
+      for (const instance of bucket.values()) {
+        instances.push(instance);
+      }
     }
 
     return instances;
@@ -218,21 +205,21 @@ export class Registry implements Observable {
   }
 
   private evict(service: string, nodeId: string) {
-    const instances = this.table.get(service);
+    const bucket = this.table.get(service);
 
-    if (instances === undefined) {
+    if (bucket === undefined) {
       return;
     }
 
-    const index = instances.findIndex((item) => item.nodeId === nodeId);
+    const instance = bucket.get(nodeId);
 
-    if (index < 0) {
+    if (instance === undefined) {
       return;
     }
 
-    const [instance] = instances.splice(index, 1);
+    bucket.delete(nodeId);
 
-    if (instances.length === 0) {
+    if (bucket.size === 0) {
       this.table.delete(service);
     }
 

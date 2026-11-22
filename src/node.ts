@@ -303,7 +303,7 @@ export class Node implements Provider {
       callTimeout: this.callTimeout,
       links: () => this.nodeLinks,
       hubLinks: () => this.nodeHub.links,
-      instances: () => this.watcher.instances(),
+      instances: (service) => this.watcher.instances(service),
     });
 
     this.discovery = new Discovery({
