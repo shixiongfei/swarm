@@ -77,6 +77,7 @@ export type NodeConfig = {
   heartbeatTimeout?: number;
   handshakeTimeout?: number;
   maxInflight?: number;
+  maxInbound?: number;
   maxInboundTimeout?: number;
   seeds?: Array<string | URL>;
   multicast?: MulticastOptions;
@@ -177,6 +178,7 @@ export class Node implements Provider {
   private readonly callTimeout: number;
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
+  private readonly maxInbound: number | undefined;
   private readonly heartbeatInterval: number;
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number | undefined;
@@ -207,6 +209,7 @@ export class Node implements Provider {
     this.maxHops =
       config.maxHops !== undefined ? config.maxHops : defaultMaxHops;
     this.maxInflight = config.maxInflight;
+    this.maxInbound = config.maxInbound;
 
     if (!Number.isSafeInteger(this.maxHops) || this.maxHops < 1) {
       throw new SwarmError(
@@ -254,6 +257,17 @@ export class Node implements Provider {
         "rejected",
         "REJECTED",
         "maxInflight must be a positive integer",
+      );
+    }
+
+    if (
+      this.maxInbound !== undefined &&
+      (!Number.isSafeInteger(this.maxInbound) || this.maxInbound < 1)
+    ) {
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        "maxInbound must be a positive integer",
       );
     }
 
@@ -348,6 +362,7 @@ export class Node implements Provider {
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
       maxInflight: this.maxInflight,
+      maxInbound: this.maxInbound,
       maxInboundTimeout: this.maxInboundTimeout,
     });
 
@@ -886,6 +901,7 @@ export class Node implements Provider {
       secret: secret !== undefined ? secret : this.secret,
       cluster: this.cluster,
       maxInflight: this.maxInflight,
+      maxInbound: this.maxInbound,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,

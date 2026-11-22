@@ -203,6 +203,46 @@ describe("Node", () => {
     assert.equal(b.snapshot().health.inflight, 0);
   });
 
+  test("rejects inbound calls above maxInbound", async (t) => {
+    const { port1, port2 } = new MessageChannel();
+    const a = new Node({ cluster: "inbound", callTimeout: 5000 });
+    const b = new Node({
+      cluster: "inbound",
+      callTimeout: 5000,
+      maxInbound: 1,
+    });
+    const gate = Promise.withResolvers<void>();
+
+    t.after(() => {
+      a.close();
+      b.close();
+    });
+
+    b.register("slow", { wait: () => gate.promise });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    assert.equal(
+      await waitFor(() => a.snapshot().links[0]?.services.length === 1),
+      true,
+    );
+
+    const first = a.call("slow", "wait", []);
+
+    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 1), true);
+
+    await assert.rejects(
+      a.call("slow", "wait", []),
+      (err: SwarmError) => err.code === "CONGESTED" && err.retriable === true,
+    );
+
+    gate.resolve();
+
+    assert.equal(await first, undefined);
+    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 0), true);
+  });
+
   test("snapshot counts dropped frames by code", async (t) => {
     const node = new Node({ cluster: "malformed" });
     const { port } = await node.listen("tcp://127.0.0.1:0");

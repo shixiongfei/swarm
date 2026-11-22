@@ -1343,6 +1343,58 @@ describe("NodeLink", () => {
     assert.ok(startedAt >= before);
   });
 
+  test("rejects a second call that reuses an in-flight id", async (t) => {
+    const local = new NodeLocal("local-node");
+    let calls = 0;
+    let release: (() => void) | undefined;
+
+    local.register("slow", {
+      wait: () =>
+        new Promise((resolve) => {
+          calls += 1;
+          release = () => resolve("done");
+        }),
+    });
+
+    const { link, nodeLink } = attachStub(local);
+    const drops: string[] = [];
+
+    nodeLink.events.on("drop", (error) => drops.push(error.code));
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    const call = {
+      t: "call" as const,
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+      service: "slow",
+      method: "wait",
+      args: [],
+    };
+
+    link.events.emit("envelope", call);
+    link.events.emit("envelope", call);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(calls, 1);
+    assert.equal(nodeLink.inboundCalls, 1);
+    assert.deepEqual(drops, ["DUPLICATE_CALL"]);
+
+    release?.();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(
+      link.sent.filter((message) => message.t === "reply").length,
+      1,
+    );
+  });
+
   test("aborts the handler and skips the reply when the peer cancels", async (t) => {
     const local = new NodeLocal("local-node");
     let seen: { from: string; signal: AbortSignal } | undefined;

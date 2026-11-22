@@ -42,6 +42,7 @@ export class NodeHub implements Observable {
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout?: number;
   private readonly maxInflight?: number;
+  private readonly maxInbound?: number;
   private readonly maxInboundTimeout?: number;
   private readonly nodeLinks: NodeLink[] = [];
   private readonly watcher = new Watcher();
@@ -56,6 +57,7 @@ export class NodeHub implements Observable {
     this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout = config.handshakeTimeout;
     this.maxInflight = config.maxInflight;
+    this.maxInbound = config.maxInbound;
     this.maxInboundTimeout = config.maxInboundTimeout;
   }
 
@@ -69,6 +71,7 @@ export class NodeHub implements Observable {
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
       maxInflight: this.maxInflight,
+      maxInbound: this.maxInbound,
       maxInboundTimeout: this.maxInboundTimeout,
     });
 

@@ -72,6 +72,7 @@ export type NodeLinkConfig = {
   heartbeatTimeout: number;
   handshakeTimeout?: number;
   maxInflight?: number;
+  maxInbound?: number;
   maxInboundTimeout?: number;
 };
 
@@ -93,6 +94,7 @@ export class NodeLink implements Observable {
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number;
   private readonly maxInflight: number | undefined;
+  private readonly maxInbound: number | undefined;
   private readonly maxInboundTimeout: number;
   private readonly disposes: Array<() => void>;
   private peer?: string;
@@ -167,6 +169,36 @@ export class NodeLink implements Observable {
         }
 
         const startedAt = Date.now();
+
+        if (this.inbound.has(message.id)) {
+          this.events.emit(
+            "drop",
+            new SwarmError(
+              "failed",
+              "DUPLICATE_CALL",
+              "call id is already in flight",
+              false,
+            ),
+          );
+          return;
+        }
+
+        if (
+          this.maxInbound !== undefined &&
+          this.inbound.size >= this.maxInbound
+        ) {
+          this.sendFailure(
+            message.id,
+            message.from,
+            new SwarmError(
+              "rejected",
+              "CONGESTED",
+              "too many inbound calls",
+              true,
+            ),
+          );
+          return;
+        }
 
         const timeout =
           message.timeout === undefined
@@ -323,6 +355,7 @@ export class NodeLink implements Observable {
         ? config.handshakeTimeout
         : defaultHandshakeTimeout;
     this.maxInflight = config.maxInflight;
+    this.maxInbound = config.maxInbound;
     this.maxInboundTimeout =
       config.maxInboundTimeout !== undefined
         ? config.maxInboundTimeout
