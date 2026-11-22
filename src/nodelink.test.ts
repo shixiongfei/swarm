@@ -57,6 +57,7 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
   const link = new StubLink();
   const nodeLink = new NodeLink(link, {
     provider: local,
+    cluster: "default",
     startup: 1,
     secret: "",
     heartbeatInterval: 15000,
@@ -66,6 +67,7 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
 
   link.events.emit("envelope", {
     t: "hello",
+    cluster: "default",
     from: "peer-node",
     version: protocolVersion,
     startup: 1,
@@ -76,11 +78,38 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
 }
 
 describe("handshake helpers", () => {
+  test("records the cluster announced by the peer", () => {
+    const local = new NodeLocal("local-node");
+    const link = new StubLink();
+    const nodeLink = new NodeLink(link, {
+      provider: local,
+      cluster: "local-cluster",
+      startup: 1,
+      secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
+    });
+
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "peer-cluster",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-node"),
+    });
+
+    assert.equal(nodeLink.cluster, "local-cluster");
+    assert.equal(nodeLink.peerCluster, "peer-cluster");
+    nodeLink.close();
+  });
+
   test("disposes the link when the handshake reply fails", () => {
     const local = new NodeLocal("local-node");
     const link = new StubLink();
     const nodeLink = new NodeLink(link, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -94,6 +123,7 @@ describe("handshake helpers", () => {
     link.failNextSend = true;
     link.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -110,6 +140,7 @@ describe("handshake helpers", () => {
     const link = new StubLink();
     const nodeLink = new NodeLink(link, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -131,6 +162,7 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -441,6 +473,7 @@ describe("NodeLink", () => {
     const events: string[] = [];
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -459,6 +492,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -485,6 +519,7 @@ describe("NodeLink", () => {
 
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -512,6 +547,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -738,6 +774,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "first",
       version: protocolVersion,
       startup: 1,
@@ -756,6 +793,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "second",
       version: protocolVersion,
       startup: 1,
@@ -820,6 +858,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -877,6 +916,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -937,6 +977,7 @@ describe("NodeLink", () => {
     const link = new StubLink();
     const nodeLink = new NodeLink(link, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -977,6 +1018,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -1056,6 +1098,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -1106,6 +1149,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1134,6 +1178,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -1185,6 +1230,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1209,6 +1255,7 @@ describe("NodeLink", () => {
     const { port1, port2 } = new MessageChannel();
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1239,6 +1286,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1265,6 +1313,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1278,6 +1327,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -1305,6 +1355,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1318,6 +1369,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -1340,6 +1392,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 1000,
@@ -1353,6 +1406,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -1369,6 +1423,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1382,6 +1437,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: Math.floor(protocolVersion / 100) * 100 + 99,
       startup: 1,
@@ -1397,6 +1453,7 @@ describe("NodeLink", () => {
     const stub = new StubLink();
     const link = new NodeLink(stub, {
       provider: local,
+      cluster: "default",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1410,6 +1467,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: (Math.floor(protocolVersion / 100) + 1) * 100,
       startup: 1,
@@ -1440,6 +1498,7 @@ describe("NodeLink", () => {
       provider,
       startup: 1,
       secret: "",
+      cluster: "default",
       heartbeatInterval: 15000,
       heartbeatTimeout: 45000,
     });
@@ -1448,6 +1507,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -1498,6 +1558,7 @@ describe("ready", () => {
       link,
       nodeLink: new NodeLink(link, {
         provider: new NodeLocal("local-node"),
+        cluster: "default",
         startup: 1,
         secret: "",
         heartbeatInterval: 15000,
@@ -1512,6 +1573,7 @@ describe("ready", () => {
 
     link.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,

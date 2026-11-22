@@ -131,6 +131,7 @@ async function attachGhost(node: Node, service: string) {
   port2.start();
   port2.postMessage({
     t: "hello",
+    cluster: "ghost-cluster",
     from: "ghost",
     version: protocolVersion,
     startup: 1,
@@ -156,6 +157,15 @@ async function attachGhost(node: Node, service: string) {
 }
 
 describe("Node", () => {
+  test("snapshot exposes the cluster announced by a peer", async (t) => {
+    const node = new Node({ cluster: "local-cluster" });
+    const ghost = await attachGhost(node, "math");
+    t.after(ghost.close);
+
+    assert.equal(node.cluster, "local-cluster");
+    assert.equal(node.snapshot().links[0]?.cluster, "ghost-cluster");
+  });
+
   test("register and unregister return the node", () => {
     const node = makeNode();
 
@@ -485,6 +495,7 @@ node.attach(port1);
 port2.start();
 port2.postMessage({
   t: "hello",
+  cluster: "default",
   from: "ghost",
   version: protocolVersion,
   startup: 1,
@@ -771,6 +782,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
+        cluster: "default",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -824,6 +836,7 @@ setTimeout(() => console.log("survived"), 500);
     for (const [index, link] of [portLink, socketLink].entries()) {
       link.events.emit("envelope", {
         t: "hello",
+        cluster: "default",
         from: `peer-${index}`,
         version: protocolVersion,
         startup: 1,
@@ -880,6 +893,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
+      cluster: "default",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -918,6 +932,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
+        cluster: "default",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -959,6 +974,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
+        cluster: "default",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -1343,6 +1359,7 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -1412,6 +1429,7 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "other-peer",
       version: protocolVersion,
       startup: 1,
@@ -3809,6 +3827,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -3894,6 +3913,7 @@ describe("Node transport and mesh", () => {
         port2.start();
         port2.postMessage({
           t: "hello",
+          cluster: "default",
           from: "ghost",
           version: protocolVersion,
           startup: 1,
@@ -3941,6 +3961,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -3987,6 +4008,7 @@ describe("Node transport and mesh", () => {
 
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -4081,6 +4103,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -4131,6 +4154,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      cluster: "default",
       from: "ghost",
       version: protocolVersion,
       startup: 1,

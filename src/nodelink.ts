@@ -67,6 +67,7 @@ export type NodeLinkConfig = {
   provider: Provider;
   startup: number;
   secret: string;
+  cluster: string;
   heartbeatInterval: number;
   heartbeatTimeout: number;
   handshakeTimeout?: number;
@@ -80,6 +81,7 @@ export class NodeLink implements Observable {
     isolate: true,
   });
   readonly secret: string;
+  readonly cluster: string;
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
@@ -94,6 +96,7 @@ export class NodeLink implements Observable {
   private readonly disposes: Array<() => void>;
   private peer?: string;
   peerStartup?: number;
+  peerCluster?: string;
   private closed = false;
   private opened = false;
   private reason: LinkCloseReason = "close";
@@ -116,6 +119,7 @@ export class NodeLink implements Observable {
         }
 
         this.peerStartup = message.startup;
+        this.peerCluster = message.cluster;
         this.authenticate(message.from, message.token, true);
         return;
 
@@ -125,6 +129,7 @@ export class NodeLink implements Observable {
         }
 
         this.peerStartup = message.startup;
+        this.peerCluster = message.cluster;
         this.authenticate(message.from, message.token, false);
         return;
 
@@ -277,6 +282,7 @@ export class NodeLink implements Observable {
     this.provider = config.provider;
     this.startup = config.startup;
     this.secret = config.secret;
+    this.cluster = config.cluster;
     this.heartbeatInterval = config.heartbeatInterval;
     this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout =
@@ -369,7 +375,7 @@ export class NodeLink implements Observable {
   }
 
   hello() {
-    this.transmit(() => this.link.hello(this.startup, this.token()));
+    this.transmit(() => this.link.hello(this.startup, this.token(), this.cluster));
   }
 
   notify(frame: Frame) {
@@ -519,7 +525,7 @@ export class NodeLink implements Observable {
 
     try {
       if (reply) {
-        this.transmit(() => this.link.accept(this.startup, this.token()));
+        this.transmit(() => this.link.accept(this.startup, this.token(), this.cluster));
       }
 
       this.announce();
@@ -644,7 +650,7 @@ export class NodeLink implements Observable {
   private connect(nodeId: string) {
     if (nodeId === this.link.nodeId) {
       try {
-        this.transmit(() => this.link.accept(this.startup, this.token()));
+        this.transmit(() => this.link.accept(this.startup, this.token(), this.cluster));
       } catch {
         // best effort: the initiator detects the self-connect from accept
       }

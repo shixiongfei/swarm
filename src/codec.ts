@@ -194,7 +194,7 @@ function decodeShape(value: unknown): Record<string, unknown> | undefined {
 
     const field = nameOfId.get(id);
 
-    if (field === undefined || !Object.hasOwn(shape.fields, field)) {
+    if (field === undefined || !shape.optional.includes(field)) {
       continue;
     }
 

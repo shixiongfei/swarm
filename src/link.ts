@@ -47,15 +47,20 @@ export abstract class Link {
     );
   }
 
-  hello(startup: number, token: string) {
-    this.handshake("hello", startup, token);
+  hello(startup: number, token: string, cluster: string) {
+    this.handshake("hello", startup, token, cluster);
   }
 
-  accept(startup: number, token: string) {
-    this.handshake("accept", startup, token);
+  accept(startup: number, token: string, cluster: string) {
+    this.handshake("accept", startup, token, cluster);
   }
 
-  private handshake(t: "hello" | "accept", startup: number, token: string) {
+  private handshake(
+    t: "hello" | "accept",
+    startup: number,
+    token: string,
+    cluster: string,
+  ) {
     this.send(
       frame({
         t,
@@ -63,6 +68,7 @@ export abstract class Link {
         version: protocolVersion,
         startup,
         token,
+        cluster,
       } as Envelope),
     );
   }

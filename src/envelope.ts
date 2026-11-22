@@ -128,6 +128,7 @@ const hello = shape(1, "hello", {
   version: Number,
   startup: Number,
   token: String,
+  cluster: String,
 });
 
 const accept = shape(2, "accept", {
@@ -135,6 +136,7 @@ const accept = shape(2, "accept", {
   version: Number,
   startup: Number,
   token: String,
+  cluster: String,
 });
 
 const bye = shape(3, "bye", { from: String });
@@ -252,6 +254,7 @@ function isHandshake(
   if (
     typeof message.from !== "string" ||
     typeof message.token !== "string" ||
+    typeof message.cluster !== "string" ||
     typeof message.version !== "number" ||
     !Number.isInteger(message.startup) ||
     !Number.isInteger(message.version) ||

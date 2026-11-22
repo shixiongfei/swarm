@@ -83,6 +83,7 @@ export type NodeConfig = {
 
 export type NodeLinkInfo = {
   peerId: string | undefined;
+  cluster: string | undefined;
   transport: LinkTransport;
   latency: number | undefined;
   local: boolean;
@@ -330,6 +331,7 @@ export class Node implements Provider {
       secret: this.secret,
       provider: this,
       startup: this.startup,
+      cluster: this.cluster,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
@@ -384,6 +386,7 @@ export class Node implements Provider {
   private linkInfo(nodeLink: NodeLink): NodeLinkInfo {
     return {
       peerId: nodeLink.peerId,
+      cluster: nodeLink.peerCluster,
       transport: nodeLink.transport,
       latency: nodeLink.latency,
       local: nodeLink.local,
@@ -854,6 +857,7 @@ export class Node implements Provider {
       provider: this,
       startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
+      cluster: this.cluster,
       maxInflight: this.maxInflight,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,

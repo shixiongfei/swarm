@@ -25,6 +25,7 @@ const envelopes: Envelope[] = [
     version: 1,
     startup: 1,
     token: "token-value",
+    cluster: "default",
   },
   {
     t: "accept",
@@ -32,6 +33,7 @@ const envelopes: Envelope[] = [
     version: 1,
     startup: 1,
     token: "token-value",
+    cluster: "default",
   },
   {
     t: "changes",
@@ -85,8 +87,14 @@ describe("codec", () => {
 
   test("pins wire field order for every shape", () => {
     const wire: [Envelope, unknown[]][] = [
-      [{ t: "hello", from: "f", version: 2, startup: 3, token: "t" }, [1, "f", 2, 3, "t"]],
-      [{ t: "accept", from: "f", version: 2, startup: 3, token: "t" }, [2, "f", 2, 3, "t"]],
+      [
+        { t: "hello", from: "f", version: 2, startup: 3, token: "t", cluster: "c" },
+        [1, "f", 2, 3, "t", "c"],
+      ],
+      [
+        { t: "accept", from: "f", version: 2, startup: 3, token: "t", cluster: "c" },
+        [2, "f", 2, 3, "t", "c"],
+      ],
       [{ t: "bye", from: "f" }, [3, "f"]],
       [{ t: "ping", from: "f" }, [4, "f"]],
       [{ t: "pong", from: "f" }, [5, "f"]],
@@ -191,6 +199,28 @@ describe("codec", () => {
       method: "m",
       args: [],
       target: "t",
+    });
+  });
+
+  test("ignores optional ids that name a required field", () => {
+    const wire = pack([
+      10,
+      [[14, "f", "o", "topic", "id", 5, { d: 1 }, [4, 99]]],
+    ]);
+
+    assert.deepEqual(decode(wire), {
+      t: "pubs",
+      items: [
+        {
+          t: "pub",
+          from: "f",
+          origin: "o",
+          topic: "topic",
+          id: "id",
+          ttl: 5,
+          data: { d: 1 },
+        },
+      ],
     });
   });
 
