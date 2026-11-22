@@ -106,6 +106,58 @@ describe("Client", () => {
     assert.ok(client.attempts.length <= 6, `attempts ${client.attempts.length}`);
   });
 
+  test("spreads reconnects with jitter", () => {
+    const client = new StubClient(0, { retryDelay: 1000, maxRetryDelay: 1000 });
+    const backoff = (client as unknown as { backoff(): number }).backoff;
+    const delays = Array.from({ length: 40 }, () => backoff.call(client));
+
+    for (const delay of delays) {
+      assert.ok(delay >= 800 && delay <= 1200, `delay ${delay}`);
+    }
+
+    assert.ok(new Set(delays).size > 1);
+
+    client.close();
+  });
+
+  test("keeps jitter out of the stable connection window", (t) => {
+    const random = Math.random;
+    const schedule = globalThis.setTimeout;
+    const delays: number[] = [];
+
+    Math.random = () => 0.99;
+    (globalThis as unknown as { setTimeout: unknown }).setTimeout = (
+      _fn: () => void,
+      ms: number,
+    ) => {
+      delays.push(ms);
+      return 0;
+    };
+
+    t.after(() => {
+      Math.random = random;
+      (globalThis as unknown as { setTimeout: unknown }).setTimeout = schedule;
+    });
+
+    const client = new StubClient(0, {
+      retryDelay: 1000,
+      maxRetryDelay: 30000,
+    }) as unknown as {
+      markOnline(socket: number): void;
+      markOffline(socket: number): void;
+      attempt: number;
+      onlineAt: number;
+    };
+
+    client.markOnline(1);
+    client.attempt = 1;
+    client.onlineAt = Date.now() - 1050;
+    client.markOffline(1);
+
+    assert.equal(client.attempt, 1);
+    assert.ok(delays[0] < 1500, `delay ${delays[0]}`);
+  });
+
   test("close cancels the retry scheduled by a rejected connect", async () => {
     let attempts = 0;
 

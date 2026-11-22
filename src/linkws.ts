@@ -59,6 +59,7 @@ export class LinkWs extends Link {
     const data = toBytes((event as { data?: unknown }).data);
 
     if (data === undefined) {
+      this.drop("frame is not binary");
       return;
     }
 
@@ -66,6 +67,8 @@ export class LinkWs extends Link {
 
     if (message !== undefined) {
       this.events.emit("envelope", message);
+    } else {
+      this.drop("frame could not be decoded");
     }
   };
 

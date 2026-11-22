@@ -164,6 +164,12 @@ export class Node implements Provider {
   private readonly heartbeatTimeout: number;
   private readonly handshakeTimeout: number | undefined;
   private readonly maxInboundTimeout: number | undefined;
+  private readonly settle = () => {
+    this.inflight -= 1;
+  };
+
+  private inflight = 0;
+  private draining = false;
   private closed = false;
 
   constructor(config: NodeConfig) {
@@ -356,6 +362,7 @@ export class Node implements Provider {
     this.nodeHub.events.on("bye", (nodeLink) =>
       this.membership.forgetByLink(nodeLink.peerId),
     );
+    this.nodeHub.events.on("drop", (error) => this.reportDrop(error));
 
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
@@ -613,13 +620,15 @@ export class Node implements Provider {
     target?: string,
     signal?: AbortSignal,
   ) {
+    this.checkOpen();
+
     assertCall(service, method, args);
 
     if (timeout !== undefined) {
       assertTimeout(timeout);
     }
 
-    return this.router.invoke(
+    const result = this.router.invoke(
       service,
       method,
       args,
@@ -629,6 +638,8 @@ export class Node implements Provider {
       target,
       signal,
     );
+
+    return this.track(result);
   }
 
   get<M extends Methods<M> = Methods>(service: string) {
@@ -669,7 +680,23 @@ export class Node implements Provider {
     this.pubsub.publish(topic, data, origin, from, id, ttl);
   }
 
-  close() {
+  close(): void;
+  close(options: { drain: number }): Promise<void>;
+  close(options: { drain?: number } = {}) {
+    if (options.drain === undefined) {
+      this.shutdown();
+
+      return;
+    }
+
+    assertTimeout(options.drain);
+
+    this.draining = true;
+
+    return this.idle(options.drain).then(() => this.shutdown());
+  }
+
+  private shutdown() {
     if (this.closed) {
       return;
     }
@@ -715,7 +742,7 @@ export class Node implements Provider {
       options.timeout === undefined ? this.callTimeout : options.timeout,
     );
 
-    return this.router.callAll(service, method, args, options);
+    return this.track(this.router.callAll(service, method, args, options));
   }
 
   private relay(event: WatchEvent) {
@@ -745,6 +772,29 @@ export class Node implements Provider {
     if (this.closed) {
       throw new SwarmError("rejected", "CLOSED", "node is closed", false);
     }
+
+    if (this.draining) {
+      throw new SwarmError("rejected", "CLOSED", "node is draining", false);
+    }
+  }
+
+  private async idle(timeout: number) {
+    const deadline = Date.now() + timeout;
+
+    while (this.inflight > 0) {
+      if (Date.now() >= deadline) {
+        return;
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  private track<T>(result: Promise<T>) {
+    this.inflight += 1;
+    void result.then(this.settle, this.settle);
+
+    return result;
   }
 
   private attachLink(
@@ -814,6 +864,7 @@ export class Node implements Provider {
         this.forget(instance);
       }
     });
+    nodeLink.events.on("drop", (error) => this.reportDrop(error));
     nodeLink.events.on("close", () => {
       if (
         addr !== undefined &&
@@ -836,6 +887,12 @@ export class Node implements Provider {
     }
 
     return nodeLink;
+  }
+
+  private reportDrop(error: SwarmError) {
+    if (this.events.listenerCount("error") > 0) {
+      this.events.emit("error", error);
+    }
   }
 
   private dropDialed(nodeLink: NodeLink) {

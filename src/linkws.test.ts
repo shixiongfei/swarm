@@ -271,14 +271,20 @@ describe("LinkWS", () => {
       true,
     );
     const received: Envelope[] = [];
+    const dropped: SwarmError[] = [];
 
     link.events.on("envelope", (message) => received.push(message));
+    link.events.on("drop", (error) => dropped.push(error));
 
     socket.emit("message", { data: "text" });
     socket.emit("message", { data: new Uint8Array([0xc1]) });
     socket.emit("message", {});
 
     assert.deepEqual(received, []);
+    assert.deepEqual(
+      dropped.map((error) => error.code),
+      ["FRAME_DROPPED", "FRAME_DROPPED", "FRAME_DROPPED"],
+    );
   });
 
   test("ignores frames once closed", () => {

@@ -345,10 +345,13 @@ describe("Node", () => {
   test("does not publish to an outbound link that has not authenticated", async (t) => {
     const node = new Node({ cluster: "unauthenticated", secret: "s3cr3t" });
     const chunks: Buffer[] = [];
+    const dropped: SwarmError[] = [];
     const server = createServer((socket) =>
       socket.on("data", (chunk: Buffer) => chunks.push(chunk)),
     );
     const port = await freePort();
+
+    node.events.on("error", (error) => dropped.push(error as SwarmError));
 
     await new Promise<void>((resolve) =>
       server.listen(port, "127.0.0.1", resolve),
@@ -369,6 +372,10 @@ describe("Node", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     assert.equal(Buffer.concat(chunks).length, before);
+    assert.ok(
+      dropped.some((error) => error.code === "PUB_DROPPED"),
+      `dropped ${dropped.map((error) => error.code).join(",")}`,
+    );
   });
 
   test("does not say goodbye to a link that has not authenticated", async (t) => {
@@ -393,6 +400,36 @@ describe("Node", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     assert.equal(Buffer.concat(chunks).length, 0);
+  });
+
+  test("reports a frame that fails to decode", async (t) => {
+    const node = new Node({ cluster: "malformed" });
+    const { port } = await node.listen("tcp://127.0.0.1:0");
+    const socket = connect(port, "127.0.0.1");
+    const dropped: SwarmError[] = [];
+
+    node.events.on("error", (error) => dropped.push(error as SwarmError));
+
+    t.after(() => {
+      socket.destroy();
+      node.close();
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+
+    const packet = Buffer.alloc(5);
+
+    packet.writeUInt32BE(1, 0);
+    packet[4] = 0xc1;
+    socket.write(packet);
+
+    await waitFor(
+      () => dropped.some((error) => error.code === "FRAME_DROPPED"),
+      1000,
+    );
   });
 
   test("a node rejects an invalid default call timeout", () => {
@@ -927,6 +964,83 @@ setTimeout(() => console.log("survived"), 500);
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "node is closed",
     );
+  });
+
+  test("close waits for in-flight calls when draining", async (t) => {
+    const port = await freePort();
+    const url = `tcp://127.0.0.1:${port}`;
+    const hub = new Node({ cluster: "drain" });
+    const peer = new Node({ cluster: "drain" });
+
+    await hub.listen(url);
+
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    hub.register("slow", {
+      wait: async () => {
+        entered();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return "done";
+      },
+    });
+
+    await peer.connect(url);
+    t.after(() => peer.close());
+
+    const call = peer.call("slow", "wait");
+
+    await started;
+
+    const closing = hub.close({ drain: 2000 });
+
+    assert.throws(
+      () => hub.register("other", { ping: () => 1 }),
+      (err: SwarmError) => err.code === "CLOSED",
+    );
+
+    await closing;
+
+    assert.equal(await call, "done");
+    assert.equal(hub.isClosed, true);
+  });
+
+  test("close stops waiting when the drain window expires", async (t) => {
+    const port = await freePort();
+    const url = `tcp://127.0.0.1:${port}`;
+    const hub = new Node({ cluster: "drain-timeout" });
+    const peer = new Node({ cluster: "drain-timeout" });
+
+    await hub.listen(url);
+
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    hub.register("slow", {
+      wait: async () => {
+        entered();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return "done";
+      },
+    });
+
+    await peer.connect(url);
+    t.after(() => peer.close());
+
+    const call = peer.call("slow", "wait");
+
+    await started;
+
+    const begun = Date.now();
+
+    await hub.close({ drain: 20 });
+
+    assert.ok(Date.now() - begun < 250);
+    await assert.rejects(call, (err: SwarmError) => err.code === "CLOSED");
   });
 
   test("operations fail after close", async (t) => {

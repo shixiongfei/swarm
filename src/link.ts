@@ -18,6 +18,7 @@ import type { Envelope, EnvelopeHandler } from "./envelope.ts";
 
 export type LinkEvents = {
   envelope: EnvelopeHandler;
+  drop: (error: SwarmError) => void;
   close: () => void;
 };
 
@@ -37,6 +38,13 @@ export abstract class Link {
 
   constructor(nodeId: string) {
     this.nodeId = nodeId;
+  }
+
+  protected drop(message: string) {
+    this.events.emit(
+      "drop",
+      new SwarmError("failed", "FRAME_DROPPED", message, false),
+    );
   }
 
   hello(startup: number, token: string) {

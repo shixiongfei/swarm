@@ -23,6 +23,7 @@ export type NodeHubEvents = {
   open: (nodeLink: NodeLink) => void;
   peers: (nodeLink: NodeLink, members: PeerEntry[]) => void;
   bye: (nodeLink: NodeLink) => void;
+  drop: (error: SwarmError) => void;
 };
 
 export type NodeHubConfig = NodeLinkConfig;
@@ -76,6 +77,7 @@ export class NodeHub implements Observable {
       this.events.emit("peers", nodeLink, members),
     );
     nodeLink.events.on("bye", () => this.events.emit("bye", nodeLink));
+    nodeLink.events.on("drop", (error) => this.events.emit("drop", error));
     nodeLink.events.on("close", () => this.detach(nodeLink));
   }
 

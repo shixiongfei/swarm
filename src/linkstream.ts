@@ -249,6 +249,8 @@ export class LinkStream extends Link {
 
       if (message !== undefined) {
         this.events.emit("envelope", message);
+      } else {
+        this.drop("frame could not be decoded");
       }
     }
 

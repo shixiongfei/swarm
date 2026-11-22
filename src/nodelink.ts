@@ -28,6 +28,7 @@ type NodeLinkEvents = {
   peers: (members: PeerEntry[]) => void;
   down: (instance: Instance, direct: boolean) => void;
   bye: () => void;
+  drop: (error: SwarmError) => void;
   close: () => void;
 };
 
@@ -278,6 +279,7 @@ export class NodeLink implements Observable {
 
     this.disposes = [
       link.events.on("envelope", this.onEnvelope),
+      link.events.on("drop", (error) => this.events.emit("drop", error)),
       link.events.on("close", () => {
         this.dispose("link is closed", "error", "CLOSED");
       }),
@@ -460,6 +462,15 @@ export class NodeLink implements Observable {
 
   publish(frame: Frame) {
     if (this.peer === undefined && this.transport !== "port") {
+      this.events.emit(
+        "drop",
+        new SwarmError(
+          "failed",
+          "PUB_DROPPED",
+          "link has not authenticated",
+          false,
+        ),
+      );
       return;
     }
 

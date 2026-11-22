@@ -221,7 +221,7 @@ export abstract class Client<S = any> {
 
     this.socket = undefined;
 
-    if (Date.now() - this.onlineAt >= this.backoff()) {
+    if (Date.now() - this.onlineAt >= this.backoff(false)) {
       this.attempt = 0;
     }
 
@@ -245,11 +245,13 @@ export abstract class Client<S = any> {
     }, this.backoff());
   }
 
-  private backoff() {
-    return Math.min(
+  private backoff(jitter = true) {
+    const delay = Math.min(
       this.retryDelay * 2 ** (Math.max(this.attempt, 1) - 1),
       this.maxRetryDelay,
     );
+
+    return jitter ? Math.round(delay * (0.8 + Math.random() * 0.4)) : delay;
   }
 
   private clearTimer() {

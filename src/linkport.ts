@@ -58,6 +58,7 @@ export class LinkPort extends Link {
       const message = parseEnvelope(event.data);
 
       if (message === undefined) {
+        this.drop("frame could not be decoded");
         return;
       }
 
