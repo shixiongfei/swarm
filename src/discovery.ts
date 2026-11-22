@@ -124,14 +124,17 @@ export class Discovery {
       await multicast.open(this.self);
     } catch (err) {
       this.multicast = undefined;
-      this.onError(
-        new SwarmError(
-          "failed",
-          "MULTICAST_UNAVAILABLE",
-          `multicast is unavailable: ${err instanceof Error ? err.message : String(err)}`,
-          false,
-        ),
-      );
+
+      if (!this.closed) {
+        this.onError(
+          new SwarmError(
+            "failed",
+            "MULTICAST_UNAVAILABLE",
+            `multicast is unavailable: ${err instanceof Error ? err.message : String(err)}`,
+            false,
+          ),
+        );
+      }
     }
   }
 

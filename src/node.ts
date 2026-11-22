@@ -357,9 +357,7 @@ export class Node implements Provider {
           this.forget(instance);
         }
       });
-      nodeLink.notify(
-        peersFrame(this.nodeId, this.membership.shared(nodeLink.local)),
-      );
+      this.notifyPeers(nodeLink);
     });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
       this.membership.learn(members, nodeLink.local),
@@ -897,9 +895,7 @@ export class Node implements Provider {
         return;
       }
 
-      nodeLink.notify(
-        peersFrame(this.nodeId, this.membership.shared(nodeLink.local)),
-      );
+      this.notifyPeers(nodeLink);
     });
     nodeLink.events.on("peers", (members) =>
       this.membership.learn(members, nodeLink.local),
@@ -1068,19 +1064,53 @@ export class Node implements Provider {
     return linked;
   }
 
-  private broadcastPeers() {
-    let toLocal: Frame | undefined;
-    let toRemote: Frame | undefined;
+  private peersFrames(links: NodeLink[]) {
+    if (links.length === 0) {
+      return [];
+    }
 
-    this.eachPeerLink((nodeLink) => {
-      if (nodeLink.local) {
-        toLocal ??= peersFrame(this.nodeId, this.membership.shared(true));
-        nodeLink.notify(toLocal);
-      } else {
-        toRemote ??= peersFrame(this.nodeId, this.membership.shared(false));
-        nodeLink.notify(toRemote);
+    const { local, transport } = links[0];
+    const limit = transport === "port" ? Infinity : maxEnvelopeSize;
+    const members = this.membership.shared(local);
+
+    if (members.length === 0) {
+      return [peersFrame(this.nodeId, members)];
+    }
+
+    const { chunks, dropped } = chunk(
+      members,
+      (batch) => peersFrame(this.nodeId, batch),
+      limit,
+    );
+
+    for (const { error } of dropped) {
+      this.reportDrop(error);
+    }
+
+    return chunks.map(({ frame }) => frame);
+  }
+
+  private notifyPeers(nodeLink: NodeLink) {
+    for (const frame of this.peersFrames([nodeLink])) {
+      nodeLink.notify(frame);
+    }
+  }
+
+  private broadcastPeers() {
+    const local: NodeLink[] = [];
+    const remote: NodeLink[] = [];
+
+    this.eachPeerLink((nodeLink) =>
+      (nodeLink.local ? local : remote).push(nodeLink),
+    );
+
+    for (const links of [local, remote]) {
+      for (const frame of this.peersFrames(links)) {
+        for (const nodeLink of links) {
+          nodeLink.notify(frame);
+        }
       }
-    });
+    }
   }
 }
 

@@ -805,6 +805,64 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
   });
 
+  test("splits peer announcements that would exceed the frame limit", async (t) => {
+    const node = new Node({ cluster: "peer-split" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: {
+        upsertSelf: (member: { id: string; addr: string; startup: number }) => void;
+      };
+      broadcastPeers: () => void;
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    internals.membership.upsertSelf({
+      id: node.nodeId,
+      addr: "tcp://127.0.0.1:1",
+      startup: 1,
+    });
+
+    const members = Array.from({ length: 20 }, (_, i) => ({
+      id: `peer-${i}`,
+      addr: `tcp://10.0.0.1:${1000 + i}?${"x".repeat(450000)}`,
+      startup: 1,
+    }));
+    const internals2 = node as unknown as {
+      membership: { members: Map<string, unknown> };
+      broadcastPeers: () => void;
+    };
+    for (const member of members) {
+      internals2.membership.members.set(member.id, member);
+    }
+    link.frames.length = 0;
+    internals.broadcastPeers();
+
+    const peers = link.frames.filter(
+      (frame) => frame.message.t === "peers",
+    );
+    let count = 0;
+
+    for (const frame of peers) {
+      assert.ok(frame.bytes().byteLength <= 8 * 1024 * 1024);
+      if (frame.message.t === "peers") {
+        count += frame.message.members.length;
+      }
+    }
+
+    assert.equal(count, 21);
+  });
+
   test("splits relayed changes that would exceed the frame limit", async (t) => {
     const node = new Node({ cluster: "frame-split" });
 

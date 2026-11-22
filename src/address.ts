@@ -115,10 +115,30 @@ export function isLoopback(host: string | undefined) {
 
   const name = host.toLowerCase();
 
-  return (
+  if (
     name === "localhost" ||
     name === "::1" ||
     name.startsWith("127.") ||
     name.startsWith("::ffff:127.")
-  );
+  ) {
+    return true;
+  }
+
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(name);
+
+  if (mapped !== null) {
+    return (
+      (parseInt(mapped[1], 16) << 16 | parseInt(mapped[2], 16)) >>> 24 === 127
+    );
+  }
+
+  if (/^(?:0x[0-9a-f]+|\d+)$/.test(name)) {
+    const value = Number(name);
+
+    return Number.isInteger(value) && value >= 0 && value <= 0xffffffff
+      ? value >>> 24 === 127
+      : false;
+  }
+
+  return false;
 }

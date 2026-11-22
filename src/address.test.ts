@@ -27,6 +27,9 @@ describe("parseUrl and address helpers", () => {
       "127.1.2.3",
       "::1",
       "::ffff:127.0.0.1",
+      "2130706433",
+      "0x7f000001",
+      "::ffff:7f00:1",
     ]) {
       assert.equal(isLoopback(host), true, host);
     }

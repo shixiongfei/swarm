@@ -60,37 +60,52 @@ export class PubSub {
     const remaining =
       ttl !== undefined ? Math.min(ttl, this.maxHops) : this.maxHops;
 
-    if (this.seen.has(pubId)) {
-      return;
-    }
-
-    this.seen.add(pubId);
-
-    if (this.seen.size > maxSeenPubs) {
-      const oldest = this.seen.values().next().value;
-
-      if (oldest !== undefined) {
-        this.seen.delete(oldest);
+    if (
+      typeof pubId !== "string" ||
+      !Number.isInteger(remaining) ||
+      remaining < 0
+    ) {
+      this.reportDrop(
+        new SwarmError(
+          "failed",
+          "PUB_DROPPED",
+          typeof pubId !== "string" ? "invalid id" : "invalid ttl",
+          false,
+        ),
+      );
+    } else {
+      if (this.seen.has(pubId)) {
+        return;
       }
-    }
 
-    if (remaining > 0) {
-      this.queue.push({
-        skip: from,
-        item: {
-          t: "pub",
-          from: this.nodeId,
-          origin: source,
-          topic,
-          id: pubId,
-          ttl: remaining - 1,
-          data,
-        },
-      });
+      this.seen.add(pubId);
 
-      if (!this.scheduled) {
-        this.scheduled = true;
-        queueMicrotask(() => this.flush());
+      if (this.seen.size > maxSeenPubs) {
+        const oldest = this.seen.values().next().value;
+
+        if (oldest !== undefined) {
+          this.seen.delete(oldest);
+        }
+      }
+
+      if (remaining > 0) {
+        this.queue.push({
+          skip: from,
+          item: {
+            t: "pub",
+            from: this.nodeId,
+            origin: source,
+            topic,
+            id: pubId,
+            ttl: remaining - 1,
+            data,
+          },
+        });
+
+        if (!this.scheduled) {
+          this.scheduled = true;
+          queueMicrotask(() => this.flush());
+        }
       }
     }
 

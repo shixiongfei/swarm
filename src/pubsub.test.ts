@@ -340,6 +340,22 @@ describe("PubSub", () => {
     assert.equal(dropped.length, 1);
   });
 
+  test("rejects a fractional ttl without poisoning the frame", async () => {
+    const sent: Sent[] = [];
+    const { pubsub, local, dropped } = makePubSub([makeLink("a", sent)]);
+
+    pubsub.publish("topic", "bad", undefined, undefined, "bad-id", 1.5);
+    pubsub.publish("topic", "good", undefined, undefined, "good-id");
+
+    await flush();
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].id, "good-id");
+    assert.equal(local.length, 2);
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].message, "invalid ttl");
+  });
+
   test("evicts the oldest seen id once the cap is exceeded", async () => {
     const sent: Sent[] = [];
     const { pubsub } = makePubSub([makeLink("a", sent)]);
