@@ -459,7 +459,7 @@ export class NodeLink implements Observable {
   }
 
   notify(frame: Frame) {
-    this.sync(() => this.link.send(frame));
+    this.sync(() => this.link.send(frame), frame.durable);
   }
 
   forget(instance: Instance) {
@@ -782,7 +782,7 @@ export class NodeLink implements Observable {
     }
   }
 
-  private sync(update: () => void) {
+  private sync(update: () => void, durable = false) {
     if (this.closed) {
       return;
     }
@@ -791,11 +791,27 @@ export class NodeLink implements Observable {
       this.transmit(update);
     } catch (err) {
       if (isDataFailure(err)) {
+        this.events.emit(
+          "drop",
+          err instanceof SwarmError
+            ? err
+            : new SwarmError(
+                "failed",
+                "CLONE_FAILED",
+                "frame is not cloneable",
+                false,
+              ),
+        );
         return;
       }
 
       if (isCongestion(err) && this.opened) {
         this.events.emit("drop", err);
+
+        if (durable) {
+          this.dispose("link is congested", "error", "CONGESTED");
+          this.link.close();
+        }
         return;
       }
 
@@ -871,7 +887,9 @@ export class NodeLink implements Observable {
       this.heartbeat = undefined;
     }
 
-    this.pending.clear(() => new SwarmError("failed", code, message, false));
+    this.pending.clear(
+      () => new SwarmError("failed", code, message, false),
+    );
 
     for (const controller of this.inbound.values()) {
       controller.abort(new SwarmError("failed", code, message, false));

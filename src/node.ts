@@ -733,6 +733,12 @@ export class Node implements Provider {
       return;
     }
 
+    if (options.drain === 0) {
+      this.shutdown();
+
+      return Promise.resolve();
+    }
+
     assertTimeout(options.drain);
 
     this.draining = true;

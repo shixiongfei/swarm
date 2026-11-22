@@ -1403,6 +1403,42 @@ setTimeout(() => console.log("survived"), 500);
     await assert.rejects(call, (err: SwarmError) => err.code === "CLOSED");
   });
 
+  test("close with a zero drain window closes at once", async (t) => {
+    const port = await freePort();
+    const url = `tcp://127.0.0.1:${port}`;
+    const hub = new Node({ cluster: "drain-zero" });
+    const peer = new Node({ cluster: "drain-zero" });
+
+    await hub.listen(url);
+
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    hub.register("slow", {
+      wait: async () => {
+        entered();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return "done";
+      },
+    });
+
+    await peer.connect(url);
+    t.after(() => peer.close());
+
+    const call = peer.call("slow", "wait");
+
+    await started;
+
+    const begun = Date.now();
+
+    await hub.close({ drain: 0 });
+
+    assert.ok(Date.now() - begun < 100);
+    await assert.rejects(call, (err: SwarmError) => err.code === "CLOSED");
+  });
+
   test("draining aborts in-flight handlers", async (t) => {
     const port = await freePort();
     const url = `tcp://127.0.0.1:${port}`;

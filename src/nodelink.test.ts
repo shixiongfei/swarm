@@ -343,7 +343,7 @@ describe("handshake helpers", () => {
     );
   });
 
-  test("keeps the link and reports a drop when a state update is congested", (t) => {
+  test("closes the link when a state change cannot be delivered", async (t) => {
     const local = new NodeLocal("local-node");
     const { link, nodeLink } = attachStub(local);
     let closes = 0;
@@ -357,6 +357,8 @@ describe("handshake helpers", () => {
     nodeLink.events.on("close", () => (closes += 1));
     nodeLink.events.on("drop", (error) => dropped.push(error));
 
+    const pending = nodeLink.call("peer-node", "math", "add", [1, 2], 5000);
+
     link.failNextSend = true;
     link.nextError = new SwarmError(
       "failed",
@@ -369,8 +371,52 @@ describe("handshake helpers", () => {
       changesFrame([{ t: "up", from: "other-node", service: "math" }]),
     );
 
+    await assert.rejects(
+      pending,
+      (err: SwarmError) => err.code === "CONGESTED" && err.retriable === false,
+    );
+
+    assert.equal(link.closed, true);
+    assert.equal(closes, 1);
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].code, "CONGESTED");
+  });
+
+  test("keeps the link when a pub frame is congested", (t) => {
+    const local = new NodeLocal("local-node");
+    const { link, nodeLink } = attachStub(local);
+    const dropped: SwarmError[] = [];
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    nodeLink.events.on("drop", (error) => dropped.push(error));
+
+    link.failNextSend = true;
+    link.nextError = new SwarmError(
+      "failed",
+      "CONGESTED",
+      "link is congested",
+      true,
+    );
+
+    nodeLink.notify(
+      pubsFrame([
+        {
+          t: "pub",
+          id: "pub-1",
+          ttl: 1,
+          from: "stub-node",
+          origin: "peer-node",
+          topic: "news",
+          data: 1,
+        },
+      ]),
+    );
+
     assert.equal(link.closed, false);
-    assert.equal(closes, 0);
     assert.equal(dropped.length, 1);
     assert.equal(dropped[0].code, "CONGESTED");
   });
@@ -378,11 +424,14 @@ describe("handshake helpers", () => {
   test("drops a state update that cannot be encoded", (t) => {
     const local = new NodeLocal("local-node");
     const { link, nodeLink } = attachStub(local);
+    const dropped: SwarmError[] = [];
 
     t.after(() => {
       nodeLink.close();
       local.close();
     });
+
+    nodeLink.events.on("drop", (error) => dropped.push(error));
 
     link.failNextSend = true;
     link.nextError = new SwarmError(
@@ -398,6 +447,8 @@ describe("handshake helpers", () => {
 
     assert.equal(link.closed, false);
     assert.equal(nodeLink.peerId, "peer-node");
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].code, "ENVELOPE_INVALID");
   });
 
   test("closes the link after repeated send failures", (t) => {

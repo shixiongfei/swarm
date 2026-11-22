@@ -22,14 +22,16 @@ import type { Instance } from "./registry.ts";
 
 export type Frame = {
   readonly message: Envelope;
+  readonly durable: boolean;
   bytes(): Uint8Array;
 };
 
-export function frame(message: Envelope) {
+export function frame(message: Envelope, durable = false) {
   let payload: Uint8Array | undefined;
 
   return {
     message,
+    durable,
     bytes() {
       payload ??= encode(message);
 
@@ -51,7 +53,7 @@ export function downChange(instance: Instance): DownEnvelope {
 }
 
 export function changesFrame(items: Change[]) {
-  return frame({ t: "changes", items });
+  return frame({ t: "changes", items }, true);
 }
 
 export function peersFrame(from: string, members: PeerEntry[]) {

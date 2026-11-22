@@ -75,6 +75,7 @@ describe("chunk", () => {
 
         return {
           message: built.message,
+          durable: built.durable,
           bytes() {
             calls += 1;
 
