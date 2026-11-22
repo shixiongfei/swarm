@@ -247,6 +247,48 @@ describe("Node", () => {
     assert.equal(signals[0]?.aborted, false);
   });
 
+  test("local calls reject with cancelled when the signal aborts", async (t) => {
+    const node = makeNode(5000);
+    const controller = new AbortController();
+
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let seen: AbortSignal | undefined;
+
+    node.register("slow", {
+      work: async (ctx) => {
+        seen = ctx.signal;
+        entered();
+        await gate;
+        return "done";
+      },
+    });
+
+    t.after(() => {
+      release();
+      node.close();
+    });
+
+    const call = node.call("slow", "work", [], {
+      signal: controller.signal,
+      timeout: 5000,
+    });
+
+    await started;
+    controller.abort();
+
+    await assert.rejects(call, (err: SwarmError) => err.code === "CANCELLED");
+    assert.equal(seen?.aborted, true);
+  });
+
   test("register and unregister return the node", () => {
     const node = makeNode();
 
@@ -1319,6 +1361,44 @@ setTimeout(() => console.log("survived"), 500);
 
     assert.ok(Date.now() - begun < 250);
     await assert.rejects(call, (err: SwarmError) => err.code === "CLOSED");
+  });
+
+  test("draining aborts in-flight handlers", async (t) => {
+    const port = await freePort();
+    const url = `tcp://127.0.0.1:${port}`;
+    const hub = new Node({ cluster: "drain-abort" });
+    const peer = new Node({ cluster: "drain-abort" });
+
+    await hub.listen(url);
+
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    hub.register("slow", {
+      wait: (ctx) =>
+        new Promise((resolve) => {
+          entered();
+          ctx.signal.addEventListener("abort", () => resolve("aborted"), {
+            once: true,
+          });
+        }),
+    });
+
+    await peer.connect(url);
+    t.after(() => peer.close());
+
+    const call = peer.call("slow", "wait");
+
+    await started;
+
+    const begun = Date.now();
+
+    await hub.close({ drain: 2000 });
+
+    assert.ok(Date.now() - begun < 1000, "drain should not wait for the window");
+    assert.equal(await call, "aborted");
   });
 
   test("operations fail after close", async (t) => {

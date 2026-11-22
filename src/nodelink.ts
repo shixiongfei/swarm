@@ -190,16 +190,12 @@ export class NodeLink implements Observable {
           )
           .then(
             (value) => {
-              this.inbound.delete(message.id);
-
-              if (!controller.signal.aborted) {
+              if (this.inbound.delete(message.id)) {
                 this.sendReply(message.id, message.from, value);
               }
             },
             (error: unknown) => {
-              this.inbound.delete(message.id);
-
-              if (!controller.signal.aborted) {
+              if (this.inbound.delete(message.id)) {
                 this.sendFailure(message.id, message.from, error);
               }
             },
@@ -414,6 +410,12 @@ export class NodeLink implements Observable {
 
   get inboundCalls() {
     return this.inbound.size;
+  }
+
+  drainInbound() {
+    for (const controller of this.inbound.values()) {
+      controller.abort();
+    }
   }
 
   hello() {

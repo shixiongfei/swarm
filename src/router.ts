@@ -64,28 +64,22 @@ export class Router {
     }
 
     if (target !== undefined && target === this.nodeId) {
-      return withCancel(
-        this.local.call(
-          service,
-          method,
-          this.local.context(source, signal),
-          args,
-          timeout,
-        ),
-        signal,
+      return this.local.call(
+        service,
+        method,
+        this.local.context(source, signal),
+        args,
+        timeout,
       );
     }
 
     if (target === undefined && this.local.hasMethod(service, method)) {
-      return withCancel(
-        this.local.call(
-          service,
-          method,
-          this.local.context(source, signal),
-          args,
-          timeout,
-        ),
-        signal,
+      return this.local.call(
+        service,
+        method,
+        this.local.context(source, signal),
+        args,
+        timeout,
       );
     }
 

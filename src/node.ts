@@ -25,7 +25,7 @@ import { PubSub } from "./pubsub.ts";
 import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
-import { assertTimeout, isTimeout } from "./timeout.ts";
+import { assertTimeout, isTimeout, withCancel } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable, maxEnvelopeSize } from "./codec.ts";
 import { changesFrame, downChange, peersFrame, upChange } from "./frame.ts";
@@ -588,7 +588,7 @@ export class Node implements Provider {
     try {
       this.checkOpen();
 
-      return Promise.resolve(
+      return withCancel(
         this.invoke(
           service,
           method,
@@ -599,6 +599,7 @@ export class Node implements Provider {
           undefined,
           options.signal,
         ),
+        options.signal,
       );
     } catch (err) {
       return Promise.reject(err);
@@ -618,7 +619,7 @@ export class Node implements Provider {
     try {
       this.checkOpen();
 
-      return Promise.resolve(
+      return withCancel(
         this.invoke(
           service,
           method,
@@ -629,6 +630,7 @@ export class Node implements Provider {
           nodeId,
           options.signal,
         ),
+        options.signal,
       );
     } catch (err) {
       return Promise.reject(err);
@@ -717,6 +719,10 @@ export class Node implements Provider {
     assertTimeout(options.drain);
 
     this.draining = true;
+
+    for (const nodeLink of [...this.nodeLinks, ...this.nodeHub.links]) {
+      nodeLink.drainInbound();
+    }
 
     return this.idle(options.drain).then(() => this.shutdown());
   }
