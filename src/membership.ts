@@ -14,6 +14,8 @@ import type { PeerEntry } from "./envelope.ts";
 
 export type NodeMember = PeerEntry;
 
+const maxDeparted = 1024;
+
 export type MembershipOptions = {
   id: string;
   memberTtl: number;
@@ -186,7 +188,16 @@ export class Membership {
   }
 
   leave(id: string) {
+    this.departed.delete(id);
     this.departed.add(id);
+
+    if (this.departed.size > maxDeparted) {
+      const oldest = this.departed.values().next().value;
+
+      if (oldest !== undefined) {
+        this.departed.delete(oldest);
+      }
+    }
 
     const member = this.members.get(id);
 

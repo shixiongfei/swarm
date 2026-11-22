@@ -85,6 +85,22 @@ export class Peer {
     }
   }
 
+  async waitForExit(timeout = 5000) {
+    const deadline = Date.now() + timeout;
+
+    while (this.code === undefined) {
+      const remaining = deadline - Date.now();
+
+      if (remaining <= 0) {
+        throw new Error(`peer did not exit in ${timeout}ms${this.output()}`);
+      }
+
+      await this.sleep(remaining);
+    }
+
+    return this.code;
+  }
+
   private output() {
     const text = this.stderr.trim();
 

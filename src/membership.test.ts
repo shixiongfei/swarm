@@ -278,6 +278,28 @@ describe("Membership", () => {
     assert.deepEqual(dials, []);
   });
 
+  test("leave keeps a bounded history of departed members", (t) => {
+    const { membership } = makeMembership();
+
+    t.after(() => membership.close());
+
+    membership.leave(remote.id);
+
+    for (let i = 0; i < 2000; i++) {
+      membership.leave(`gone-${i}`);
+    }
+
+    membership.learn(
+      [remote, { id: "gone-1999", addr: "tcp://10.0.0.8:8", startup: 1 }],
+      true,
+    );
+
+    assert.deepEqual(
+      membership.snapshot().map((member) => member.id),
+      [remote.id],
+    );
+  });
+
   test("upsertSelf replaces the member in place and keeps one entry", (t) => {
     const { membership, broadcasts } = makeMembership();
 

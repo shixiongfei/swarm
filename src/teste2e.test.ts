@@ -184,3 +184,19 @@ console.log(JSON.stringify({ ready: true }));
     8000,
   );
 });
+
+test("close releases every subsystem so the process can exit", async (t) => {
+  const peer = new Peer(`
+const node = createNode({ cluster: "e2e-shutdown" });
+await node.listen("tcp://127.0.0.1:0");
+node.register("worker", { tag: () => "x" });
+node.close();
+console.log(JSON.stringify({ closed: true }));
+`);
+
+  t.after(() => peer.stop());
+
+  await peer.waitFor((report) => report.closed !== undefined);
+
+  assert.equal(await peer.waitForExit(3000), 0);
+});
