@@ -35,7 +35,9 @@
     "!dist/*.test.*",
     "!src/*.test.*",
     "!dist/testutil.*",
-    "!src/testutil.*"
+    "!src/testutil.*",
+    "!dist/teste2e.*",
+    "!src/teste2e.*"
   ],
   "keywords": [
     "swarm",

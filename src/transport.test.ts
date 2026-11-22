@@ -14,10 +14,10 @@ import { describe, test } from "node:test";
 import { createConnection, createServer } from "node:net";
 import { WebSocket } from "ws";
 import { Transport } from "./transport.ts";
-import { freePort, waitFor, within } from "./testutil.ts";
+import { waitFor, within } from "./testutil.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Link } from "./link.ts";
-import type { Socket } from "node:net";
+import type { Socket, AddressInfo } from "node:net";
 
 type Attach = {
   link: Link;
@@ -147,12 +147,13 @@ describe("Transport", () => {
   });
 
   test("open rejects a port that is already in use", async (t) => {
-    const port = await freePort();
     const blocker = createServer();
 
     await new Promise<void>((resolve) =>
-      blocker.listen(port, "127.0.0.1", resolve),
+      blocker.listen(0, "127.0.0.1", resolve),
     );
+
+    const { port } = blocker.address() as AddressInfo;
 
     const { transport } = makeTransport();
 

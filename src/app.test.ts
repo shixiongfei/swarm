@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { createApp } from "./app.ts";
 import { createService } from "./service.ts";
 import { Node } from "./node.ts";
@@ -137,12 +138,13 @@ describe("App", () => {
   });
 
   test("a failed start closes the node and stays stopped", async (t) => {
-    const taken = await freePort();
     const blocker = createServer();
 
     await new Promise<void>((resolve) =>
-      blocker.listen(taken, "127.0.0.1", resolve),
+      blocker.listen(0, "127.0.0.1", resolve),
     );
+
+    const taken = (blocker.address() as AddressInfo).port;
 
     const open = await freePort();
     const math = createService({
