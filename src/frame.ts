@@ -15,6 +15,7 @@ import type {
   DownEnvelope,
   Envelope,
   PeerEntry,
+  PubEnvelope,
   UpEnvelope,
 } from "./envelope.ts";
 import type { Instance } from "./registry.ts";
@@ -57,13 +58,6 @@ export function peersFrame(from: string, members: PeerEntry[]) {
   return frame({ t: "peers", from, members });
 }
 
-export function pubFrame(
-  nodeId: string,
-  topic: string,
-  data: unknown,
-  origin: string,
-  id: string,
-  ttl: number,
-) {
-  return frame({ t: "pub", from: nodeId, origin, topic, id, ttl, data });
+export function pubsFrame(items: PubEnvelope[]) {
+  return frame({ t: "pubs", items });
 }

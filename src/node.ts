@@ -27,8 +27,9 @@ import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
-import { assertEncodable } from "./codec.ts";
+import { assertEncodable, maxEnvelopeSize } from "./codec.ts";
 import { changesFrame, downChange, peersFrame, upChange } from "./frame.ts";
+import { chunk } from "./chunk.ts";
 import type { Frame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
 import type { LinkCloseReason } from "./nodelink.ts";
@@ -117,7 +118,6 @@ export type NodeEvents = {
 };
 
 const defaultMaxHops = 8;
-const relayBatchSize = 1024;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 
@@ -298,6 +298,7 @@ export class Node implements Provider {
       links: () => [...this.nodeLinks, ...this.nodeHub.links],
       local: (topic, data, origin) =>
         this.nodeLocal.publish(topic, data, origin),
+      drop: (error) => this.reportDrop(error),
     });
 
     this.router = new Router({
@@ -770,12 +771,23 @@ export class Node implements Provider {
       return;
     }
 
-    for (let at = 0; at < this.relayQueue.length; at += relayBatchSize) {
-      const chunk = this.relayQueue.slice(at, at + relayBatchSize);
-      let shared: Frame | undefined;
+    let limit = Infinity;
 
+    this.eachPeerLink((nodeLink) => {
+      if (nodeLink.transport !== "port") {
+        limit = maxEnvelopeSize;
+      }
+    });
+
+    const { chunks, dropped } = chunk(this.relayQueue, changesFrame, limit);
+
+    for (const { error } of dropped) {
+      this.reportDrop(error);
+    }
+
+    for (const batch of chunks) {
       this.eachPeerLink((nodeLink, peerId) => {
-        const items = chunk.filter(
+        const items = batch.items.filter(
           (change) =>
             change.from !== peerId && !nodeLink.has(change.service, change.from),
         );
@@ -784,9 +796,8 @@ export class Node implements Provider {
           return;
         }
 
-        if (items.length === chunk.length) {
-          shared ??= changesFrame(chunk);
-          nodeLink.notify(shared);
+        if (items.length === batch.items.length) {
+          nodeLink.notify(batch.frame);
           return;
         }
 

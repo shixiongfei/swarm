@@ -76,15 +76,20 @@ function fakeSocket() {
   return socket;
 }
 
-function pubEnvelope(data: unknown): Envelope {
+function pubsEnvelope(data: unknown): Envelope {
   return {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "client-node",
-    origin: "client-node",
-    topic: "news",
-    data,
+    t: "pubs",
+    items: [
+      {
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "client-node",
+        origin: "client-node",
+        topic: "news",
+        data,
+      },
+    ],
   };
 }
 
@@ -107,51 +112,12 @@ describe("LinkWS", () => {
       server.close();
     });
 
-    client.send(
-      frame({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      }),
-    );
-    client.send(
-      frame({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 2,
-      }),
-    );
+    client.send(frame(pubsEnvelope(1)));
+    client.send(frame(pubsEnvelope(2)));
 
     await waitFor(() => received.length === 2);
 
-    assert.deepEqual(received, [
-      {
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      },
-      {
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 2,
-      },
-    ]);
+    assert.deepEqual(received, [pubsEnvelope(1), pubsEnvelope(2)]);
   });
 
   test("emits close once when the peer closes", async (t) => {
@@ -197,18 +163,7 @@ describe("LinkWS", () => {
     const link = new LinkWs(socket, "client-node", false);
 
     assert.throws(
-      () =>
-        link.send(
-          frame({
-            t: "pub",
-            id: "pub-1",
-            ttl: 8,
-            from: "client-node",
-            origin: "client-node",
-            topic: "news",
-            data: 1,
-          }),
-        ),
+      () => link.send(frame(pubsEnvelope(1))),
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "link is congested",
     );
@@ -232,17 +187,7 @@ describe("LinkWS", () => {
     client.close();
 
     assert.doesNotThrow(() => {
-      client.send(
-        frame({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "client-node",
-          origin: "client-node",
-          topic: "news",
-          data: 1,
-        }),
-      );
+      client.send(frame(pubsEnvelope(1)));
     });
   });
 
@@ -254,13 +199,13 @@ describe("LinkWS", () => {
       true,
     );
     const received: Envelope[] = [];
-    const bytes = encode(pubEnvelope(1));
+    const bytes = encode(pubsEnvelope(1));
 
     link.events.on("envelope", (message) => received.push(message));
 
     socket.emit("message", { data: [bytes.slice(0, 2), bytes.slice(2)] });
 
-    assert.deepEqual(received, [pubEnvelope(1)]);
+    assert.deepEqual(received, [pubsEnvelope(1)]);
   });
 
   test("ignores text and malformed frames", () => {
@@ -299,7 +244,7 @@ describe("LinkWS", () => {
     link.events.on("envelope", (message) => received.push(message));
 
     link.close();
-    socket.emit("message", { data: encode(pubEnvelope(1)) });
+    socket.emit("message", { data: encode(pubsEnvelope(1)) });
 
     assert.deepEqual(received, []);
   });
@@ -336,7 +281,7 @@ describe("LinkWS", () => {
     );
 
     assert.throws(
-      () => link.send(frame(pubEnvelope("x".repeat(maxEnvelopeSize)))),
+      () => link.send(frame(pubsEnvelope("x".repeat(maxEnvelopeSize)))),
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "envelope is too large",
     );

@@ -26,7 +26,9 @@ import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
 import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import { SwarmError } from "./errors.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import type { Frame } from "./frame.ts";
+import type { LinkTransport } from "./link.ts";
 import type { NodeLinkDown } from "./node.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
 
@@ -81,10 +83,16 @@ mJTnKt8LKtGnmhK7vIGP5kth9i5duTSYnhdEA/AG9D0D3+NnsVH58Pj09mTg
 `;
 
 class FrameLink extends Link {
-  readonly transport = "port";
   readonly local = true;
   readonly frames: Frame[] = [];
+  readonly transport: LinkTransport;
   closed = false;
+
+  constructor(nodeId: string, transport: LinkTransport = "port") {
+    super(nodeId);
+
+    this.transport = transport;
+  }
 
   send(frame: Frame) {
     this.frames.push(frame);
@@ -795,6 +803,48 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(peers[2], peers[0]);
     assert.equal(peers[1]?.bytes(), peers[0]?.bytes());
     assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
+  });
+
+  test("splits relayed changes that would exceed the frame limit", async (t) => {
+    const node = new Node({ cluster: "frame-split" });
+
+    t.after(() => node.close());
+
+    await node.listen("tcp://127.0.0.1:0");
+
+    const internals = node as unknown as { attachLink: (link: Link) => void };
+    const link = new FrameLink(node.nodeId, "socket");
+
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    for (let i = 0; i < 4; i += 1) {
+      node.register(
+        `svc-${i}`,
+        { run: () => 0 },
+        { blob: "x".repeat(3 * 1024 * 1024) },
+      );
+    }
+
+    await runRelay();
+
+    const frames = link.frames.filter((frame) => frame.message.t === "changes");
+    const items = frames.flatMap((frame) =>
+      frame.message.t === "changes" ? frame.message.items : [],
+    );
+
+    assert.ok(frames.length > 1);
+    assert.equal(items.length, 4);
+
+    for (const frame of frames) {
+      assert.ok(frame.bytes().byteLength <= maxEnvelopeSize);
+    }
   });
 
   test("does not echo a down frame back to its source", async (t) => {
@@ -1654,7 +1704,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.deepEqual(await received, { data: { ok: true }, from: a.nodeId });
   });
 
-  test("delivers locally but not remotely when the payload cannot be cloned", async (t) => {
+  test("delivers locally but not remotely when the payload is not encodable", async (t) => {
     const a = new Node({ cluster: "publish-a" });
     const b = new Node({ cluster: "publish-b" });
     const { port1, port2 } = new MessageChannel();
@@ -1687,13 +1737,15 @@ setTimeout(() => console.log("survived"), 500);
 
     await ready;
 
-    assert.throws(
-      () => a.publish("news", () => {}),
-      (err: SwarmError) =>
-        err.kind === "failed" && err.message === "data is not cloneable",
-    );
+    const errors: SwarmError[] = [];
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    a.events.on("error", (error) => errors.push(error as SwarmError));
+
+    a.publish("news", () => {});
+
+    assert.equal(await waitFor(() => errors.length === 1), true);
+    assert.equal(errors[0].code, "PUB_DROPPED");
+    assert.equal(errors[0].message, "data is not cloneable");
 
     assert.equal(local, 1);
     assert.equal(remote, 0);
@@ -2378,12 +2430,15 @@ for (const protocol of ["tcp", "ws"] as const) {
         const circular: { self?: unknown } = {};
         circular.self = circular;
 
-        assert.throws(
-          () => peer.publish("news", circular),
-          (err: SwarmError) =>
-            err.kind === "failed" &&
-            err.message === "envelope is not encodable",
-        );
+        const errors: SwarmError[] = [];
+
+        peer.events.on("error", (error) => errors.push(error as SwarmError));
+
+        peer.publish("news", circular);
+
+        assert.equal(await waitFor(() => errors.length === 1), true);
+        assert.equal(errors[0].code, "PUB_DROPPED");
+        assert.equal(errors[0].message, "envelope is not encodable");
 
         assert.equal(local, 1);
         assert.equal(remote, 0);
@@ -2414,11 +2469,15 @@ for (const protocol of ["tcp", "ws"] as const) {
           remote += 1;
         });
 
-        assert.throws(
-          () => peer.publish("news", "x".repeat(9 * 1024 * 1024)),
-          (err: SwarmError) =>
-            err.kind === "failed" && err.message === "envelope is too large",
-        );
+        const errors: SwarmError[] = [];
+
+        peer.events.on("error", (error) => errors.push(error as SwarmError));
+
+        peer.publish("news", "x".repeat(9 * 1024 * 1024));
+
+        assert.equal(await waitFor(() => errors.length === 1), true);
+        assert.equal(errors[0].code, "PUB_DROPPED");
+        assert.equal(errors[0].message, "envelope is too large");
 
         assert.equal(local, 1);
         assert.equal(remote, 0);

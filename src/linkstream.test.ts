@@ -54,6 +54,13 @@ function createPair() {
   );
 }
 
+const pubs = (data: unknown, from = "client-node") => ({
+  t: "pubs" as const,
+  items: [
+    { t: "pub" as const, id: "pub-1", ttl: 8, from, origin: from, topic: "news", data },
+  ],
+});
+
 describe("LinkStream", () => {
   test("sends envelopes over a socket", async (t) => {
     const { server, socket, peer } = await createPair();
@@ -69,51 +76,12 @@ describe("LinkStream", () => {
       server.close();
     });
 
-    client.send(
-      frame({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      }),
-    );
-    client.send(
-      frame({
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 2,
-      }),
-    );
+    client.send(frame(pubs(1)));
+    client.send(frame(pubs(2)));
 
     await waitFor(() => received.length === 2);
 
-    assert.deepEqual(received, [
-      {
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 1,
-      },
-      {
-        t: "pub",
-        id: "pub-1",
-        ttl: 8,
-        from: "client-node",
-        origin: "client-node",
-        topic: "news",
-        data: 2,
-      },
-    ]);
+    assert.deepEqual(received, [pubs(1), pubs(2)]);
   });
 
   test("decodes a frame split across chunks", async (t) => {
@@ -168,24 +136,8 @@ describe("LinkStream", () => {
       server.close();
     });
 
-    const first: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 1,
-    };
-    const second: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    };
+    const first: Envelope = pubs(1);
+    const second: Envelope = pubs(2);
     const firstFrame = packet(first);
     const secondFrame = packet(second);
     const combined = new Uint8Array(
@@ -264,17 +216,7 @@ describe("LinkStream", () => {
     client.close();
 
     assert.doesNotThrow(() => {
-      client.send(
-        frame({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "client-node",
-          origin: "client-node",
-          topic: "news",
-          data: 1,
-        }),
-      );
+      client.send(frame(pubs(1)));
     });
   });
 
@@ -291,24 +233,8 @@ describe("LinkStream", () => {
       server.close();
     });
 
-    const large: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: "a".repeat(1024 * 1024),
-    };
-    const small: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    };
+    const large = pubs("a".repeat(1024 * 1024));
+    const small = pubs(2);
 
     socket.write(packet(large));
     socket.write(packet(small));
@@ -325,9 +251,9 @@ describe("LinkStream", () => {
     let closes = 0;
 
     remote.events.on("envelope", (message) => {
-      const pub = message as { t: string; data: unknown };
-
-      received.push(pub.t === "pub" && pub.data === 2 ? "small" : "large");
+      received.push(
+        message.t === "pubs" && message.items[0].data === 2 ? "small" : "large",
+      );
     });
     remote.events.on("close", () => {
       closes += 1;
@@ -339,29 +265,13 @@ describe("LinkStream", () => {
       server.close();
     });
 
-    const large: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: "",
-    };
-    const small: Envelope = {
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "client-node",
-      origin: "client-node",
-      topic: "news",
-      data: 2,
-    };
+    const large = pubs("");
+    const small = pubs(2);
 
     let size = maxEnvelopeSize - 1024;
 
     for (let i = 0; i < 8; i += 1) {
-      large.data = "a".repeat(size);
+      large.items[0].data = "a".repeat(size);
 
       const length = encode(large).byteLength;
 

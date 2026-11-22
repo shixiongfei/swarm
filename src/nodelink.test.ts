@@ -15,7 +15,7 @@ import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { Link } from "./link.ts";
-import { changesFrame, pubFrame } from "./frame.ts";
+import { changesFrame, pubsFrame } from "./frame.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
@@ -140,6 +140,32 @@ describe("handshake helpers", () => {
     assert.equal(closes, 1);
     assert.equal(link.closed, true);
     assert.equal(nodeLink.closeCode, "HANDSHAKE_FAILED");
+  });
+
+  test("announces a large registration set in several frames", () => {
+    const local = new NodeLocal("local-node");
+
+    for (let i = 0; i < 9; i += 1) {
+      local.register(`svc-${i}`, {}, { blob: "x".repeat(3 * 1024 * 1024) });
+    }
+
+    const { link, nodeLink } = attachStub(local);
+    const frames = link.sent.filter((message) => message.t === "changes");
+    const items = frames.flatMap((message) =>
+      message.t === "changes" ? message.items : [],
+    );
+
+    assert.ok(frames.length > 1);
+    assert.equal(items.length, 9);
+    assert.equal(
+      frames.every(
+        (message) => message.t === "changes" && message.items.length > 0,
+      ),
+      true,
+    );
+
+    nodeLink.close();
+    local.close();
   });
 
   test("does not leak an unhandled rejection when a failure reply is congested", async (t) => {
@@ -360,7 +386,17 @@ describe("handshake helpers", () => {
 
       assert.throws(() =>
         nodeLink.publish(
-          pubFrame("stub-node", "news", 1, "peer-node", "pub-fail", 1),
+          pubsFrame([
+            {
+              t: "pub",
+              id: "pub-fail",
+              ttl: 1,
+              from: "stub-node",
+              origin: "peer-node",
+              topic: "news",
+              data: 1,
+            },
+          ]),
         ),
       );
     };
@@ -371,7 +407,17 @@ describe("handshake helpers", () => {
     assert.equal(link.closed, false);
 
     nodeLink.publish(
-      pubFrame("stub-node", "news", 1, "peer-node", "pub-ok", 1),
+      pubsFrame([
+        {
+          t: "pub",
+          id: "pub-ok",
+          ttl: 1,
+          from: "stub-node",
+          origin: "peer-node",
+          topic: "news",
+          data: 1,
+        },
+      ]),
     );
 
     fail();
@@ -934,31 +980,46 @@ describe("NodeLink", () => {
       token: signToken("", "peer"),
     });
     port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "peer",
-      origin: node.nodeId,
-      topic: "news",
-      data: 1,
+      t: "pubs",
+      items: [
+        {
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "peer",
+          origin: node.nodeId,
+          topic: "news",
+          data: 1,
+        },
+      ],
     });
     port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "spoof",
-      origin: "peer",
-      topic: "news",
-      data: 3,
+      t: "pubs",
+      items: [
+        {
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "spoof",
+          origin: "peer",
+          topic: "news",
+          data: 3,
+        },
+      ],
     });
     port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "peer",
-      origin: "peer",
-      topic: "news",
-      data: 2,
+      t: "pubs",
+      items: [
+        {
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "peer",
+          origin: "peer",
+          topic: "news",
+          data: 2,
+        },
+      ],
     });
 
     await done;

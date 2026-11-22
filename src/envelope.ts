@@ -35,6 +35,16 @@ export type DownEnvelope = { t: "down"; from: string; service: string };
 
 export type Change = UpEnvelope | DownEnvelope;
 
+export type PubEnvelope = {
+  t: "pub";
+  from: string;
+  origin: string;
+  topic: string;
+  id: string;
+  ttl: number;
+  data: unknown;
+};
+
 export type Envelope =
   | {
       t: "hello";
@@ -74,15 +84,7 @@ export type Envelope =
       retriable: boolean;
       message: string;
     }
-  | {
-      t: "pub";
-      from: string;
-      origin: string;
-      topic: string;
-      id: string;
-      ttl: number;
-      data: unknown;
-    }
+  | { t: "pubs"; items: PubEnvelope[] }
   | { t: "peers"; from: string; members: PeerEntry[] }
   | { t: "ping"; from: string }
   | { t: "pong"; from: string }
@@ -206,14 +208,31 @@ function isError(
   return message;
 }
 
-function isPub(message: Extract<Envelope, { t: "pub" }>): Envelope | undefined {
+function isPub(value: unknown) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const pub = value as PubEnvelope;
+
+  return (
+    pub.t === "pub" &&
+    typeof pub.from === "string" &&
+    typeof pub.origin === "string" &&
+    typeof pub.topic === "string" &&
+    typeof pub.id === "string" &&
+    Number.isInteger(pub.ttl) &&
+    pub.ttl >= 0
+  );
+}
+
+function isPubs(
+  message: Extract<Envelope, { t: "pubs" }>,
+): Envelope | undefined {
   if (
-    typeof message.from !== "string" ||
-    typeof message.origin !== "string" ||
-    typeof message.topic !== "string" ||
-    typeof message.id !== "string" ||
-    !Number.isInteger(message.ttl) ||
-    message.ttl < 0
+    !Array.isArray(message.items) ||
+    message.items.length === 0 ||
+    !message.items.every(isPub)
   ) {
     return undefined;
   }
@@ -275,8 +294,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isReply(message);
     case "error":
       return isError(message);
-    case "pub":
-      return isPub(message);
+    case "pubs":
+      return isPubs(message);
     case "peers":
       return isPeers(message);
     case "ping":

@@ -16,6 +16,8 @@ import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
 import { changesFrame, frame, upChange } from "./frame.ts";
+import { chunk } from "./chunk.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import type { ErrorCode } from "./errors.ts";
 import type { Frame } from "./frame.ts";
 import type { Link } from "./link.ts";
@@ -207,20 +209,20 @@ export class NodeLink implements Observable {
         }
         return;
 
-      case "pub":
-        if (
-          this.peer !== undefined &&
-          message.from === this.peer &&
-          message.origin !== this.link.nodeId
-        ) {
-          this.provider.publish(
-            message.topic,
-            message.data,
-            message.origin,
-            message.from,
-            message.id,
-            message.ttl,
-          );
+      case "pubs":
+        if (this.peer !== undefined) {
+          for (const item of message.items) {
+            if (item.from === this.peer && item.origin !== this.link.nodeId) {
+              this.provider.publish(
+                item.topic,
+                item.data,
+                item.origin,
+                item.from,
+                item.id,
+                item.ttl,
+              );
+            }
+          }
         }
         return;
 
@@ -620,8 +622,18 @@ export class NodeLink implements Observable {
       }
     }
 
-    if (items.length > 0) {
-      this.notify(changesFrame(items));
+    const { chunks, dropped } = chunk(
+      items,
+      changesFrame,
+      this.link.transport === "port" ? Infinity : maxEnvelopeSize,
+    );
+
+    for (const { error } of dropped) {
+      this.events.emit("drop", error);
+    }
+
+    for (const { frame } of chunks) {
+      this.notify(frame);
     }
   }
 

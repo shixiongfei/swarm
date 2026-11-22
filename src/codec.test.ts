@@ -59,13 +59,18 @@ const envelopes: Envelope[] = [
     message: "call timed out",
   },
   {
-    t: "pub",
-    id: "pub-1",
-    ttl: 8,
-    from: "node-a",
-    origin: "node-a",
-    topic: "news",
-    data: { ok: true },
+    t: "pubs",
+    items: [
+      {
+        t: "pub",
+        id: "pub-1",
+        ttl: 8,
+        from: "node-a",
+        origin: "node-a",
+        topic: "news",
+        data: { ok: true },
+      },
+    ],
   },
 ];
 
@@ -124,13 +129,18 @@ describe("codec", () => {
 
   test("drops a payload larger than the envelope limit", () => {
     const encoded = encode({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "node-a",
-      origin: "node-a",
-      topic: "news",
-      data: "x".repeat(maxEnvelopeSize),
+      t: "pubs",
+      items: [
+        {
+          t: "pub",
+          id: "pub-1",
+          ttl: 8,
+          from: "node-a",
+          origin: "node-a",
+          topic: "news",
+          data: "x".repeat(maxEnvelopeSize),
+        },
+      ],
     });
 
     assert.ok(encoded.byteLength > maxEnvelopeSize);

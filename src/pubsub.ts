@@ -10,8 +10,11 @@
  */
 
 import { randomId } from "./random.ts";
+import { chunk } from "./chunk.ts";
+import { maxEnvelopeSize } from "./codec.ts";
 import { SwarmError } from "./errors.ts";
-import { pubFrame } from "./frame.ts";
+import { pubsFrame } from "./frame.ts";
+import type { PubEnvelope } from "./envelope.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 const maxSeenPubs = 1024;
@@ -21,20 +24,27 @@ export type PubSubOptions = {
   maxHops: number;
   links: () => NodeLink[];
   local: (topic: string, data: unknown, origin: string) => void;
+  drop: (error: SwarmError) => void;
 };
+
+type QueuedPub = { skip: string | undefined; item: PubEnvelope };
 
 export class PubSub {
   private readonly nodeId: string;
   private readonly maxHops: number;
   private readonly links: PubSubOptions["links"];
   private readonly local: PubSubOptions["local"];
+  private readonly drop: PubSubOptions["drop"];
   private readonly seen = new Set<string>();
+  private queue: QueuedPub[] = [];
+  private scheduled = false;
 
   constructor(options: PubSubOptions) {
     this.nodeId = options.nodeId;
     this.maxHops = options.maxHops;
     this.links = options.links;
     this.local = options.local;
+    this.drop = options.drop;
   }
 
   publish(
@@ -64,51 +74,93 @@ export class PubSub {
       }
     }
 
-    try {
-      if (remaining > 0) {
-        const frame = pubFrame(
-          this.nodeId,
+    if (remaining > 0) {
+      this.queue.push({
+        skip: from,
+        item: {
+          t: "pub",
+          from: this.nodeId,
+          origin: source,
           topic,
+          id: pubId,
+          ttl: remaining - 1,
           data,
-          source,
-          pubId,
-          remaining - 1,
-        );
-        let failure: SwarmError | undefined;
+        },
+      });
 
-        for (const nodeLink of this.links()) {
-          if (from !== undefined && nodeLink.peerId === from) {
-            continue;
-          }
-
-          try {
-            nodeLink.publish(frame);
-          } catch (err) {
-            if (err instanceof Error && err.name === "DataCloneError") {
-              failure ??= new SwarmError(
-                "failed",
-                "FAILED",
-                "data is not cloneable",
-              );
-            } else if (
-              err instanceof SwarmError &&
-              err.code === "ENVELOPE_INVALID"
-            ) {
-              failure ??= err;
-            }
-          }
-        }
-
-        if (failure !== undefined) {
-          throw failure;
-        }
+      if (!this.scheduled) {
+        this.scheduled = true;
+        queueMicrotask(() => this.flush());
       }
-    } finally {
-      this.local(topic, data, source);
     }
+
+    this.local(topic, data, source);
   }
 
   close() {
     this.seen.clear();
+    this.queue.length = 0;
+  }
+
+  private flush() {
+    this.scheduled = false;
+
+    if (this.queue.length === 0) {
+      return;
+    }
+
+    const queue = this.queue;
+    this.queue = [];
+
+    const links = this.links();
+    let limit = Infinity;
+
+    for (const nodeLink of links) {
+      if (nodeLink.transport !== "port") {
+        limit = maxEnvelopeSize;
+        break;
+      }
+    }
+
+    const { chunks, dropped } = chunk(queue, (batch) =>
+      pubsFrame(batch.map((queued) => queued.item)), limit,
+    );
+
+    for (const { error } of dropped) {
+      this.reportDrop(error);
+    }
+
+    for (const batch of chunks) {
+      for (const nodeLink of links) {
+        const queued = batch.items.filter(
+          (item) => item.skip === undefined || item.skip !== nodeLink.peerId,
+        );
+
+        if (queued.length === 0) {
+          continue;
+        }
+
+        try {
+          nodeLink.publish(
+            queued.length === batch.items.length
+              ? batch.frame
+              : pubsFrame(queued.map((item) => item.item)),
+          );
+        } catch (err) {
+          this.reportDrop(err);
+        }
+      }
+    }
+  }
+
+  private reportDrop(error: unknown) {
+    const message =
+      error instanceof Error && error.name === "DataCloneError"
+        ? "data is not cloneable"
+        : error instanceof Error
+          ? error.message
+          : "publish failed";
+
+    this.drop(new SwarmError("failed", "PUB_DROPPED", message, false));
   }
 }

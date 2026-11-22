@@ -16,6 +16,13 @@ import { frame } from "./frame.ts";
 import type { SwarmError } from "./errors.ts";
 import type { Envelope } from "./envelope.ts";
 
+const pub = (data: unknown, topic = "news", from = "node-a") => ({
+  t: "pubs" as const,
+  items: [
+    { t: "pub" as const, id: "pub-1", ttl: 8, from, origin: from, topic, data },
+  ],
+});
+
 describe("LinkPort", () => {
   test("ignores data that is not an envelope", async (t) => {
     const { port1, port2 } = new MessageChannel();
@@ -31,7 +38,7 @@ describe("LinkPort", () => {
       link.events.on("envelope", (message) => {
         count += 1;
 
-        if (message.t === "pub") {
+        if (message.t === "pubs") {
           resolve();
         }
       });
@@ -41,15 +48,7 @@ describe("LinkPort", () => {
     port2.postMessage(null);
     port2.postMessage("text");
     port2.postMessage(42);
-    port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "node-a",
-      origin: "node-a",
-      topic: "news",
-      data: null,
-    });
+    port2.postMessage(pub(null));
 
     await done;
 
@@ -75,17 +74,7 @@ describe("LinkPort", () => {
 
     assert.doesNotThrow(() => {
       link.close();
-      link.send(
-        frame({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "node-a",
-          origin: "node-a",
-          topic: "news",
-          data: 1,
-        }),
-      );
+      link.send(frame(pub(1)));
     });
   });
 
@@ -134,17 +123,9 @@ describe("LinkPort", () => {
     );
 
     port2.start();
-    port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "node-a",
-      origin: "node-a",
-      topic: "news",
-      data: 1,
-    });
+    port2.postMessage(pub(1));
 
-    assert.equal((await received).t, "pub");
+    assert.equal((await received).t, "pubs");
   });
 
   test("links different ports independently", async (t) => {
@@ -176,30 +157,16 @@ describe("LinkPort", () => {
 
     first.port2.start();
     second.port2.start();
-    first.port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "node-a",
-      origin: "node-a",
-      topic: "a",
-      data: 1,
-    });
-    second.port2.postMessage({
-      t: "pub",
-      id: "pub-1",
-      ttl: 8,
-      from: "node-b",
-      origin: "node-b",
-      topic: "b",
-      data: 2,
-    });
+    first.port2.postMessage(pub(1, "a"));
+    second.port2.postMessage(pub(2, "b", "node-b"));
 
     await both;
 
     assert.deepEqual(
       received
-        .map((message) => (message.t === "pub" ? message.topic : ""))
+        .map((message) =>
+          message.t === "pubs" ? message.items[0].topic : "",
+        )
         .sort(),
       ["a", "b"],
     );
@@ -214,18 +181,7 @@ describe("LinkPort", () => {
     });
 
     assert.throws(
-      () =>
-        link.send(
-          frame({
-            t: "pub",
-            id: "pub-1",
-            ttl: 8,
-            from: "node-a",
-            origin: "node-a",
-            topic: "news",
-            data: () => {},
-          }),
-        ),
+      () => link.send(frame(pub(() => {}))),
       (err: Error) => err.name === "DataCloneError",
     );
   });
@@ -242,19 +198,7 @@ describe("LinkPort", () => {
     port2.start();
     port1.close();
 
-    assert.doesNotThrow(() =>
-      link.send(
-        frame({
-          t: "pub",
-          id: "pub-1",
-          ttl: 8,
-          from: "node-a",
-          origin: "node-a",
-          topic: "news",
-          data: 1,
-        }),
-      ),
-    );
+    assert.doesNotThrow(() => link.send(frame(pub(1))));
   });
 
   test(
