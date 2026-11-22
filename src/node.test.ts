@@ -937,7 +937,7 @@ setTimeout(() => console.log("survived"), 500);
     const node = new Node({ cluster: "frame-share" });
     const internals = node as unknown as {
       attachLink: (link: Link) => void;
-      broadcastPeers: () => void;
+      flushPeers: () => void;
     };
     const links = ["peer-a", "peer-b", "peer-c"].map((peerId) => {
       const link = new FrameLink(node.nodeId);
@@ -969,7 +969,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(updates[1]?.bytes(), changes?.bytes());
     assert.equal(updates[2]?.bytes(), changes?.bytes());
 
-    internals.broadcastPeers();
+    internals.flushPeers();
 
     const peers = links.map((link) => link.frames.at(-1));
 
@@ -980,6 +980,46 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
   });
 
+  test("coalesces peer announcements inside the gossip window", async (t) => {
+    const node = new Node({ cluster: "gossip-coalesce" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: {
+        upsertSelf: (member: { id: string; addr: string; startup: number }) => void;
+      };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    link.frames.length = 0;
+
+    for (let i = 0; i < 5; i++) {
+      internals.membership.upsertSelf({
+        id: node.nodeId,
+        addr: `tcp://127.0.0.1:${i + 1}`,
+        startup: 1,
+      });
+    }
+
+    assert.equal(link.frames.length, 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    assert.equal(link.frames.length, 1);
+    assert.equal(link.frames[0].message.t, "peers");
+  });
+
   test("splits peer announcements that would exceed the frame limit", async (t) => {
     const node = new Node({ cluster: "peer-split" });
     const internals = node as unknown as {
@@ -987,7 +1027,7 @@ setTimeout(() => console.log("survived"), 500);
       membership: {
         upsertSelf: (member: { id: string; addr: string; startup: number }) => void;
       };
-      broadcastPeers: () => void;
+      flushPeers: () => void;
     };
 
     t.after(() => node.close());
@@ -1026,7 +1066,7 @@ setTimeout(() => console.log("survived"), 500);
     }
     portLink.frames.length = 0;
     socketLink.frames.length = 0;
-    internals.broadcastPeers();
+    internals.flushPeers();
 
     for (const link of [portLink, socketLink]) {
       let count = 0;

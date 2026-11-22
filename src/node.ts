@@ -131,6 +131,7 @@ export type NodeEvents = {
 };
 
 const defaultMaxHops = 8;
+const gossipDelay = 50;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 
@@ -188,6 +189,7 @@ export class Node implements Provider {
   };
 
   private inflight = 0;
+  private gossip: ReturnType<typeof setTimeout> | undefined;
   private draining = false;
   private closed = false;
 
@@ -756,6 +758,12 @@ export class Node implements Provider {
     }
 
     this.closed = true;
+
+    if (this.gossip !== undefined) {
+      clearTimeout(this.gossip);
+      this.gossip = undefined;
+    }
+
     this.events.emit("close");
     this.membership.close();
     this.discovery.close();
@@ -1154,6 +1162,17 @@ export class Node implements Provider {
   }
 
   private broadcastPeers() {
+    if (this.gossip !== undefined || this.closed) {
+      return;
+    }
+
+    this.gossip = setTimeout(() => {
+      this.gossip = undefined;
+      this.flushPeers();
+    }, gossipDelay);
+  }
+
+  private flushPeers() {
     const local: NodeLink[] = [];
     const remote: NodeLink[] = [];
 
