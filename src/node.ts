@@ -90,6 +90,14 @@ export type NodeLinkInfo = {
   latency: number | undefined;
   local: boolean;
   services: Instance[];
+  pending: number;
+  inbound: number;
+};
+
+export type NodeHealth = {
+  inflight: number;
+  relay: number;
+  drops: Record<string, number>;
 };
 
 export type NodeSnapshot = {
@@ -102,6 +110,7 @@ export type NodeSnapshot = {
   seeds: string[];
   multicast: boolean;
   unix: boolean;
+  health: NodeHealth;
 };
 
 export type NodeLinkDown = NodeLinkInfo & {
@@ -163,6 +172,7 @@ export class Node implements Provider {
   private readonly dialed = new Map<NodeLink, string>();
   private readonly adopted = new Set<NodeLink>();
   private readonly relayQueue: Change[] = [];
+  private readonly drops = new Map<string, number>();
   private relayScheduled = false;
   private readonly callTimeout: number;
   private readonly maxHops: number;
@@ -393,6 +403,8 @@ export class Node implements Provider {
       latency: nodeLink.latency,
       local: nodeLink.local,
       services: nodeLink.instances(),
+      pending: nodeLink.pendingCalls,
+      inbound: nodeLink.inboundCalls,
     };
   }
 
@@ -417,6 +429,11 @@ export class Node implements Provider {
       seeds: this.dialer.list(),
       multicast: this.discovery.multicastActive,
       unix: this.discovery.unixActive,
+      health: {
+        inflight: this.inflight,
+        relay: this.relayQueue.length,
+        drops: Object.fromEntries(this.drops),
+      },
     };
   }
 
@@ -940,6 +957,8 @@ export class Node implements Provider {
   }
 
   private reportDrop(error: SwarmError) {
+    this.drops.set(error.code, (this.drops.get(error.code) ?? 0) + 1);
+
     if (this.events.listenerCount("error") > 0) {
       this.events.emit("error", error);
     }

@@ -408,6 +408,14 @@ export class NodeLink implements Observable {
     return this.link.local;
   }
 
+  get pendingCalls() {
+    return this.pending.size;
+  }
+
+  get inboundCalls() {
+    return this.inbound.size;
+  }
+
   hello() {
     this.transmit(() => this.link.hello(this.startup, this.token(), this.cluster));
   }

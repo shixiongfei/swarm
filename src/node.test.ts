@@ -167,6 +167,68 @@ describe("Node", () => {
     assert.equal(node.snapshot().links[0]?.cluster, "ghost-cluster");
   });
 
+  test("snapshot reports in-flight calls and per-link counters", async (t) => {
+    const { port1, port2 } = new MessageChannel();
+    const a = new Node({ cluster: "health", callTimeout: 5000 });
+    const b = new Node({ cluster: "health", callTimeout: 5000 });
+    const gate = Promise.withResolvers<void>();
+
+    t.after(() => {
+      a.close();
+      b.close();
+    });
+
+    b.register("slow", { wait: () => gate.promise });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    assert.equal(
+      await waitFor(() => a.snapshot().links[0]?.services.length === 1),
+      true,
+    );
+
+    const call = a.call("slow", "wait", []);
+
+    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 1), true);
+    assert.equal(a.snapshot().health.inflight, 1);
+    assert.equal(a.snapshot().links[0]?.pending, 1);
+    assert.equal(b.snapshot().health.inflight, 1);
+
+    gate.resolve();
+
+    assert.equal(await call, undefined);
+    assert.equal(await waitFor(() => a.snapshot().links[0]?.pending === 0), true);
+    assert.equal(a.snapshot().health.inflight, 0);
+    assert.equal(b.snapshot().health.inflight, 0);
+  });
+
+  test("snapshot counts dropped frames by code", async (t) => {
+    const node = new Node({ cluster: "malformed" });
+    const { port } = await node.listen("tcp://127.0.0.1:0");
+    const socket = connect(port, "127.0.0.1");
+
+    t.after(() => {
+      socket.destroy();
+      node.close();
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", resolve);
+      socket.once("error", reject);
+    });
+
+    socket.write(Buffer.from([0, 0, 0, 1, 0xc1]));
+
+    assert.equal(
+      await waitFor(
+        () => node.snapshot().health.drops.FRAME_DROPPED !== undefined,
+      ),
+      true,
+    );
+    assert.equal(node.snapshot().health.drops.FRAME_DROPPED, 1);
+  });
+
   test("register and unregister return the node", () => {
     const node = makeNode();
 
