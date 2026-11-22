@@ -22,73 +22,191 @@ export const protocolVersion = majorVersion * 100 + minorVersion;
 
 const maxPeerAddrLength = 1024;
 
-export type PeerEntry = { id: string; addr: string; startup: number };
+const Unknown = Symbol("unknown");
+const Meta = Symbol("meta");
+const Kind = Symbol("kind");
+const Code = Symbol("code");
 
-export type UpEnvelope = {
-  t: "up";
-  from: string;
-  service: string;
-  meta?: MetaData;
+type Tokens = {
+  [Unknown]: unknown;
+  [Meta]: MetaData;
+  [Kind]: ErrorKind;
+  [Code]: ErrorCode;
 };
 
-export type DownEnvelope = { t: "down"; from: string; service: string };
+type Shape = {
+  readonly code: number;
+  readonly t?: string;
+  readonly fields: Record<string, Field>;
+};
 
+type Field =
+  | StringConstructor
+  | NumberConstructor
+  | BooleanConstructor
+  | keyof Tokens
+  | Shape
+  | readonly (Field | Shape)[]
+  | { readonly field: Field; readonly optional: true };
+
+function optional<const F extends Field>(field: F) {
+  return { field, optional: true as const };
+}
+
+function shape<
+  const C extends number,
+  const T extends string | undefined,
+  const F extends Record<string, Field>,
+>(code: C, t: T, fields: F) {
+  return { code, t, fields };
+}
+
+const up = shape(12, "up", {
+  from: String,
+  service: String,
+  meta: optional(Meta),
+});
+
+const down = shape(13, "down", {
+  from: String,
+  service: String,
+});
+
+const pub = shape(14, "pub", {
+  from: String,
+  origin: String,
+  topic: String,
+  id: String,
+  ttl: Number,
+  data: Unknown,
+});
+
+const peer = shape(15, undefined, {
+  id: String,
+  addr: String,
+  startup: Number,
+});
+
+const hello = shape(1, "hello", {
+  from: String,
+  version: Number,
+  startup: Number,
+  token: String,
+});
+
+const accept = shape(2, "accept", {
+  from: String,
+  version: Number,
+  startup: Number,
+  token: String,
+});
+
+const bye = shape(3, "bye", { from: String });
+const ping = shape(4, "ping", { from: String });
+const pong = shape(5, "pong", { from: String });
+
+const call = shape(6, "call", {
+  id: String,
+  from: String,
+  to: String,
+  target: optional(String),
+  service: String,
+  method: String,
+  args: [Unknown],
+  timeout: optional(Number),
+  ttl: optional(Number),
+});
+
+const reply = shape(7, "reply", {
+  id: String,
+  from: String,
+  to: String,
+  value: Unknown,
+});
+
+const error = shape(8, "error", {
+  id: String,
+  from: String,
+  to: String,
+  kind: Kind,
+  code: Code,
+  retriable: Boolean,
+  message: String,
+});
+
+const changes = shape(9, "changes", {
+  items: [up, down],
+});
+
+const pubs = shape(10, "pubs", {
+  items: [pub],
+});
+
+const peers = shape(11, "peers", {
+  from: String,
+  members: [peer],
+});
+
+export const shapes = [
+  hello,
+  accept,
+  bye,
+  ping,
+  pong,
+  call,
+  reply,
+  error,
+  changes,
+  pubs,
+  peers,
+  up,
+  down,
+  pub,
+  peer,
+] as const;
+
+type InferField<F> = F extends { field: infer I }
+  ? InferField<I>
+  : F extends StringConstructor
+    ? string
+    : F extends NumberConstructor
+      ? number
+      : F extends BooleanConstructor
+        ? boolean
+        : F extends keyof Tokens
+          ? Tokens[F]
+          : F extends readonly (infer E)[]
+            ? InferField<E>[]
+            : F extends { fields: unknown }
+              ? EnvelopeOf<F>
+              : never;
+
+type FieldsOf<F extends Record<string, Field>> = {
+  -readonly [K in keyof F as F[K] extends { optional: true }
+    ? never
+    : K]: InferField<F[K]>;
+} & {
+  -readonly [K in keyof F as F[K] extends { optional: true }
+    ? K
+    : never]?: InferField<F[K]>;
+};
+
+type EnvelopeOf<S> = S extends {
+  fields: infer F extends Record<string, Field>;
+}
+  ? (S extends { t: infer T extends string } ? { t: T } : {}) & FieldsOf<F>
+  : never;
+
+export type PeerEntry = EnvelopeOf<typeof peer>;
+export type UpEnvelope = EnvelopeOf<typeof up>;
+export type DownEnvelope = EnvelopeOf<typeof down>;
 export type Change = UpEnvelope | DownEnvelope;
-
-export type PubEnvelope = {
-  t: "pub";
-  from: string;
-  origin: string;
-  topic: string;
-  id: string;
-  ttl: number;
-  data: unknown;
-};
-
-export type Envelope =
-  | {
-      t: "hello";
-      from: string;
-      version: number;
-      startup: number;
-      token: string;
-    }
-  | {
-      t: "accept";
-      from: string;
-      version: number;
-      startup: number;
-      token: string;
-    }
-  | { t: "changes"; items: Change[] }
-  | {
-      t: "call";
-      id: string;
-      from: string;
-      to: string;
-      target?: string;
-      service: string;
-      method: string;
-      args: unknown[];
-      timeout?: number;
-      ttl?: number;
-    }
-  | { t: "reply"; id: string; from: string; to: string; value: unknown }
-  | {
-      t: "error";
-      id: string;
-      from: string;
-      to: string;
-      kind: ErrorKind;
-      code: ErrorCode;
-      retriable: boolean;
-      message: string;
-    }
-  | { t: "pubs"; items: PubEnvelope[] }
-  | { t: "peers"; from: string; members: PeerEntry[] }
-  | { t: "ping"; from: string }
-  | { t: "pong"; from: string }
-  | { t: "bye"; from: string };
+export type PubEnvelope = EnvelopeOf<typeof pub>;
+type EnvelopeShape = Exclude<
+  (typeof shapes)[number],
+  typeof up | typeof down | typeof pub | typeof peer
+>;
+export type Envelope = EnvelopeOf<EnvelopeShape>;
 
 export type EnvelopeHandler = (message: Envelope) => void;
 
