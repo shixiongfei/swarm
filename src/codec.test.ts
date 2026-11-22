@@ -96,14 +96,14 @@ describe("codec", () => {
           id: "i",
           from: "f",
           to: "to",
-          target: "tg",
           service: "s",
           method: "m",
           args: [7],
+          target: "tg",
           timeout: 8,
           ttl: 9,
         },
-        [6, "i", "f", "to", "tg", "s", "m", [7], 8, 9],
+        [6, "i", "f", "to", "s", "m", [7], [2, "tg", 3, 8, 4, 9]],
       ],
       [{ t: "reply", id: "i", from: "f", to: "to", value: { v: 1 } }, [7, "i", "f", "to", { v: 1 }]],
       [
@@ -127,7 +127,7 @@ describe("codec", () => {
             { t: "down", from: "df", service: "ds" },
           ],
         },
-        [9, [[12, "uf", "us", { m: 1 }], [13, "df", "ds"]]],
+        [9, [[12, "uf", "us", [1, { m: 1 }]], [13, "df", "ds"]]],
       ],
       [
         {
@@ -147,8 +147,8 @@ describe("codec", () => {
     }
   });
 
-  test("encodes the type code in the low byte and missing fields in the high byte", () => {
-    const unpack = (bytes: Uint8Array) => unpackr.unpack(bytes) as number[];
+  test("encodes optional fields as id-value pairs and omits missing ones", () => {
+    const unpack = (bytes: Uint8Array) => unpackr.unpack(bytes) as unknown[];
 
     const base: Envelope = {
       t: "call",
@@ -160,26 +160,38 @@ describe("codec", () => {
       args: [],
     };
 
-    assert.equal(unpack(encode(base))[0], (0b111 << 8) | 6);
+    assert.deepEqual(unpack(encode(base)), [6, "c", "a", "b", "s", "m", []]);
 
     const withTarget: Envelope = { ...base, target: "t" };
-    assert.equal(unpack(encode(withTarget))[0], (0b110 << 8) | 6);
+    assert.deepEqual(unpack(encode(withTarget)), [
+      6, "c", "a", "b", "s", "m", [], [2, "t"],
+    ]);
 
-    const withTargetAndTimeout: Envelope = {
-      ...withTarget,
-      timeout: 100,
-    };
-    assert.equal(unpack(encode(withTargetAndTimeout))[0], (0b100 << 8) | 6);
-
-    const full: Envelope = { ...withTargetAndTimeout, ttl: 3 };
-    assert.equal(unpack(encode(full))[0], 6);
+    const withTimeout: Envelope = { ...base, timeout: 100 };
+    assert.deepEqual(unpack(encode(withTimeout)), [
+      6, "c", "a", "b", "s", "m", [], [3, 100],
+    ]);
 
     const up: Envelope = {
       t: "changes",
       items: [{ t: "up", from: "a", service: "s" }],
     };
-    const items = unpack(encode(up))[1] as unknown as number[][];
-    assert.equal(items[0][0], (1 << 8) | 12);
+    assert.deepEqual(unpack(encode(up)), [9, [[12, "a", "s"]]]);
+  });
+
+  test("ignores optional fields it has no id for", () => {
+    const wire = pack([6, "c", "a", "b", "s", "m", [], [99, "future", 2, "t", 1, "meta"]]);
+
+    assert.deepEqual(decode(wire), {
+      t: "call",
+      id: "c",
+      from: "a",
+      to: "b",
+      service: "s",
+      method: "m",
+      args: [],
+      target: "t",
+    });
   });
 
   test("round-trips every optional field combination", () => {
@@ -208,18 +220,20 @@ describe("codec", () => {
     }
   });
 
-  test("rejects unknown type codes and out-of-range missing bits", () => {
-    const headers = [
-      99,
-      0x0101,
-      (0b1000 << 8) | 6,
-      (0b0010 << 8) | 12,
-      0xffff * 0x100 + 12,
-      0x100000000 + 6,
+  test("rejects unknown type codes and malformed rows", () => {
+    const rows: unknown[][] = [
+      [99],
+      [6.5, "c", "a", "b", "s", "m", []],
+      [6],
+      [6, "c", "a", "b", "s", "m"],
+      [6, "c", "a", "b", "s", "m", [], "extra"],
+      [6, "c", "a", "b", "s", "m", [], [2]],
+      [6, "c", "a", "b", "s", "m", [], ["target", "t"]],
+      [((0b111 << 8) | 6) >>> 0, "c", "a", "b", "s", "m", []],
     ];
 
-    for (const header of headers) {
-      assert.equal(decode(pack([header])), undefined);
+    for (const row of rows) {
+      assert.equal(decode(pack(row)), undefined);
     }
   });
 

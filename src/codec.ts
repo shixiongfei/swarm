@@ -11,7 +11,7 @@
 
 import { Packr, Unpackr } from "msgpackr";
 import { SwarmError } from "./errors.ts";
-import { parseEnvelope, shapes } from "./envelope.ts";
+import { fieldIds, nameOfId, parseEnvelope, shapes } from "./envelope.ts";
 import { isObject, isPlainObject } from "./object.ts";
 import type { Envelope } from "./envelope.ts";
 
@@ -39,20 +39,6 @@ for (const shape of shapes) {
   }
 }
 
-function fieldNames(shape: Shape): string[] {
-  return Object.keys(shape.fields);
-}
-
-function isOptional(shape: Shape, name: string) {
-  const token = (shape.fields as Record<string, unknown>)[name];
-  return (
-    typeof token === "object" &&
-    token !== null &&
-    "optional" in token &&
-    token.optional === true
-  );
-}
-
 function shapesOf(shape: Shape, field: string): Shape[] | undefined {
   const token = (shape.fields as Record<string, unknown>)[field];
   const value =
@@ -67,62 +53,88 @@ function shapesOf(shape: Shape, field: string): Shape[] | undefined {
   return value as Shape[];
 }
 
+function encodeField(
+  value: Record<string, unknown>,
+  shape: Shape,
+  field: string,
+): unknown {
+  const item = value[field];
+  const elements = shapesOf(shape, field);
+
+  if (elements === undefined || !Array.isArray(item)) {
+    return item;
+  }
+
+  return item.map((entry) => {
+    const record = entry as Record<string, unknown>;
+    const shapeOf =
+      elements.length === 1
+        ? elements[0]
+        : elements.find((candidate) => candidate.t === record?.t);
+
+    if (shapeOf === undefined) {
+      throw new SwarmError(
+        "failed",
+        "ENVELOPE_INVALID",
+        "envelope is not encodable",
+        false,
+      );
+    }
+
+    return encodeShape(record, shapeOf);
+  });
+}
+
 function encodeShape(
   value: Record<string, unknown>,
   shape: Shape,
 ): unknown[] {
-  const names = fieldNames(shape);
-  let mask = 0;
-  let bit = 0;
+  const row: unknown[] = [shape.code];
 
-  for (const name of names) {
-    if (isOptional(shape, name)) {
-      if (value[name] === undefined) {
-        mask |= 1 << bit;
-      }
-      bit += 1;
-    }
+  for (const field of shape.required) {
+    row.push(encodeField(value, shape, field));
   }
 
-  const row: unknown[] = [((mask << 8) | shape.code) >>> 0];
+  let opts: unknown[] | undefined;
 
-  for (const name of names) {
-    const item = value[name];
-
-    if (isOptional(shape, name) && item === undefined) {
+  for (const field of shape.optional) {
+    if (value[field] === undefined) {
       continue;
     }
 
-    const elements = shapesOf(shape, name);
+    opts ??= [];
+    opts.push(fieldIds[field], encodeField(value, shape, field));
+  }
 
-    if (elements !== undefined && Array.isArray(item)) {
-      row.push(
-        item.map((entry) => {
-          const record = entry as Record<string, unknown>;
-          const shapeOf =
-            elements.length === 1
-              ? elements[0]
-              : elements.find((candidate) => candidate.t === record?.t);
-
-          if (shapeOf === undefined) {
-            throw new SwarmError(
-              "failed",
-              "ENVELOPE_INVALID",
-              "envelope is not encodable",
-              false,
-            );
-          }
-
-          return encodeShape(record, shapeOf);
-        }),
-      );
-      continue;
-    }
-
-    row.push(item);
+  if (opts !== undefined) {
+    row.push(opts);
   }
 
   return row;
+}
+
+const failed = Symbol("failed");
+
+function decodeField(item: unknown, shape: Shape, field: string): unknown {
+  const elements = shapesOf(shape, field);
+
+  if (elements === undefined || !Array.isArray(item)) {
+    return item;
+  }
+
+  const decoded: Record<string, unknown>[] = [];
+
+  for (const entry of item) {
+    const shapeOf = decodeShape(entry);
+
+    if (shapeOf === undefined) {
+      return failed;
+    }
+
+    decoded.push(shapeOf);
+  }
+
+  return decoded;
 }
 
 function decodeShape(value: unknown): Record<string, unknown> | undefined {
@@ -130,85 +142,69 @@ function decodeShape(value: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
 
-  const header = value[0];
+  const code = value[0];
 
-  if (
-    typeof header !== "number" ||
-    !Number.isInteger(header) ||
-    header < 0 ||
-    header > 0xffffffff
-  ) {
+  if (typeof code !== "number" || !Number.isInteger(code)) {
     return undefined;
   }
 
-  const shape = byCode.get(header & 0xff);
+  const shape = byCode.get(code);
 
   if (shape === undefined) {
     return undefined;
   }
 
-  const mask = header >>> 8;
-  const names = fieldNames(shape);
-  let optional = 0;
+  const base = 1 + shape.required.length;
 
-  for (const name of names) {
-    if (isOptional(shape, name)) {
-      optional += 1;
-    }
-  }
-
-  if ((mask >>> optional) !== 0) {
-    return undefined;
-  }
-
-  let kept = names.length;
-
-  for (let i = 0; i < optional; i += 1) {
-    if ((mask & (1 << i)) !== 0) {
-      kept -= 1;
-    }
-  }
-
-  if (value.length !== kept + 1) {
+  if (value.length < base || value.length > base + 1) {
     return undefined;
   }
 
   const message: Record<string, unknown> =
-    "t" in shape && shape.t !== undefined ? { t: shape.t } : {};
+    shape.t === undefined ? {} : { t: shape.t };
   let at = 1;
-  let bit = 0;
 
-  for (const name of names) {
-    if (isOptional(shape, name)) {
-      if ((mask & (1 << bit)) !== 0) {
-        bit += 1;
-        continue;
-      }
-      bit += 1;
+  for (const field of shape.required) {
+    const item = decodeField(value[at], shape, field);
+
+    if (item === failed) {
+      return undefined;
     }
 
-    let item = value[at];
+    message[field] = item;
     at += 1;
+  }
 
-    const elements = shapesOf(shape, name);
+  if (value.length === base) {
+    return message;
+  }
 
-    if (elements !== undefined && Array.isArray(item)) {
-      const decoded: Record<string, unknown>[] = [];
+  const opts = value[at];
 
-      for (const entry of item) {
-        const shapeOf = decodeShape(entry);
+  if (!Array.isArray(opts) || opts.length % 2 !== 0) {
+    return undefined;
+  }
 
-        if (shapeOf === undefined) {
-          return undefined;
-        }
+  for (let i = 0; i < opts.length; i += 2) {
+    const id = opts[i];
 
-        decoded.push(shapeOf);
-      }
-
-      item = decoded;
+    if (typeof id !== "number" || !Number.isInteger(id)) {
+      return undefined;
     }
 
-    message[name] = item;
+    const field = nameOfId.get(id);
+
+    if (field === undefined || !Object.hasOwn(shape.fields, field)) {
+      continue;
+    }
+
+    const item = decodeField(opts[i + 1], shape, field);
+
+    if (item === failed) {
+      return undefined;
+    }
+
+    message[field] = item;
   }
 
   return message;

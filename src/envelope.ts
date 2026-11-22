@@ -38,6 +38,8 @@ type Shape = {
   readonly code: number;
   readonly t?: string;
   readonly fields: Record<string, Field>;
+  readonly required: readonly string[];
+  readonly optional: readonly string[];
 };
 
 type Field =
@@ -53,12 +55,46 @@ function optional<const F extends Field>(field: F) {
   return { field, optional: true as const };
 }
 
+export const fieldIds: Record<string, number> = {
+  meta: 1,
+  target: 2,
+  timeout: 3,
+  ttl: 4,
+};
+
+export const nameOfId = new Map<number, string>();
+
+for (const [name, id] of Object.entries(fieldIds)) {
+  if (nameOfId.has(id)) {
+    throw new Error(`duplicate optional field id ${id}`);
+  }
+
+  nameOfId.set(id, name);
+}
+
 function shape<
   const C extends number,
   const T extends string | undefined,
   const F extends Record<string, Field>,
 >(code: C, t: T, fields: F) {
-  return { code, t, fields };
+  const required: string[] = [];
+  const optionalNames: string[] = [];
+
+  for (const [name, token] of Object.entries(fields)) {
+    if (typeof token === "object" && token !== null && "optional" in token) {
+      optionalNames.push(name);
+    } else {
+      required.push(name);
+    }
+  }
+
+  for (const name of optionalNames) {
+    if (!Object.hasOwn(fieldIds, name)) {
+      throw new Error(`optional field ${name} has no stable id`);
+    }
+  }
+
+  return { code, t, fields, required, optional: optionalNames };
 }
 
 const up = shape(12, "up", {
