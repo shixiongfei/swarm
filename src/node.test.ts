@@ -2203,67 +2203,34 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(await received, 1);
   });
 
-  test("attach rejects a port that is already linked", (t) => {
-    const a = new Node({ cluster: "dup-attach-a" });
-    const b = new Node({ cluster: "dup-attach-b" });
-    const { port1, port2 } = new MessageChannel();
+  test("attach and join reject a port that is already linked", (t) => {
+    const pairs = [
+      ["attach", "attach"],
+      ["attach", "join"],
+      ["join", "attach"],
+      ["join", "join"],
+    ] as const;
 
-    t.after(() => {
-      a.close();
-      b.close();
-      port1.close();
-      port2.close();
-    });
+    for (const [first, second] of pairs) {
+      const a = new Node({ cluster: `duplicate-${first}-a` });
+      const b = new Node({ cluster: `duplicate-${second}-b` });
+      const { port1, port2 } = new MessageChannel();
 
-    a.attach(port1);
+      t.after(() => {
+        a.close();
+        b.close();
+        port1.close();
+        port2.close();
+      });
 
-    assert.throws(
-      () => b.attach(port1),
-      (err: SwarmError) =>
-        err.kind === "rejected" && /already linked/.test(err.message),
-    );
-  });
+      first === "attach" ? a.attach(port1) : a.join(port1);
 
-  test("join rejects a port that is already attached", (t) => {
-    const a = new Node({ cluster: "misuse-join-a" });
-    const b = new Node({ cluster: "misuse-join-b" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      a.close();
-      b.close();
-      port1.close();
-      port2.close();
-    });
-
-    a.attach(port1);
-
-    assert.throws(
-      () => b.join(port1),
-      (err: SwarmError) =>
-        err.kind === "rejected" && /already linked/.test(err.message),
-    );
-  });
-
-  test("attach rejects a port that is already joined", (t) => {
-    const a = new Node({ cluster: "misuse-attach-a" });
-    const b = new Node({ cluster: "misuse-attach-b" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      a.close();
-      b.close();
-      port1.close();
-      port2.close();
-    });
-
-    a.join(port1);
-
-    assert.throws(
-      () => b.attach(port1),
-      (err: SwarmError) =>
-        err.kind === "rejected" && /already linked/.test(err.message),
-    );
+      assert.throws(
+        () => (second === "attach" ? b.attach(port1) : b.join(port1)),
+        (err: SwarmError) =>
+          err.kind === "rejected" && /already linked/.test(err.message),
+      );
+    }
   });
 
   test(
@@ -3876,114 +3843,76 @@ describe("Node transport and mesh", () => {
     }
   });
 
-  test("listen fills the bound port when advertise uses port 0", async (t) => {
-    const node = new Node({ cluster: "advertise-port-zero" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    const bound = await node.listen("tcp://0.0.0.0:0", {
-      advertise: "tcp://127.0.0.1:0",
-    });
-
-    const learned = new Promise<
-      Array<{ id: string; addr: string; startup: number }>
-    >((resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
-
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(
-            message.members as Array<{
-              id: string;
-              addr: string;
-              startup: number;
-            }>,
-          );
-        }
-      });
-    });
-
-    node.join(port1);
-    port2.start();
-    port2.postMessage({
-      t: "hello",
-      from: "ghost",
-      version: protocolVersion,
-      startup: 1,
-      token: signToken("", "ghost"),
-    });
-
-    assert.deepEqual(await learned, [
+  test("listen fills the bound port when advertise leaves it open", async () => {
+    const cases = [
       {
-        id: node.nodeId,
-        addr: `tcp://127.0.0.1:${bound.port}`,
-        startup: node.startup,
+        cluster: "advertise-port-zero",
+        listen: "tcp://0.0.0.0:0",
+        advertise: "tcp://127.0.0.1:0",
+        scheme: "tcp",
       },
-    ]);
-  });
-
-  test("listen fills the bound port when advertise omits the port", async (t) => {
-    const node = new Node({ cluster: "advertise-port-omitted" });
-    const { port1, port2 } = new MessageChannel();
-
-    t.after(() => {
-      node.close();
-      port1.close();
-      port2.close();
-    });
-
-    const bound = await node.listen("ws://0.0.0.0:0", {
-      advertise: "ws://127.0.0.1/",
-    });
-
-    const learned = new Promise<
-      Array<{ id: string; addr: string; startup: number }>
-    >((resolve) => {
-      port2.addEventListener("message", (event) => {
-        const message = event.data as { t?: string; members?: unknown };
-
-        if (
-          message.t === "peers" &&
-          Array.isArray(message.members) &&
-          message.members.length > 0
-        ) {
-          resolve(
-            message.members as Array<{
-              id: string;
-              addr: string;
-              startup: number;
-            }>,
-          );
-        }
-      });
-    });
-
-    node.join(port1);
-    port2.start();
-    port2.postMessage({
-      t: "hello",
-      from: "ghost",
-      version: protocolVersion,
-      startup: 1,
-      token: signToken("", "ghost"),
-    });
-
-    assert.deepEqual(await learned, [
       {
-        id: node.nodeId,
-        addr: `ws://127.0.0.1:${bound.port}`,
-        startup: node.startup,
+        cluster: "advertise-port-omitted",
+        listen: "ws://0.0.0.0:0",
+        advertise: "ws://127.0.0.1/",
+        scheme: "ws",
       },
-    ]);
+    ];
+
+    for (const item of cases) {
+      const node = new Node({ cluster: item.cluster });
+      const { port1, port2 } = new MessageChannel();
+
+      try {
+        const bound = await node.listen(item.listen, {
+          advertise: item.advertise,
+        });
+
+        const learned = new Promise<
+          Array<{ id: string; addr: string; startup: number }>
+        >((resolve) => {
+          port2.addEventListener("message", (event) => {
+            const message = event.data as { t?: string; members?: unknown };
+
+            if (
+              message.t === "peers" &&
+              Array.isArray(message.members) &&
+              message.members.length > 0
+            ) {
+              resolve(
+                message.members as Array<{
+                  id: string;
+                  addr: string;
+                  startup: number;
+                }>,
+              );
+            }
+          });
+        });
+
+        node.join(port1);
+        port2.start();
+        port2.postMessage({
+          t: "hello",
+          from: "ghost",
+          version: protocolVersion,
+          startup: 1,
+          token: signToken("", "ghost"),
+        });
+
+        assert.deepEqual(await learned, [
+          {
+            id: node.nodeId,
+            addr: `${item.scheme}://127.0.0.1:${bound.port}`,
+            startup: node.startup,
+          },
+        ]);
+      } finally {
+        node.close();
+        port1.close();
+        port2.close();
+      }
+    }
   });
 
   test("listen does not advertise without options", async (t) => {

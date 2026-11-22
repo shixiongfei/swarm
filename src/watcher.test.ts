@@ -18,50 +18,67 @@ import type { WatchEvent } from "./registry.ts";
 
 describe("Watcher", () => {
   test("removeSource keeps an instance another source still reports", () => {
-    const watcher = new Watcher();
-    const local = new Registry();
-    const peer = new Registry();
-    const events: WatchEvent[] = [];
+    for (const service of ["math", undefined] as const) {
+      const watcher = new Watcher();
+      const local = new Registry();
+      const peer = new Registry();
+      const events: WatchEvent[] = [];
+      const handler = (event: WatchEvent) => events.push(event);
 
-    watcher.addSource(local);
-    watcher.addSource(peer);
-    watcher.watch("math", (event) => events.push(event));
+      watcher.addSource(local);
+      watcher.addSource(peer);
 
-    local.add("math", "node-a");
-    peer.add("math", "node-a");
-    peer.add("math", "node-b");
-    watcher.removeSource(local);
+      if (service === undefined) {
+        watcher.watch(handler);
+      } else {
+        watcher.watch(service, handler);
+      }
 
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "up", instance: { service: "math", nodeId: "node-b" } },
-    ]);
+      local.add("math", "node-a");
+      peer.add("math", "node-a");
+      peer.add("math", "node-b");
+      watcher.removeSource(local);
 
-    peer.remove("math", "node-a");
+      assert.deepEqual(events, [
+        { type: "up", instance: { service: "math", nodeId: "node-a" } },
+        { type: "up", instance: { service: "math", nodeId: "node-b" } },
+      ]);
 
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "up", instance: { service: "math", nodeId: "node-b" } },
-      { type: "down", instance: { service: "math", nodeId: "node-a" } },
-    ]);
+      peer.remove("math", "node-a");
+
+      assert.deepEqual(events, [
+        { type: "up", instance: { service: "math", nodeId: "node-a" } },
+        { type: "up", instance: { service: "math", nodeId: "node-b" } },
+        { type: "down", instance: { service: "math", nodeId: "node-a" } },
+      ]);
+    }
   });
 
   test("removeSource emits down once and is idempotent", () => {
-    const watcher = new Watcher();
-    const source = new Registry();
-    const events: WatchEvent[] = [];
+    for (const service of ["math", undefined] as const) {
+      const watcher = new Watcher();
+      const source = new Registry();
+      const events: WatchEvent[] = [];
+      const handler = (event: WatchEvent) => events.push(event);
 
-    watcher.addSource(source);
-    watcher.watch("math", (event) => events.push(event));
-    source.add("math", "node-a");
+      watcher.addSource(source);
 
-    watcher.removeSource(source);
-    watcher.removeSource(source);
+      if (service === undefined) {
+        watcher.watch(handler);
+      } else {
+        watcher.watch(service, handler);
+      }
 
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "down", instance: { service: "math", nodeId: "node-a" } },
-    ]);
+      source.add("math", "node-a");
+
+      watcher.removeSource(source);
+      watcher.removeSource(source);
+
+      assert.deepEqual(events, [
+        { type: "up", instance: { service: "math", nodeId: "node-a" } },
+        { type: "down", instance: { service: "math", nodeId: "node-a" } },
+      ]);
+    }
   });
 
   test("global watch replays observed instances", () => {
@@ -79,35 +96,6 @@ describe("Watcher", () => {
     ]);
   });
 
-  test("global watch receives up and down across sources", () => {
-    const watcher = new Watcher();
-    const local = new Registry();
-    const peer = new Registry();
-    const events: WatchEvent[] = [];
-
-    watcher.addSource(local);
-    watcher.addSource(peer);
-    watcher.watch((event) => events.push(event));
-
-    local.add("math", "node-a");
-    peer.add("math", "node-a");
-    peer.add("math", "node-b");
-    watcher.removeSource(local);
-
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "up", instance: { service: "math", nodeId: "node-b" } },
-    ]);
-
-    peer.remove("math", "node-a");
-
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "up", instance: { service: "math", nodeId: "node-b" } },
-      { type: "down", instance: { service: "math", nodeId: "node-a" } },
-    ]);
-  });
-
   test("addSource replays the source into existing watchers", () => {
     const watcher = new Watcher();
     const source = new Registry();
@@ -120,22 +108,6 @@ describe("Watcher", () => {
 
     assert.deepEqual(events, [
       { type: "up", instance: { service: "math", nodeId: "node-a" } },
-    ]);
-  });
-
-  test("removeSource emits down to global watchers", () => {
-    const watcher = new Watcher();
-    const source = new Registry();
-    const events: WatchEvent[] = [];
-
-    watcher.addSource(source);
-    watcher.watch((event) => events.push(event));
-    source.add("math", "node-a");
-    watcher.removeSource(source);
-
-    assert.deepEqual(events, [
-      { type: "up", instance: { service: "math", nodeId: "node-a" } },
-      { type: "down", instance: { service: "math", nodeId: "node-a" } },
     ]);
   });
 

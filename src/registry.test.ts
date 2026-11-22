@@ -60,19 +60,32 @@ describe("Registry", () => {
   });
 
   test("watch delivers the snapshot before increments", () => {
-    const registry = new Registry();
-    const a = registry.add("math", "node-a");
-    const b = registry.add("math", "node-b");
-    const events: WatchEvent[] = [];
+    const cases = [
+      { service: "math", first: "math", second: "math", next: "math" },
+      { service: undefined, first: "math", second: "echo", next: "text" },
+    ] as const;
 
-    registry.watch("math", (event) => events.push(event));
-    const c = registry.add("math", "node-c");
+    for (const item of cases) {
+      const registry = new Registry();
+      const a = registry.add(item.first, "node-a");
+      const b = registry.add(item.second, "node-b");
+      const events: WatchEvent[] = [];
+      const handler = (event: WatchEvent) => events.push(event);
 
-    assert.deepEqual(events, [
-      { type: "up", instance: a },
-      { type: "up", instance: b },
-      { type: "up", instance: c },
-    ]);
+      if (item.service === undefined) {
+        registry.watch(handler);
+      } else {
+        registry.watch(item.service, handler);
+      }
+
+      const c = registry.add(item.next, "node-c");
+
+      assert.deepEqual(events, [
+        { type: "up", instance: a },
+        { type: "up", instance: b },
+        { type: "up", instance: c },
+      ]);
+    }
   });
 
   test("remove emits down and drops the bucket", () => {
@@ -239,17 +252,24 @@ describe("Registry", () => {
   });
 
   test("unsubscribe stops delivery and is idempotent", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    const unsubscribe = registry.watch("math", (event) => events.push(event));
-    registry.add("math", "node-a");
-    const before = events.length;
+    for (const service of ["math", undefined] as const) {
+      const registry = new Registry();
+      const events: WatchEvent[] = [];
+      const handler = (event: WatchEvent) => events.push(event);
+      const unsubscribe =
+        service === undefined
+          ? registry.watch(handler)
+          : registry.watch(service, handler);
 
-    unsubscribe();
-    unsubscribe();
-    registry.add("math", "node-b");
+      registry.add("math", "node-a");
+      const before = events.length;
 
-    assert.equal(events.length, before);
+      unsubscribe();
+      unsubscribe();
+      registry.add("math", "node-b");
+
+      assert.equal(events.length, before);
+    }
   });
 
   test("unsubscribe only removes its own registration", () => {
@@ -269,44 +289,45 @@ describe("Registry", () => {
   });
 
   test("a throwing watcher does not break add or other watchers", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    registry.watch("math", () => {
-      throw new Error("boom");
-    });
-    registry.watch("math", (event) => events.push(event));
+    for (const service of ["math", undefined] as const) {
+      const registry = new Registry();
+      const events: WatchEvent[] = [];
+      const boom = () => {
+        throw new Error("boom");
+      };
 
-    const instance = registry.add("math", "node-a");
+      if (service === undefined) {
+        registry.watch(boom);
+        registry.watch((event) => events.push(event));
+      } else {
+        registry.watch(service, boom);
+        registry.watch(service, (event) => events.push(event));
+      }
 
-    assert.deepEqual(registry.lookup("math"), [instance]);
-    assert.deepEqual(events, [{ type: "up", instance }]);
+      const instance = registry.add("math", "node-a");
+
+      assert.deepEqual(registry.lookup("math"), [instance]);
+      assert.deepEqual(events, [{ type: "up", instance }]);
+    }
   });
 
   test("a throwing watcher does not break the snapshot", () => {
-    const registry = new Registry();
-    registry.add("math", "node-a");
-
-    assert.doesNotThrow(() => {
-      registry.watch("math", () => {
+    for (const service of ["math", undefined] as const) {
+      const registry = new Registry();
+      const boom = () => {
         throw new Error("boom");
+      };
+
+      registry.add("math", "node-a");
+
+      assert.doesNotThrow(() => {
+        if (service === undefined) {
+          registry.watch(boom);
+        } else {
+          registry.watch(service, boom);
+        }
       });
-    });
-  });
-
-  test("global watch delivers the snapshot before increments", () => {
-    const registry = new Registry();
-    const a = registry.add("math", "node-a");
-    const b = registry.add("echo", "node-b");
-    const events: WatchEvent[] = [];
-
-    registry.watch((event) => events.push(event));
-    const c = registry.add("text", "node-c");
-
-    assert.deepEqual(events, [
-      { type: "up", instance: a },
-      { type: "up", instance: b },
-      { type: "up", instance: c },
-    ]);
+    }
   });
 
   test("global watch receives down events", () => {
@@ -321,64 +342,6 @@ describe("Registry", () => {
       { type: "up", instance },
       { type: "down", instance },
     ]);
-  });
-
-  test("global watch unsubscribe stops delivery", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    const unsubscribe = registry.watch((event) => events.push(event));
-
-    registry.add("math", "node-a");
-    const before = events.length;
-
-    unsubscribe();
-    unsubscribe();
-    registry.add("math", "node-b");
-
-    assert.equal(events.length, before);
-  });
-
-  test("global watch receives down for every instance on close", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    registry.watch((event) => events.push(event));
-
-    const a = registry.add("math", "node-a");
-    const b = registry.add("echo", "node-b");
-
-    registry.close();
-
-    assert.deepEqual(events, [
-      { type: "up", instance: a },
-      { type: "up", instance: b },
-      { type: "down", instance: a },
-      { type: "down", instance: b },
-    ]);
-  });
-
-  test("a throwing global watcher does not break add or other watchers", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    registry.watch(() => {
-      throw new Error("boom");
-    });
-    registry.watch((event) => events.push(event));
-
-    const instance = registry.add("math", "node-a");
-
-    assert.deepEqual(registry.lookup("math"), [instance]);
-    assert.deepEqual(events, [{ type: "up", instance }]);
-  });
-
-  test("a throwing global watcher does not break the snapshot", () => {
-    const registry = new Registry();
-    registry.add("math", "node-a");
-
-    assert.doesNotThrow(() => {
-      registry.watch(() => {
-        throw new Error("boom");
-      });
-    });
   });
 
   test("global and service watchers both receive events", () => {
@@ -403,29 +366,37 @@ describe("Registry", () => {
   });
 
   test("close emits down for every instance", () => {
-    const registry = new Registry();
-    const events: WatchEvent[] = [];
-    registry.watch("math", (event) => events.push(event));
-    registry.watch("echo", (event) => events.push(event));
+    for (const service of ["math", undefined] as const) {
+      const registry = new Registry();
+      const events: WatchEvent[] = [];
+      const handler = (event: WatchEvent) => events.push(event);
 
-    const a = registry.add("math", "node-a");
-    const b = registry.add("echo", "node-b");
+      if (service === undefined) {
+        registry.watch(handler);
+      } else {
+        registry.watch("math", handler);
+        registry.watch("echo", handler);
+      }
 
-    registry.close();
-    registry.close();
+      const a = registry.add("math", "node-a");
+      const b = registry.add("echo", "node-b");
 
-    assert.deepEqual(events, [
-      { type: "up", instance: a },
-      { type: "up", instance: b },
-      { type: "down", instance: a },
-      { type: "down", instance: b },
-    ]);
+      registry.close();
+      registry.close();
 
-    assert.throws(
-      () => registry.add("math", "node-c"),
-      (err: SwarmError) => err.kind === "rejected",
-    );
-    assert.equal(events.length, 4);
+      assert.deepEqual(events, [
+        { type: "up", instance: a },
+        { type: "up", instance: b },
+        { type: "down", instance: a },
+        { type: "down", instance: b },
+      ]);
+
+      assert.throws(
+        () => registry.add("math", "node-c"),
+        (err: SwarmError) => err.kind === "rejected",
+      );
+      assert.equal(events.length, 4);
+    }
   });
 
   test("close clears the table and removes listeners", () => {
