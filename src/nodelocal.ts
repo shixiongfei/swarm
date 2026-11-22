@@ -12,7 +12,6 @@
 import { SwarmError } from "./errors.ts";
 import { Local } from "./local.ts";
 import { Registry } from "./registry.ts";
-import { neverAborted } from "./timeout.ts";
 import type { Provider } from "./provider.ts";
 import type { NodeLink } from "./nodelink.ts";
 import type { CallContext, Methods, TopicHandler } from "./local.ts";
@@ -83,7 +82,7 @@ export class NodeLocal implements Observable, Provider {
         source !== undefined && source.peerId !== undefined
           ? source.peerId
           : this.nodeId,
-      signal: signal !== undefined ? signal : neverAborted,
+      signal: signal !== undefined ? signal : new AbortController().signal,
     };
   }
 

@@ -229,6 +229,24 @@ describe("Node", () => {
     assert.equal(node.snapshot().health.drops.FRAME_DROPPED, 1);
   });
 
+  test("local calls hand each handler its own cancel signal", async () => {
+    const node = makeNode(5000);
+    const signals: AbortSignal[] = [];
+
+    node.register("probe", {
+      take: (ctx) => {
+        signals.push(ctx.signal);
+        return signals.length;
+      },
+    });
+
+    await node.call("probe", "take", []);
+    await node.call("probe", "take", []);
+
+    assert.notEqual(signals[0], signals[1]);
+    assert.equal(signals[0]?.aborted, false);
+  });
+
   test("register and unregister return the node", () => {
     const node = makeNode();
 
