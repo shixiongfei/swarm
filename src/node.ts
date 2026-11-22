@@ -28,7 +28,7 @@ import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable } from "./codec.ts";
-import { downFrame, peersFrame, upFrame } from "./frame.ts";
+import { changesFrame, downChange, peersFrame, upChange } from "./frame.ts";
 import type { Frame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
 import type { LinkCloseReason } from "./nodelink.ts";
@@ -40,6 +40,7 @@ import type { Methods, TopicHandler } from "./local.ts";
 import type { Provider } from "./provider.ts";
 import type { MulticastOptions } from "./multicast.ts";
 import type { DiscoveryOptions } from "./discovery.ts";
+import type { Change } from "./envelope.ts";
 import type {
   Instance,
   MetaData,
@@ -116,6 +117,7 @@ export type NodeEvents = {
 };
 
 const defaultMaxHops = 8;
+const relayBatchSize = 1024;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
 
@@ -157,6 +159,8 @@ export class Node implements Provider {
   private readonly discovery: Discovery;
   private readonly dialed = new Map<NodeLink, string>();
   private readonly adopted = new Set<NodeLink>();
+  private readonly relayQueue: Change[] = [];
+  private relayScheduled = false;
   private readonly callTimeout: number;
   private readonly maxHops: number;
   private readonly maxInflight: number | undefined;
@@ -746,18 +750,51 @@ export class Node implements Provider {
   }
 
   private relay(event: WatchEvent) {
-    const message =
-      event.type === "up" ? upFrame(event.instance) : downFrame(event.instance);
+    this.relayQueue.push(
+      event.type === "up" ? upChange(event.instance) : downChange(event.instance),
+    );
 
-    this.eachPeerLink((nodeLink) => {
-      if (nodeLink.peerId === event.instance.nodeId) {
-        return;
-      }
+    if (this.relayScheduled) {
+      return;
+    }
 
-      if (!nodeLink.has(event.instance.service, event.instance.nodeId)) {
-        nodeLink.notify(message);
-      }
-    });
+    this.relayScheduled = true;
+    queueMicrotask(() => this.flushRelay());
+  }
+
+  private flushRelay() {
+    this.relayScheduled = false;
+
+    if (this.closed) {
+      this.relayQueue.length = 0;
+      return;
+    }
+
+    for (let at = 0; at < this.relayQueue.length; at += relayBatchSize) {
+      const chunk = this.relayQueue.slice(at, at + relayBatchSize);
+      let shared: Frame | undefined;
+
+      this.eachPeerLink((nodeLink, peerId) => {
+        const items = chunk.filter(
+          (change) =>
+            change.from !== peerId && !nodeLink.has(change.service, change.from),
+        );
+
+        if (items.length === 0) {
+          return;
+        }
+
+        if (items.length === chunk.length) {
+          shared ??= changesFrame(chunk);
+          nodeLink.notify(shared);
+          return;
+        }
+
+        nodeLink.notify(changesFrame(items));
+      });
+    }
+
+    this.relayQueue.length = 0;
   }
 
   private forget(instance: Instance) {

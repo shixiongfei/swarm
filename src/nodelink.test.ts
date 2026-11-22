@@ -15,7 +15,7 @@ import { Node } from "./node.ts";
 import { NodeLink } from "./nodelink.ts";
 import { NodeLocal } from "./nodelocal.ts";
 import { Link } from "./link.ts";
-import { pubFrame, upFrame } from "./frame.ts";
+import { changesFrame, pubFrame } from "./frame.ts";
 import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
@@ -121,7 +121,7 @@ describe("handshake helpers", () => {
     local.register("math", { run: () => 1 });
     nodeLink.events.on("close", () => (closes += 1));
 
-    link.failSendType = "up";
+    link.failSendType = "changes";
     link.nextError = new SwarmError(
       "failed",
       "CONGESTED",
@@ -305,7 +305,9 @@ describe("handshake helpers", () => {
       true,
     );
 
-    nodeLink.notify(upFrame({ service: "math", nodeId: "other-node" }));
+    nodeLink.notify(
+      changesFrame([{ t: "up", from: "other-node", service: "math" }]),
+    );
 
     assert.equal(link.closed, true);
     assert.equal(closes, 1);
@@ -329,7 +331,9 @@ describe("handshake helpers", () => {
       false,
     );
 
-    nodeLink.notify(upFrame({ service: "math", nodeId: "other-node" }));
+    nodeLink.notify(
+      changesFrame([{ t: "up", from: "other-node", service: "math" }]),
+    );
 
     assert.equal(link.closed, false);
     assert.equal(nodeLink.peerId, "peer-node");
@@ -690,7 +694,10 @@ describe("NodeLink", () => {
       startup: 1,
       token: signToken("", "first"),
     });
-    port2.postMessage({ t: "up", from: "first", service: "math" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "up", from: "first", service: "math" }],
+    });
 
     await up("math");
 
@@ -826,7 +833,10 @@ describe("NodeLink", () => {
       startup: 1,
       token: signToken("", "peer"),
     });
-    port2.postMessage({ t: "up", from: "origin", service: "fake" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "up", from: "origin", service: "fake" }],
+    });
 
     const event = await up;
 
@@ -840,9 +850,58 @@ describe("NodeLink", () => {
       }),
     );
 
-    port2.postMessage({ t: "down", from: "origin", service: "fake" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "down", from: "origin", service: "fake" }],
+    });
 
     assert.equal((await down).instance.nodeId, "origin");
+  });
+
+  test("applies every item of a changes frame", (t) => {
+    const local = new NodeLocal("local-node");
+    const { link, nodeLink } = attachStub(local);
+    const downs: string[] = [];
+
+    t.after(() => nodeLink.close());
+
+    nodeLink.events.on("down", (instance) => downs.push(instance.nodeId));
+
+    link.events.emit("envelope", {
+      t: "changes",
+      items: [
+        { t: "up", from: "peer-node", service: "math" },
+        { t: "up", from: "origin", service: "math" },
+        { t: "down", from: "origin", service: "math" },
+      ],
+    });
+
+    assert.deepEqual(
+      nodeLink.lookup("math").map((instance) => instance.nodeId),
+      ["peer-node"],
+    );
+    assert.deepEqual(downs, ["origin"]);
+  });
+
+  test("ignores a changes frame from an unauthenticated link", (t) => {
+    const local = new NodeLocal("local-node");
+    const link = new StubLink();
+    const nodeLink = new NodeLink(link, {
+      provider: local,
+      startup: 1,
+      secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
+    });
+
+    t.after(() => nodeLink.close());
+
+    link.events.emit("envelope", {
+      t: "changes",
+      items: [{ t: "up", from: "origin", service: "math" }],
+    });
+
+    assert.deepEqual(nodeLink.lookup("math"), []);
   });
 
   test("drops a publish that returns to its origin or spoofs the sender", async (t) => {
@@ -938,7 +997,10 @@ describe("NodeLink", () => {
       startup: 1,
       token: signToken("", "peer"),
     });
-    port2.postMessage({ t: "up", from: "peer", service: "remote" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "up", from: "peer", service: "remote" }],
+    });
 
     await up;
 
@@ -1013,7 +1075,10 @@ describe("NodeLink", () => {
       startup: 1,
       token: signToken("", "peer-node"),
     });
-    port2.postMessage({ t: "up", from: "peer-node", service: "math" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "up", from: "peer-node", service: "math" }],
+    });
 
     assert.deepEqual((await up).instance, {
       service: "math",
@@ -1036,7 +1101,10 @@ describe("NodeLink", () => {
       });
     });
 
-    port2.postMessage({ t: "down", from: "peer-node", service: "math" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "down", from: "peer-node", service: "math" }],
+    });
 
     assert.deepEqual((await down).instance, {
       service: "math",

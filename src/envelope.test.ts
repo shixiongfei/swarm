@@ -54,8 +54,13 @@ describe("parseEnvelope", () => {
         startup: 1,
         token: "token-value",
       },
-      { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
-      { t: "down", from: "node-a", service: "math" },
+      {
+        t: "changes",
+        items: [
+          { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
+          { t: "down", from: "node-b", service: "math" },
+        ],
+      },
       {
         t: "call",
         id: "call-1",
@@ -120,11 +125,24 @@ describe("parseEnvelope", () => {
       { t: "accept", from: "node-a" },
       { t: "accept", from: "node-a", version: 1, startup: 1 },
       { t: "accept", from: "node-a", version: 1, token: 1 },
-      { t: "up", from: "node-a" },
-      { t: "up", from: 1, service: "math" },
-      { t: "up", from: "node-a", service: "math", meta: [] },
-      { t: "up", from: "node-a", service: "math", meta: new Date() },
-      { t: "down", service: "math" },
+      { t: "changes" },
+      { t: "changes", items: [] },
+      { t: "changes", items: "up" },
+      { t: "changes", items: [{ t: "up", from: "node-a" }] },
+      { t: "changes", items: [{ t: "up", from: 1, service: "math" }] },
+      {
+        t: "changes",
+        items: [{ t: "up", from: "node-a", service: "math", meta: [] }],
+      },
+      {
+        t: "changes",
+        items: [{ t: "up", from: "node-a", service: "math", meta: new Date() }],
+      },
+      { t: "changes", items: [{ t: "down", service: "math" }] },
+      {
+        t: "changes",
+        items: [{ t: "peers", from: "node-a", members: [] }],
+      },
       {
         t: "call",
         id: "call-1",

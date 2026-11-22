@@ -24,6 +24,17 @@ const maxPeerAddrLength = 1024;
 
 export type PeerEntry = { id: string; addr: string; startup: number };
 
+export type UpEnvelope = {
+  t: "up";
+  from: string;
+  service: string;
+  meta?: MetaData;
+};
+
+export type DownEnvelope = { t: "down"; from: string; service: string };
+
+export type Change = UpEnvelope | DownEnvelope;
+
 export type Envelope =
   | {
       t: "hello";
@@ -39,8 +50,7 @@ export type Envelope =
       startup: number;
       token: string;
     }
-  | { t: "up"; from: string; service: string; meta?: MetaData }
-  | { t: "down"; from: string; service: string }
+  | { t: "changes"; items: Change[] }
   | {
       t: "call";
       id: string;
@@ -97,22 +107,46 @@ function isHandshake(
   return message;
 }
 
-function isUp(message: Extract<Envelope, { t: "up" }>): Envelope | undefined {
-  if (
-    typeof message.from !== "string" ||
-    typeof message.service !== "string" ||
-    !isMetaData(message.meta)
-  ) {
-    return undefined;
-  }
-
-  return message;
+function isUp(message: UpEnvelope) {
+  return (
+    typeof message.from === "string" &&
+    typeof message.service === "string" &&
+    isMetaData(message.meta)
+  );
 }
 
-function isDown(
-  message: Extract<Envelope, { t: "down" }>,
+function isDown(message: DownEnvelope) {
+  return (
+    typeof message.from === "string" && typeof message.service === "string"
+  );
+}
+
+function isChange(value: unknown) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const change = value as Change;
+
+  if (change.t === "up") {
+    return isUp(change);
+  }
+
+  if (change.t === "down") {
+    return isDown(change);
+  }
+
+  return false;
+}
+
+function isChanges(
+  message: Extract<Envelope, { t: "changes" }>,
 ): Envelope | undefined {
-  if (typeof message.from !== "string" || typeof message.service !== "string") {
+  if (
+    !Array.isArray(message.items) ||
+    message.items.length === 0 ||
+    !message.items.every(isChange)
+  ) {
     return undefined;
   }
 
@@ -233,10 +267,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
     case "hello":
     case "accept":
       return isHandshake(message);
-    case "up":
-      return isUp(message);
-    case "down":
-      return isDown(message);
+    case "changes":
+      return isChanges(message);
     case "call":
       return isCall(message);
     case "reply":

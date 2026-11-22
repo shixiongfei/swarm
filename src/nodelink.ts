@@ -15,12 +15,12 @@ import { protocolVersion } from "./envelope.ts";
 import { PendingCalls } from "./pending.ts";
 import { Registry } from "./registry.ts";
 import { signToken, verifyToken } from "./token.ts";
-import { frame, upFrame } from "./frame.ts";
+import { changesFrame, frame, upChange } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
 import type { Frame } from "./frame.ts";
 import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
-import type { Envelope, PeerEntry } from "./envelope.ts";
+import type { Envelope, PeerEntry, UpEnvelope } from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 type NodeLinkEvents = {
@@ -122,22 +122,28 @@ export class NodeLink implements Observable {
         this.authenticate(message.from, message.token, false);
         return;
 
-      case "up":
-        if (this.peer !== undefined && message.from !== this.link.nodeId) {
-          this.registry.add(message.service, message.from, message.meta);
+      case "changes":
+        if (this.peer === undefined) {
+          return;
         }
-        return;
 
-      case "down": {
-        if (this.peer !== undefined && message.from !== this.link.nodeId) {
-          const instance = this.registry.remove(message.service, message.from);
+        for (const change of message.items) {
+          if (change.from === this.link.nodeId) {
+            continue;
+          }
+
+          if (change.t === "up") {
+            this.registry.add(change.service, change.from, change.meta);
+            continue;
+          }
+
+          const instance = this.registry.remove(change.service, change.from);
 
           if (instance !== undefined) {
-            this.events.emit("down", instance, this.peer === message.from);
+            this.events.emit("down", instance, this.peer === change.from);
           }
         }
         return;
-      }
 
       case "call": {
         if (
@@ -606,16 +612,16 @@ export class NodeLink implements Observable {
   }
 
   private announce() {
+    const items: UpEnvelope[] = [];
+
     for (const instance of this.provider.registrations()) {
-      if (this.closed) {
-        return;
+      if (instance.nodeId !== this.peer) {
+        items.push(upChange(instance));
       }
+    }
 
-      if (instance.nodeId === this.peer) {
-        continue;
-      }
-
-      this.notify(upFrame(instance));
+    if (items.length > 0) {
+      this.notify(changesFrame(items));
     }
   }
 

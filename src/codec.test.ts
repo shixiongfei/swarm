@@ -31,8 +31,13 @@ const envelopes: Envelope[] = [
     startup: 1,
     token: "token-value",
   },
-  { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
-  { t: "down", from: "node-a", service: "math" },
+  {
+    t: "changes",
+    items: [
+      { t: "up", from: "node-a", service: "math", meta: { build: 1 } },
+      { t: "down", from: "node-a", service: "math" },
+    ],
+  },
   {
     t: "call",
     id: "call-1",
@@ -72,7 +77,10 @@ describe("codec", () => {
   });
 
   test("encodes to bytes", () => {
-    const encoded = encode({ t: "down", from: "node-a", service: "math" });
+    const encoded = encode({
+      t: "changes",
+      items: [{ t: "down", from: "node-a", service: "math" }],
+    });
 
     assert.ok(encoded instanceof Uint8Array);
     assert.ok(encoded.length > 0);
@@ -162,7 +170,10 @@ describe("codec", () => {
   });
 
   test("rejects corrupt data", () => {
-    const encoded = encode({ t: "down", from: "node-a", service: "math" });
+    const encoded = encode({
+      t: "changes",
+      items: [{ t: "down", from: "node-a", service: "math" }],
+    });
     const values: Uint8Array[] = [
       new Uint8Array(),
       new Uint8Array([0xc1, 0xc1]),

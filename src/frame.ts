@@ -10,7 +10,13 @@
  */
 
 import { encode } from "./codec.ts";
-import type { Envelope, PeerEntry } from "./envelope.ts";
+import type {
+  Change,
+  DownEnvelope,
+  Envelope,
+  PeerEntry,
+  UpEnvelope,
+} from "./envelope.ts";
 import type { Instance } from "./registry.ts";
 
 export type Frame = {
@@ -31,18 +37,20 @@ export function frame(message: Envelope) {
   };
 }
 
-export function upFrame(instance: Instance) {
+export function upChange(instance: Instance): UpEnvelope {
   const { nodeId, service, meta } = instance;
 
-  return frame(
-    meta === undefined
-      ? { t: "up", from: nodeId, service }
-      : { t: "up", from: nodeId, service, meta },
-  );
+  return meta === undefined
+    ? { t: "up", from: nodeId, service }
+    : { t: "up", from: nodeId, service, meta };
 }
 
-export function downFrame(instance: Instance) {
-  return frame({ t: "down", from: instance.nodeId, service: instance.service });
+export function downChange(instance: Instance): DownEnvelope {
+  return { t: "down", from: instance.nodeId, service: instance.service };
+}
+
+export function changesFrame(items: Change[]) {
+  return frame({ t: "changes", items });
 }
 
 export function peersFrame(from: string, members: PeerEntry[]) {

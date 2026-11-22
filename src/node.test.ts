@@ -95,6 +95,10 @@ class FrameLink extends Link {
   }
 }
 
+function runRelay() {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 function makeNode(callTimeout = 50) {
   return new Node({ cluster: "test", callTimeout });
 }
@@ -124,7 +128,10 @@ async function attachGhost(node: Node, service: string) {
     startup: 1,
     token: signToken("", "ghost"),
   });
-  port2.postMessage({ t: "up", from: "ghost", service });
+  port2.postMessage({
+    t: "changes",
+    items: [{ t: "up", from: "ghost", service }],
+  });
 
   await ready;
 
@@ -744,7 +751,7 @@ setTimeout(() => console.log("survived"), 500);
     );
   });
 
-  test("encodes a broadcast once for every link", (t) => {
+  test("encodes a broadcast once for every link", async (t) => {
     const node = new Node({ cluster: "frame-share" });
     const internals = node as unknown as {
       attachLink: (link: Link) => void;
@@ -768,15 +775,16 @@ setTimeout(() => console.log("survived"), 500);
     t.after(() => node.close());
 
     node.register("math", { add: () => 1 });
+    await runRelay();
 
     const updates = links.map((link) => link.frames.at(-1));
-    const up = updates[0];
+    const changes = updates[0];
 
-    assert.equal(up?.message.t, "up");
-    assert.equal(updates[1], up);
-    assert.equal(updates[2], up);
-    assert.equal(updates[1]?.bytes(), up?.bytes());
-    assert.equal(updates[2]?.bytes(), up?.bytes());
+    assert.equal(changes?.message.t, "changes");
+    assert.equal(updates[1], changes);
+    assert.equal(updates[2], changes);
+    assert.equal(updates[1]?.bytes(), changes?.bytes());
+    assert.equal(updates[2]?.bytes(), changes?.bytes());
 
     internals.broadcastPeers();
 
@@ -789,7 +797,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(peers[2]?.bytes(), peers[0]?.bytes());
   });
 
-  test("does not echo a down frame back to its source", (t) => {
+  test("does not echo a down frame back to its source", async (t) => {
     const node = new Node({ cluster: "frame-echo" });
     const internals = node as unknown as { attachLink: (link: Link) => void };
     const links = ["peer-a", "peer-b", "peer-c"].map((peerId) => {
@@ -810,22 +818,83 @@ setTimeout(() => console.log("survived"), 500);
     t.after(() => node.close());
 
     links[0].events.emit("envelope", {
-      t: "up",
-      from: "peer-a",
-      service: "math",
+      t: "changes",
+      items: [{ t: "up", from: "peer-a", service: "math" }],
     });
     links[0].events.emit("envelope", {
-      t: "down",
-      from: "peer-a",
-      service: "math",
+      t: "changes",
+      items: [{ t: "down", from: "peer-a", service: "math" }],
     });
 
+    await runRelay();
+
+    const downs = (link: FrameLink) =>
+      link.frames
+        .flatMap((frame) =>
+          frame.message.t === "changes" ? frame.message.items : [],
+        )
+        .filter((message) => message.t === "down").length;
+
+    assert.deepEqual(links.map(downs), [0, 1, 1]);
+  });
+
+  test("coalesces a burst of relayed updates into one frame per link", async (t) => {
+    const node = new Node({ cluster: "frame-batch" });
+    const internals = node as unknown as { attachLink: (link: Link) => void };
+    const links = ["edge-a", "edge-b", "edge-c"].map((peerId) => {
+      const link = new FrameLink(node.nodeId);
+
+      internals.attachLink(link);
+      link.events.emit("envelope", {
+        t: "hello",
+        from: peerId,
+        version: protocolVersion,
+        startup: 1,
+        token: signToken("", peerId),
+      });
+
+      return link;
+    });
+
+    t.after(() => node.close());
+
+    const relayed = (link: FrameLink) =>
+      link.frames.filter((frame) => frame.message.t === "changes");
+
+    for (let i = 0; i < 100; i += 1) {
+      links[0].events.emit("envelope", {
+        t: "changes",
+        items: [{ t: "up", from: "edge-a", service: `svc-${i}` }],
+      });
+    }
+
+    await runRelay();
+
+    assert.equal(relayed(links[0]).length, 0);
     assert.deepEqual(
-      links.map(
-        (link) => link.frames.filter((frame) => frame.message.t === "down").length,
-      ),
-      [0, 1, 1],
+      links.slice(1).map((link) => relayed(link).length),
+      [1, 1],
     );
+
+    const batch = relayed(links[1])[0].message;
+
+    assert.ok(batch.t === "changes");
+    assert.equal(batch.items.length, 100);
+
+    for (let i = 0; i < 100; i += 1) {
+      links[0].events.emit("envelope", {
+        t: "changes",
+        items: [{ t: "down", from: "edge-a", service: `svc-${i}` }],
+      });
+    }
+
+    await runRelay();
+
+    const downs = relayed(links[2])[1].message;
+
+    assert.ok(downs.t === "changes");
+    assert.equal(downs.items.length, 100);
+    assert.equal(downs.items.every((item) => item.t === "down"), true);
   });
 
   test("a broken path keeps an instance reachable through another peer", async (t) => {
@@ -3967,7 +4036,10 @@ describe("Node transport and mesh", () => {
       startup: 1,
       token: signToken("", "peer"),
     });
-    port2.postMessage({ t: "up", from: "peer", service: "math" });
+    port2.postMessage({
+      t: "changes",
+      items: [{ t: "up", from: "peer", service: "math" }],
+    });
     await up;
 
     port2.postMessage({
