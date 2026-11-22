@@ -57,6 +57,10 @@ function isDataFailure(error: unknown) {
   );
 }
 
+function isCongestion(error: unknown): error is SwarmError {
+  return error instanceof SwarmError && error.code === "CONGESTED";
+}
+
 export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
 
 export type NodeLinkConfig = {
@@ -676,7 +680,7 @@ export class NodeLink implements Observable {
       update();
       this.failures = 0;
     } catch (err) {
-      if (isTransportFailure(err)) {
+      if (isTransportFailure(err) && !isCongestion(err)) {
         this.failures += 1;
 
         if (this.failures >= maxSendFailures) {
@@ -698,6 +702,11 @@ export class NodeLink implements Observable {
       this.transmit(update);
     } catch (err) {
       if (isDataFailure(err)) {
+        return;
+      }
+
+      if (isCongestion(err) && this.opened) {
+        this.events.emit("drop", err);
         return;
       }
 

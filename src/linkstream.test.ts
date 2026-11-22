@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { connect, createServer } from "node:net";
 import { LinkStream } from "./linkstream.ts";
-import { encode, maxEnvelopeSize } from "./codec.ts";
+import { decode, encode, maxEnvelopeSize } from "./codec.ts";
 import { frame } from "./frame.ts";
 import { waitFor } from "./testutil.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
@@ -346,5 +346,146 @@ describe("LinkStream", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 150));
 
     assert.equal(destroyed, 1);
+  });
+
+  test("flushes control frames ahead of queued bulk frames", (t) => {
+    const written: Envelope[] = [];
+    let onDrain: (() => void) | undefined;
+    let writable = true;
+
+    const socket = {
+      remoteAddress: "127.0.0.1",
+      setNoDelay() {},
+      on(event: string, handler: () => void) {
+        if (event === "drain") {
+          onDrain = handler;
+        }
+      },
+      once() {},
+      off() {},
+      write(bytes: Uint8Array) {
+        written.push(decode(bytes.subarray(4))!);
+        return writable;
+      },
+      end() {},
+      destroy() {},
+    } as unknown as Socket;
+
+    const link = new LinkStream(socket, "client-node");
+
+    t.after(() => link.close());
+
+    writable = false;
+    link.send(frame({ t: "ping", from: "client-node" }));
+    link.send(
+      frame({
+        t: "changes",
+        items: [{ t: "up", from: "peer", service: "svc" }],
+      }),
+    );
+    link.send(frame({ t: "pong", from: "client-node" }));
+
+    assert.equal(written.length, 1);
+    assert.equal(written[0].t, "ping");
+
+    writable = true;
+    onDrain?.();
+
+    assert.deepEqual(
+      written.map((message) => message.t),
+      ["ping", "pong", "changes"],
+    );
+  });
+
+  test("sends bye after queued bulk frames on close", (t) => {
+    const written: Envelope[] = [];
+    const socket = {
+      remoteAddress: "127.0.0.1",
+      setNoDelay() {},
+      on() {},
+      once() {},
+      off() {},
+      write(bytes: Uint8Array) {
+        written.push(decode(bytes.subarray(4))!);
+        return false;
+      },
+      end() {},
+      destroy() {},
+      destroyed: false,
+    } as unknown as Socket;
+
+    const link = new LinkStream(socket, "client-node");
+    t.after(() => link.close());
+
+    link.send(frame({ t: "ping", from: "client-node" }));
+    link.send(
+      frame({
+        t: "changes",
+        items: [{ t: "up", from: "peer", service: "svc" }],
+      }),
+    );
+    link.send(frame({ t: "bye", from: "client-node" }));
+    link.close();
+
+    assert.deepEqual(
+      written.map((message) => message.t),
+      ["ping", "changes", "bye"],
+    );
+  });
+
+  test("treats unlisted frames as control frames", (t) => {
+    const written: Envelope[] = [];
+    let onDrain: (() => void) | undefined;
+    let writable = true;
+
+    const socket = {
+      remoteAddress: "127.0.0.1",
+      setNoDelay() {},
+      on(event: string, handler: () => void) {
+        if (event === "drain") {
+          onDrain = handler;
+        }
+      },
+      once() {},
+      off() {},
+      write(bytes: Uint8Array) {
+        written.push(decode(bytes.subarray(4))!);
+        return writable;
+      },
+      end() {},
+      destroy() {},
+    } as unknown as Socket;
+
+    const link = new LinkStream(socket, "client-node");
+
+    t.after(() => link.close());
+
+    writable = false;
+    link.send(frame({ t: "ping", from: "client-node" }));
+    link.send(
+      frame({
+        t: "changes",
+        items: [{ t: "up", from: "peer", service: "svc" }],
+      }),
+    );
+    link.send(
+      frame({
+        t: "call",
+        id: "1",
+        from: "client-node",
+        to: "peer",
+        service: "svc",
+        method: "run",
+        args: [],
+      }),
+    );
+
+    writable = true;
+    onDrain?.();
+
+    assert.deepEqual(
+      written.map((message) => message.t),
+      ["ping", "call", "changes"],
+    );
   });
 });

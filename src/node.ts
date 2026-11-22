@@ -1069,8 +1069,10 @@ export class Node implements Provider {
       return [];
     }
 
-    const { local, transport } = links[0];
-    const limit = transport === "port" ? Infinity : maxEnvelopeSize;
+    const { local } = links[0];
+    const limit = links.some((link) => link.transport !== "port")
+      ? maxEnvelopeSize
+      : Infinity;
     const members = this.membership.shared(local);
 
     if (members.length === 0) {

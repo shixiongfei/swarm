@@ -16,6 +16,8 @@ import { decode, maxEnvelopeSize } from "./codec.ts";
 import type { Socket } from "node:net";
 import type { Frame } from "./frame.ts";
 
+const bulkTypes = new Set(["changes", "pubs", "peers", "bye"]);
+
 const headerSize = 4;
 const minBufferSize = 16;
 const shrinkBufferSize = 64 * 1024;
@@ -34,6 +36,7 @@ export class LinkStream extends Link {
   private writable = true;
   private queued = 0;
   private readonly queue: Uint8Array[] = [];
+  private readonly controlQueue: Uint8Array[] = [];
 
   private readonly onData = (chunk: Uint8Array) => {
     if (this.closed) {
@@ -86,8 +89,11 @@ export class LinkStream extends Link {
 
     this.writable = true;
 
-    while (this.writable && this.queue.length > 0) {
-      const packet = this.queue.shift();
+    while (this.writable && this.controlQueue.length + this.queue.length > 0) {
+      const packet =
+        this.controlQueue.length > 0
+          ? this.controlQueue.shift()
+          : this.queue.shift();
 
       if (packet === undefined) {
         break;
@@ -116,10 +122,10 @@ export class LinkStream extends Link {
       return;
     }
 
-    this.write(frame.bytes());
+    this.write(frame.bytes(), !bulkTypes.has(frame.message.t));
   }
 
-  private write(payload: Uint8Array) {
+  private write(payload: Uint8Array, control: boolean) {
     if (payload.byteLength > maxEnvelopeSize) {
       throw new SwarmError(
         "failed",
@@ -140,7 +146,7 @@ export class LinkStream extends Link {
       }
 
       this.queued += packet.byteLength;
-      this.queue.push(packet);
+      (control ? this.controlQueue : this.queue).push(packet);
       return;
     }
 
@@ -164,14 +170,18 @@ export class LinkStream extends Link {
 
     if (this.socket.destroyed) {
       this.queue.length = 0;
+      this.controlQueue.length = 0;
       this.queued = 0;
       return;
     }
 
     this.socket.once("error", () => this.socket.destroy());
 
-    while (this.queue.length > 0) {
-      const packet = this.queue.shift();
+    while (this.controlQueue.length + this.queue.length > 0) {
+      const packet =
+        this.controlQueue.length > 0
+          ? this.controlQueue.shift()
+          : this.queue.shift();
 
       if (packet !== undefined) {
         this.socket.write(packet);
