@@ -105,6 +105,10 @@ export abstract class Link {
     this.send(frame(message));
   }
 
+  cancel(id: string, to: string) {
+    this.send(frame({ t: "cancel", id, from: this.nodeId, to }));
+  }
+
   reply(id: string, to: string, value: unknown) {
     this.send(frame({ t: "reply", id, from: this.nodeId, to, value }));
   }

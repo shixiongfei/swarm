@@ -12,8 +12,10 @@
 import { SwarmError } from "./errors.ts";
 import { Local } from "./local.ts";
 import { Registry } from "./registry.ts";
+import { neverAborted } from "./timeout.ts";
 import type { Provider } from "./provider.ts";
-import type { Methods, TopicHandler } from "./local.ts";
+import type { NodeLink } from "./nodelink.ts";
+import type { CallContext, Methods, TopicHandler } from "./local.ts";
 import type { MetaData, Observable, WatchHandler } from "./registry.ts";
 
 export class NodeLocal implements Observable, Provider {
@@ -46,8 +48,43 @@ export class NodeLocal implements Observable, Provider {
     return this.local.hasMethod(service, method);
   }
 
-  invoke(service: string, method: string, args: unknown[], timeout?: number) {
-    return this.local.invoke(service, method, args, timeout);
+  invoke(
+    service: string,
+    method: string,
+    args: unknown[],
+    timeout?: number,
+    _ttl?: number,
+    source?: NodeLink,
+    _target?: string,
+    signal?: AbortSignal,
+  ) {
+    return this.call(
+      service,
+      method,
+      this.context(source, signal),
+      args,
+      timeout,
+    );
+  }
+
+  call(
+    service: string,
+    method: string,
+    ctx: CallContext,
+    args: unknown[],
+    timeout?: number,
+  ) {
+    return this.local.invoke(service, method, ctx, args, timeout);
+  }
+
+  context(source?: NodeLink, signal?: AbortSignal): CallContext {
+    return {
+      from:
+        source !== undefined && source.peerId !== undefined
+          ? source.peerId
+          : this.nodeId,
+      signal: signal !== undefined ? signal : neverAborted,
+    };
   }
 
   publish(topic: string, data: unknown, origin: string) {

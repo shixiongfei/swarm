@@ -13,7 +13,13 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 import { Local } from "./local.ts";
+import type { CallContext } from "./local.ts";
 import type { SwarmError } from "./errors.ts";
+
+const ctx: CallContext = {
+  from: "node-a",
+  signal: new AbortController().signal,
+};
 
 function makeLocal() {
   return new Local();
@@ -23,7 +29,7 @@ describe("Local", () => {
   test("register makes the service available", () => {
     const local = makeLocal();
 
-    local.register("math", { add: (a: number, b: number) => a + b });
+    local.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
     assert.equal(local.has("math"), true);
   });
@@ -34,7 +40,7 @@ describe("Local", () => {
     local.register("math", { add: () => 0 });
     local.register("math", { add: () => 1 });
 
-    assert.equal(local.invoke("math", "add", []), 1);
+    assert.equal(local.invoke("math", "add", ctx, []), 1);
   });
 
   test("unregister removes only the named service", () => {
@@ -57,23 +63,26 @@ describe("Local", () => {
   test("invoke runs the handler with the given arguments", async () => {
     const local = makeLocal();
     let received: unknown[] | undefined;
+    let from: string | undefined;
 
     local.register("echo", {
-      count: (...args: unknown[]) => {
+      count: (context, ...args: unknown[]) => {
         received = args;
+        from = context.from;
         return args.length;
       },
     });
 
-    assert.equal(await local.invoke("echo", "count", [1, 2]), 2);
+    assert.equal(await local.invoke("echo", "count", ctx, [1, 2]), 2);
     assert.deepEqual(received, [1, 2]);
+    assert.equal(from, "node-a");
   });
 
   test("invoke awaits an async handler", async () => {
     const local = makeLocal();
-    local.register("math", { add: async (a: number, b: number) => a + b });
+    local.register("math", { add: async (_ctx, a: number, b: number) => a + b });
 
-    assert.equal(await local.invoke("math", "add", [2, 3]), 5);
+    assert.equal(await local.invoke("math", "add", ctx, [2, 3]), 5);
   });
 
   test("invoke rejects unknown services and methods", () => {
@@ -81,11 +90,11 @@ describe("Local", () => {
     local.register("math", { add: () => 0 });
 
     assert.throws(
-      () => local.invoke("nope", "add", []),
+      () => local.invoke("nope", "add", ctx, []),
       (err: SwarmError) => err.kind === "not-found",
     );
     assert.throws(
-      () => local.invoke("math", "nope", []),
+      () => local.invoke("math", "nope", ctx, []),
       (err: SwarmError) => err.kind === "not-found",
     );
   });
@@ -95,7 +104,7 @@ describe("Local", () => {
     local.register("math", { add: () => 0 });
 
     assert.throws(
-      () => local.invoke("math", "toString", []),
+      () => local.invoke("math", "toString", ctx, []),
       (err: SwarmError) => err.kind === "not-found",
     );
   });
@@ -111,7 +120,7 @@ describe("Local", () => {
     });
 
     assert.throws(
-      () => local.invoke("boom", "fail", []),
+      () => local.invoke("boom", "fail", ctx, []),
       (err: Error) => err === failure,
     );
   });
@@ -124,7 +133,7 @@ describe("Local", () => {
       },
     });
 
-    await assert.rejects(local.invoke("boom", "fail", []), /boom/);
+    await assert.rejects(local.invoke("boom", "fail", ctx, []), /boom/);
   });
 
   test("invoke applies the call timeout", async () => {
@@ -135,7 +144,7 @@ describe("Local", () => {
     });
 
     await assert.rejects(
-      local.invoke("slow", "wait", [], 20),
+      local.invoke("slow", "wait", ctx, [], 20),
       (err: SwarmError) => err.kind === "timeout",
     );
   });
@@ -156,7 +165,7 @@ describe("Local", () => {
       (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(
-      () => local.invoke("math", "add", []),
+      () => local.invoke("math", "add", ctx, []),
       (err: SwarmError) => err.kind === "rejected",
     );
     assert.throws(

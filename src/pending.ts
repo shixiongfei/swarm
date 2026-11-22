@@ -16,7 +16,8 @@ import { SwarmError } from "./errors.ts";
 type Entry = {
   resolve(value: unknown): void;
   reject(error: SwarmError): void;
-  cancel?: () => void;
+  detach?: () => void;
+  abandon?: () => void;
 };
 
 export class PendingCalls {
@@ -27,7 +28,7 @@ export class PendingCalls {
   }
 
   call(
-    send: (id: string) => void,
+    send: (id: string) => void | (() => void),
     timeout: number,
     timeoutError: () => SwarmError,
     sendError: (cause: unknown) => SwarmError,
@@ -47,7 +48,7 @@ export class PendingCalls {
       }
 
       try {
-        send(id);
+        entry.abandon = send(id) ?? undefined;
       } catch (err) {
         this.entries.delete(id);
         reject(sendError(err));
@@ -62,7 +63,8 @@ export class PendingCalls {
             return;
           }
 
-          this.entries.delete(id);
+          this.take(id);
+          current.abandon?.();
           current.reject(
             new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
           );
@@ -70,12 +72,12 @@ export class PendingCalls {
 
         signal.addEventListener("abort", onAbort, { once: true });
 
-        entry.cancel = () => signal.removeEventListener("abort", onAbort);
+        entry.detach = () => signal.removeEventListener("abort", onAbort);
       }
     });
 
     return withTimeout(reply, timeout, timeoutError, () => {
-      this.take(id);
+      this.take(id)?.abandon?.();
     });
   }
 
@@ -107,8 +109,8 @@ export class PendingCalls {
     const failure = error();
 
     for (const entry of this.entries.values()) {
-      if (entry.cancel !== undefined) {
-        entry.cancel();
+      if (entry.detach !== undefined) {
+        entry.detach();
       }
 
       entry.reject(failure);
@@ -126,8 +128,8 @@ export class PendingCalls {
 
     this.entries.delete(id);
 
-    if (entry.cancel !== undefined) {
-      entry.cancel();
+    if (entry.detach !== undefined) {
+      entry.detach();
     }
 
     return entry;

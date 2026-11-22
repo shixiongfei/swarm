@@ -20,7 +20,7 @@ export type { LinkCloseReason } from "./nodelink.ts";
 export type { MulticastOptions } from "./multicast.ts";
 export type { ClientOptions } from "./client.ts";
 export type { NodeMember } from "./membership.ts";
-export type { Methods, TopicHandler } from "./local.ts";
+export type { CallContext, Methods, TopicHandler } from "./local.ts";
 export type {
   Instance,
   MetaData,

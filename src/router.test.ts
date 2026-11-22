@@ -95,7 +95,7 @@ describe("Router", () => {
   test("invokes a local service when no link serves it", async () => {
     const local = new NodeLocal("self");
 
-    local.register("math", { add: (a: number, b: number) => a + b });
+    local.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
     const { router } = makeRouter({ local, links: [fakeLink("peer", [])] });
 

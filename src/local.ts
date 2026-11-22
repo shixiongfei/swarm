@@ -15,9 +15,14 @@ import { withTimeout } from "./timeout.ts";
 import { rethrowAsync } from "./events.ts";
 import type { EventLite } from "eventlite.js";
 
+export type CallContext = {
+  readonly from: string;
+  readonly signal: AbortSignal;
+};
+
 export type Methods<M = Record<string, any>> = Record<
   keyof M,
-  (...args: any[]) => any
+  (ctx: CallContext, ...args: any[]) => any
 >;
 
 export type TopicHandler = (data: unknown, origin: string) => void;
@@ -77,7 +82,13 @@ export class Local {
     );
   }
 
-  invoke(service: string, method: string, args: unknown[], timeout?: number) {
+  invoke(
+    service: string,
+    method: string,
+    ctx: CallContext,
+    args: unknown[],
+    timeout?: number,
+  ) {
     this.checkOpen();
 
     const methods = this.services.get(service);
@@ -102,7 +113,7 @@ export class Local {
       );
     }
 
-    const value = handler.apply(methods, args);
+    const value = handler.call(methods, ctx, ...args);
 
     if (timeout === undefined) {
       return value;

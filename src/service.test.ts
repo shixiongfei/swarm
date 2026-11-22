@@ -389,7 +389,7 @@ setTimeout(() => console.log("survived"), 500);
         await gate;
 
         return {
-          add: (a: number, b: number) => a + b,
+          add: (_ctx, a: number, b: number) => a + b,
         };
       },
     });

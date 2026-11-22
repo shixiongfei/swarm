@@ -35,7 +35,7 @@ const { parentPort, workerData } = require("node:worker_threads");
   const port = workerData.port;
 
   if (${JSON.stringify(role)} === "server") {
-    node.register("echo", { ping: (value) => value * 2 });
+    node.register("echo", { ping: (_ctx, value) => value * 2 });
     node.subscribe("news", (data) => parentPort.postMessage({ kind: "news", value: data }));
     node.attach(port);
     return;

@@ -28,6 +28,7 @@ import { freePort, freeUdpPort, waitFor, within } from "./testutil.ts";
 import { SwarmError } from "./errors.ts";
 import { maxEnvelopeSize } from "./codec.ts";
 import type { Frame } from "./frame.ts";
+import type { CallContext } from "./local.ts";
 import type { LinkTransport } from "./link.ts";
 import type { NodeLinkDown } from "./node.ts";
 import type { MetaData, WatchEvent } from "./registry.ts";
@@ -191,7 +192,7 @@ describe("Node", () => {
     let received: unknown[] | undefined;
 
     node.register("echo", {
-      count: (...args: unknown[]) => {
+      count: (_ctx, ...args: unknown[]) => {
         received = args;
         return args.length;
       },
@@ -259,7 +260,7 @@ describe("Node", () => {
 
     t.after(() => node.close());
 
-    node.register("math", { add: (a: number, b: number) => a + b });
+    node.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
     const rejected = (err: SwarmError) =>
       err.kind === "rejected" && err.code === "INVALID_TIMEOUT";
@@ -290,7 +291,7 @@ describe("Node", () => {
     let calls = 0;
 
     node.register("math", {
-      add: (...values: number[]) => {
+      add: (_ctx, ...values: number[]) => {
         calls += 1;
         return values.reduce((sum, value) => sum + value, 0);
       },
@@ -1112,10 +1113,10 @@ setTimeout(() => console.log("survived"), 500);
   });
 
   test("get returns a proxy that calls the service", async () => {
-    type MathApi = { add(a: number, b: number): number };
+    type MathApi = { add(ctx: CallContext, a: number, b: number): number };
 
     const node = makeNode();
-    node.register("math", { add: (a: number, b: number) => a + b });
+    node.register("math", { add: (_ctx, a: number, b: number) => a + b });
     const math = node.get<MathApi>("math");
 
     assert.equal(await math.add(2, 3), 5);
@@ -1569,6 +1570,50 @@ setTimeout(() => console.log("survived"), 500);
     );
   });
 
+  test("propagates cancellation to the remote handler", async (t) => {
+    const a = new Node({ cluster: "cancel-remote-a" });
+    const b = new Node({ cluster: "cancel-remote-b" });
+    const { port1, port2 } = new MessageChannel();
+    let seen: { from: string; signal: AbortSignal } | undefined;
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const up = new Promise<void>((resolve) => a.watch("slow", () => resolve()));
+
+    b.register("slow", {
+      work: (ctx) =>
+        new Promise((resolve) => {
+          seen = { from: ctx.from, signal: ctx.signal };
+          ctx.signal.addEventListener("abort", () => resolve("late"));
+        }),
+    });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await within(up, 2000);
+
+    const controller = new AbortController();
+    const call = a.call("slow", "work", [], {
+      signal: controller.signal,
+      timeout: 5000,
+    });
+
+    await waitFor(() => seen !== undefined);
+
+    controller.abort();
+
+    await assert.rejects(call, (err: SwarmError) => err.code === "CANCELLED");
+    await waitFor(() => seen?.signal.aborted === true);
+
+    assert.equal(seen?.from, a.nodeId);
+  });
+
   test("callAll rejects with cancelled when the signal aborts", async (t) => {
     const node = new Node({ cluster: "cancel-call-all" });
 
@@ -1840,7 +1885,7 @@ setTimeout(() => console.log("survived"), 500);
       b.close();
     });
 
-    b.register("math", { add: (x: number, y: number) => x + y });
+    b.register("math", { add: (_ctx, x: number, y: number) => x + y });
 
     const address = await b.listen("tcp://127.0.0.1:0");
 
@@ -2342,7 +2387,7 @@ for (const protocol of ["tcp", "ws"] as const) {
 
         await connectPair(protocol, hub, peer);
 
-        peer.register("math", { add: (a: number, b: number) => a + b });
+        peer.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
         assert.equal((await up).instance.nodeId, peer.nodeId);
         assert.equal(await hub.call("math", "add", [2, 3]), 5);
@@ -2665,11 +2710,11 @@ for (const protocol of ["tcp", "ws"] as const) {
           }),
         );
 
-        hub.register("math", { add: (a: number, b: number) => a + b });
+        hub.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
         await connectPair(protocol, hub, peer);
 
-        peer.register("math", { mul: (a: number, b: number) => a * b });
+        peer.register("math", { mul: (_ctx, a: number, b: number) => a * b });
 
         await up;
 
@@ -2799,7 +2844,7 @@ describe("Node transport and mesh", () => {
 
     node.register(
       "math",
-      { add: (a: number, b: number) => a + b },
+      { add: (_ctx, a: number, b: number) => a + b },
       { tags: { tier: ["a"] } },
     );
 
@@ -3008,7 +3053,7 @@ describe("Node transport and mesh", () => {
       peer.close();
     });
 
-    hub.register("math", { add: (a: number, b: number) => a + b });
+    hub.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
     const ready = new Promise<void>((resolve) =>
       peer.watch("math", () => resolve()),
@@ -3387,9 +3432,9 @@ describe("Node transport and mesh", () => {
       bc.port2.close();
     });
 
-    a.register("math", { add: (x: number, y: number) => x * y });
+    a.register("math", { add: (_ctx, x: number, y: number) => x * y });
     c.register("math", {
-      add: (x: number, y: number) => {
+      add: (_ctx, x: number, y: number) => {
         calls += 1;
         return x + y;
       },
@@ -3435,7 +3480,7 @@ describe("Node transport and mesh", () => {
       channel.port2.close();
     });
 
-    b.register("math", { add: (x: number, y: number) => x + y });
+    b.register("math", { add: (_ctx, x: number, y: number) => x + y });
 
     const known = new Promise<void>((resolve) =>
       a.watch("math", () => resolve()),
@@ -3462,10 +3507,10 @@ describe("Node transport and mesh", () => {
     });
 
     local.register("math", {
-      add: async (a: number, b: number) => a + b,
+      add: async (_ctx, a: number, b: number) => a + b,
     });
     remote.register("math", {
-      add: async (a: number, b: number) => a + b + 2,
+      add: async (_ctx, a: number, b: number) => a + b + 2,
     });
 
     const tcpPort = await freePort();
@@ -3510,7 +3555,7 @@ describe("Node transport and mesh", () => {
     });
 
     provider.register("math", {
-      add: async (a: number, b: number) => a + b,
+      add: async (_ctx, a: number, b: number) => a + b,
     });
 
     const listening = await provider.listen(`ws://127.0.0.1:${port}/swarm`, {
@@ -3573,7 +3618,7 @@ describe("Node transport and mesh", () => {
       seed.close();
     });
 
-    seed.register("math", { add: async (a: number, b: number) => a + b });
+    seed.register("math", { add: async (_ctx, a: number, b: number) => a + b });
 
     const up = new Promise<void>((resolve) =>
       node.watch("math", (event) => {
@@ -3610,7 +3655,7 @@ describe("Node transport and mesh", () => {
       seed.close();
     });
 
-    right.register("math", { add: async (a: number, b: number) => a + b });
+    right.register("math", { add: async (_ctx, a: number, b: number) => a + b });
 
     const up = new Promise<void>((resolve) =>
       left.watch("math", (event) => {
@@ -3736,7 +3781,7 @@ describe("Node transport and mesh", () => {
       provider.close();
     });
 
-    provider.register("math", { add: (a: number, b: number) => a + b });
+    provider.register("math", { add: (_ctx, a: number, b: number) => a + b });
 
     const up = new Promise<boolean>((resolve) =>
       consumer.watch("math", (event) => {
@@ -4044,7 +4089,7 @@ describe("Node transport and mesh", () => {
       provider.close();
     });
 
-    provider.register("math", { add: async (a: number, b: number) => a + b });
+    provider.register("math", { add: async (_ctx, a: number, b: number) => a + b });
 
     const up = new Promise<void>((resolve) =>
       consumer.watch("math", (event) => {
@@ -4141,7 +4186,7 @@ describe("Node transport and mesh", () => {
       port2.close();
     });
 
-    target.register("math", { add: (x: number, y: number) => x + y });
+    target.register("math", { add: (_ctx, x: number, y: number) => x + y });
     node.register("pingpong", { ping: () => "pong" });
 
     const bound = await target.listen("tcp://127.0.0.1:0");
@@ -4273,7 +4318,7 @@ describe("Node transport and mesh", () => {
       new Promise<void>((resolve) => b.events.on("discovery", () => resolve())),
     ];
 
-    b.register("math", { add: (x: number, y: number) => x + y });
+    b.register("math", { add: (_ctx, x: number, y: number) => x + y });
 
     await Promise.all(started);
 

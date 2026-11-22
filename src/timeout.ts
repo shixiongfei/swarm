@@ -11,6 +11,8 @@
 
 import { SwarmError } from "./errors.ts";
 
+export const neverAborted = new AbortController().signal;
+
 export function isTimeout(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

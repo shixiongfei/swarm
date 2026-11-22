@@ -33,7 +33,7 @@ test("calls across processes in both directions", async (t) => {
   const { port } = await parent.listen("tcp://127.0.0.1:0");
   const url = `tcp://127.0.0.1:${port}`;
 
-  parent.register("sum", { add: (a: number, b: number) => a + b });
+  parent.register("sum", { add: (_ctx, a: number, b: number) => a + b });
 
   const peers = ["a", "b"].map(
     (name) =>
@@ -139,7 +139,7 @@ test("keeps calling while a peer blocks its event loop", async (t) => {
 const node = createNode({ cluster: ${JSON.stringify(cluster)}, discovery: false });
 let blocked = false;
 node.register("stall", {
-  spin: (ms) => {
+  spin: (_ctx, ms) => {
     if (!blocked) {
       blocked = true;
       const end = Date.now() + ms;

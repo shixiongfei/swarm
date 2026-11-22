@@ -23,6 +23,7 @@ export interface Provider {
     ttl?: number,
     source?: NodeLink,
     target?: string,
+    signal?: AbortSignal,
   ): unknown;
 
   publish(

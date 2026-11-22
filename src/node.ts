@@ -49,9 +49,11 @@ import type {
   WatchHandler,
 } from "./registry.ts";
 
+type Tail<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never;
+
 export type ServiceProxy<M extends Methods<M> = Methods> = {
   [K in keyof M]: (
-    ...args: Parameters<M[K]>
+    ...args: Tail<Parameters<M[K]>>
   ) => Promise<Awaited<ReturnType<M[K]>>>;
 };
 

@@ -113,7 +113,8 @@ describe("codec", () => {
         },
         [6, "i", "f", "to", "s", "m", [7], [2, "tg", 3, 8, 4, 9]],
       ],
-      [{ t: "reply", id: "i", from: "f", to: "to", value: { v: 1 } }, [7, "i", "f", "to", { v: 1 }]],
+      [{ t: "cancel", id: "i", from: "f", to: "to" }, [7, "i", "f", "to"]],
+      [{ t: "reply", id: "i", from: "f", to: "to", value: { v: 1 } }, [8, "i", "f", "to", { v: 1 }]],
       [
         {
           t: "error",
@@ -125,7 +126,7 @@ describe("codec", () => {
           retriable: false,
           message: "msg",
         },
-        [8, "i", "f", "to", "timeout", "TIMEOUT", false, "msg"],
+        [9, "i", "f", "to", "timeout", "TIMEOUT", false, "msg"],
       ],
       [
         {
@@ -135,18 +136,18 @@ describe("codec", () => {
             { t: "down", from: "df", service: "ds" },
           ],
         },
-        [9, [[12, "uf", "us", [1, { m: 1 }]], [13, "df", "ds"]]],
+        [10, [[13, "uf", "us", [1, { m: 1 }]], [14, "df", "ds"]]],
       ],
       [
         {
           t: "pubs",
           items: [{ t: "pub", from: "pf", origin: "po", topic: "pt", id: "pi", ttl: 8, data: { d: 1 } }],
         },
-        [10, [[14, "pf", "po", "pt", "pi", 8, { d: 1 }]]],
+        [11, [[15, "pf", "po", "pt", "pi", 8, { d: 1 }]]],
       ],
       [
         { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1 }] },
-        [11, "f", [[15, "pid", "tcp://a:1", 1]]],
+        [12, "f", [[16, "pid", "tcp://a:1", 1]]],
       ],
     ];
 
@@ -184,7 +185,7 @@ describe("codec", () => {
       t: "changes",
       items: [{ t: "up", from: "a", service: "s" }],
     };
-    assert.deepEqual(unpack(encode(up)), [9, [[12, "a", "s"]]]);
+    assert.deepEqual(unpack(encode(up)), [10, [[13, "a", "s"]]]);
   });
 
   test("ignores optional fields it has no id for", () => {
@@ -204,8 +205,8 @@ describe("codec", () => {
 
   test("ignores optional ids that name a required field", () => {
     const wire = pack([
-      10,
-      [[14, "f", "o", "topic", "id", 5, { d: 1 }, [4, 99]]],
+      11,
+      [[15, "f", "o", "topic", "id", 5, { d: 1 }, [4, 99]]],
     ]);
 
     assert.deepEqual(decode(wire), {

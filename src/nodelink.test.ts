@@ -690,7 +690,7 @@ describe("NodeLink", () => {
       port2.close();
     });
 
-    a.register("math", { add: (x: number, y: number) => x + y });
+    a.register("math", { add: (_ctx, x: number, y: number) => x + y });
     a.register("boom", {
       fail: () => {
         throw new Error("boom");
@@ -1248,6 +1248,162 @@ describe("NodeLink", () => {
       (err: SwarmError) =>
         err.kind === "failed" && err.message === "arguments are not cloneable",
     );
+  });
+
+  test("sends a cancel frame when the caller aborts", async (t) => {
+    const local = new NodeLocal("local-node");
+    const { link, nodeLink } = attachStub(local);
+    const controller = new AbortController();
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    const call = nodeLink.call(
+      "peer-node",
+      "math",
+      "add",
+      [],
+      5000,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+
+    controller.abort();
+
+    await assert.rejects(call, (err: SwarmError) => err.code === "CANCELLED");
+
+    const sent = link.sent.find((message) => message.t === "call");
+    const cancel = link.sent.find((message) => message.t === "cancel");
+
+    assert.ok(sent !== undefined && sent.t === "call");
+    assert.ok(cancel !== undefined && cancel.t === "cancel");
+    assert.equal(cancel.id, sent.id);
+    assert.equal(cancel.to, "peer-node");
+  });
+
+  test("sends a cancel frame when the call times out", async (t) => {
+    const local = new NodeLocal("local-node");
+    const { link, nodeLink } = attachStub(local);
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    await assert.rejects(
+      nodeLink.call("peer-node", "math", "add", [], 20),
+      (err: SwarmError) => err.code === "TIMEOUT",
+    );
+
+    assert.equal(
+      link.sent.some((message) => message.t === "cancel"),
+      true,
+    );
+  });
+
+  test("aborts the handler and skips the reply when the peer cancels", async (t) => {
+    const local = new NodeLocal("local-node");
+    let seen: { from: string; signal: AbortSignal } | undefined;
+
+    local.register("slow", {
+      wait: (ctx) =>
+        new Promise((resolve) => {
+          seen = { from: ctx.from, signal: ctx.signal };
+          ctx.signal.addEventListener("abort", () => resolve("late"));
+        }),
+    });
+
+    const { link, nodeLink } = attachStub(local);
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    link.events.emit("envelope", {
+      t: "call",
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+      service: "slow",
+      method: "wait",
+      args: [],
+    });
+
+    await Promise.resolve();
+
+    assert.equal(seen?.from, "peer-node");
+    assert.equal(seen?.signal.aborted, false);
+
+    link.events.emit("envelope", {
+      t: "cancel",
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+    });
+
+    assert.equal(seen?.signal.aborted, true);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(
+      link.sent.some((message) => message.t === "reply" || message.t === "error"),
+      false,
+    );
+  });
+
+  test("ignores a cancel that names another node", async (t) => {
+    const local = new NodeLocal("local-node");
+    let signal: AbortSignal | undefined;
+
+    local.register("slow", {
+      wait: (ctx) =>
+        new Promise((resolve) => {
+          signal = ctx.signal;
+          ctx.signal.addEventListener("abort", () => resolve("late"));
+        }),
+    });
+
+    const { link, nodeLink } = attachStub(local);
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    link.events.emit("envelope", {
+      t: "call",
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+      service: "slow",
+      method: "wait",
+      args: [],
+    });
+
+    await Promise.resolve();
+
+    for (const cancel of [
+      { t: "cancel" as const, id: "c1", from: "other-node", to: "stub-node" },
+      { t: "cancel" as const, id: "c1", from: "peer-node", to: "other-node" },
+      { t: "cancel" as const, id: "nope", from: "peer-node", to: "stub-node" },
+    ]) {
+      link.events.emit("envelope", cancel);
+    }
+
+    assert.equal(signal?.aborted, false);
+
+    link.events.emit("envelope", {
+      t: "cancel",
+      id: "c1",
+      from: "peer-node",
+      to: "stub-node",
+    });
+
+    assert.equal(signal?.aborted, true);
   });
 
   test("fails pending calls when the peer closes", async (t) => {

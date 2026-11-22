@@ -25,7 +25,7 @@ describe("App", () => {
     const math = createService({
       name: "math",
       setup: () => ({
-        add: (a: number, b: number) => a + b,
+        add: (_ctx, a: number, b: number) => a + b,
       }),
     });
 
@@ -80,7 +80,7 @@ describe("App", () => {
     const math = createService({
       name: "math",
       setup: () => ({
-        add: (a: number, b: number) => a + b,
+        add: (_ctx, a: number, b: number) => a + b,
       }),
     });
 
@@ -117,7 +117,7 @@ describe("App", () => {
     const math = createService({
       name: "math",
       setup: () => ({
-        add: (a: number, b: number) => a + b,
+        add: (_ctx, a: number, b: number) => a + b,
       }),
     });
 
@@ -150,7 +150,7 @@ describe("App", () => {
     const math = createService({
       name: "math",
       setup: () => ({
-        add: (a: number, b: number) => a + b,
+        add: (_ctx, a: number, b: number) => a + b,
       }),
     });
 
@@ -196,7 +196,7 @@ describe("App", () => {
     const math = createService({
       name: "math",
       setup: () => ({
-        add: (a: number, b: number) => a + b,
+        add: (_ctx, a: number, b: number) => a + b,
       }),
     });
 

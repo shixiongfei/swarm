@@ -85,6 +85,7 @@ export class NodeLink implements Observable {
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
+  private readonly inbound = new Map<string, AbortController>();
   private readonly provider: Provider;
   private readonly startup: number;
   private readonly link: Link;
@@ -170,6 +171,10 @@ export class NodeLink implements Observable {
             ? this.maxInboundTimeout
             : Math.min(message.timeout, this.maxInboundTimeout);
 
+        const controller = new AbortController();
+
+        this.inbound.set(message.id, controller);
+
         Promise.resolve()
           .then(() =>
             this.provider.invoke(
@@ -180,15 +185,44 @@ export class NodeLink implements Observable {
               message.ttl,
               this,
               message.target,
+              controller.signal,
             ),
           )
           .then(
-            (value) => this.sendReply(message.id, message.from, value),
-            (error: unknown) =>
-              this.sendFailure(message.id, message.from, error),
+            (value) => {
+              this.inbound.delete(message.id);
+
+              if (!controller.signal.aborted) {
+                this.sendReply(message.id, message.from, value);
+              }
+            },
+            (error: unknown) => {
+              this.inbound.delete(message.id);
+
+              if (!controller.signal.aborted) {
+                this.sendFailure(message.id, message.from, error);
+              }
+            },
           );
         return;
       }
+
+      case "cancel":
+        if (
+          this.peer !== undefined &&
+          message.from === this.peer &&
+          message.to === this.link.nodeId
+        ) {
+          const controller = this.inbound.get(message.id);
+
+          if (controller !== undefined) {
+            this.inbound.delete(message.id);
+            controller.abort(
+              new SwarmError("cancelled", "CANCELLED", "call was cancelled"),
+            );
+          }
+        }
+        return;
 
       case "reply":
         if (
@@ -447,10 +481,13 @@ export class NodeLink implements Observable {
     }
 
     return this.pending.call(
-      (id) =>
+      (id) => {
         this.transmit(() =>
           this.link.call(id, to, service, method, args, timeout, ttl, target),
-        ),
+        );
+
+        return () => this.sendCancel(id, to);
+      },
       timeout,
       () =>
         new SwarmError(
@@ -756,6 +793,14 @@ export class NodeLink implements Observable {
     }
   }
 
+  private sendCancel(id: string, to: string) {
+    try {
+      this.transmit(() => this.link.cancel(id, to));
+    } catch {
+      // The peer detects the abandoned call by its own timeout.
+    }
+  }
+
   private dispose(
     message: string,
     reason: LinkCloseReason = "close",
@@ -781,6 +826,12 @@ export class NodeLink implements Observable {
     }
 
     this.pending.clear(() => new SwarmError("failed", code, message, false));
+
+    for (const controller of this.inbound.values()) {
+      controller.abort(new SwarmError("failed", code, message, false));
+    }
+
+    this.inbound.clear();
 
     for (const dispose of this.disposes) {
       dispose();

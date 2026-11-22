@@ -65,14 +65,26 @@ export class Router {
 
     if (target !== undefined && target === this.nodeId) {
       return withCancel(
-        this.local.invoke(service, method, args, timeout),
+        this.local.call(
+          service,
+          method,
+          this.local.context(source, signal),
+          args,
+          timeout,
+        ),
         signal,
       );
     }
 
     if (target === undefined && this.local.hasMethod(service, method)) {
       return withCancel(
-        this.local.invoke(service, method, args, timeout),
+        this.local.call(
+          service,
+          method,
+          this.local.context(source, signal),
+          args,
+          timeout,
+        ),
         signal,
       );
     }

@@ -72,6 +72,7 @@ describe("parseEnvelope", () => {
         method: "add",
         args: [1, 2],
       },
+      { t: "cancel", id: "call-1", from: "node-a", to: "node-b" },
       { t: "reply", id: "call-1", from: "node-b", to: "node-a", value: 3 },
       {
         t: "error",
@@ -189,6 +190,8 @@ describe("parseEnvelope", () => {
         args: [],
         timeout: NaN,
       },
+      { t: "cancel", id: "call-1", from: "node-b" },
+      { t: "cancel", id: "call-1", from: "node-b", to: 1 },
       { t: "reply", id: "call-1", from: "node-b" },
       {
         t: "error",

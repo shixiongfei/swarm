@@ -97,18 +97,18 @@ function shape<
   return { code, t, fields, required, optional: optionalNames };
 }
 
-const up = shape(12, "up", {
+const up = shape(13, "up", {
   from: String,
   service: String,
   meta: optional(Meta),
 });
 
-const down = shape(13, "down", {
+const down = shape(14, "down", {
   from: String,
   service: String,
 });
 
-const pub = shape(14, "pub", {
+const pub = shape(15, "pub", {
   from: String,
   origin: String,
   topic: String,
@@ -117,7 +117,7 @@ const pub = shape(14, "pub", {
   data: Unknown,
 });
 
-const peer = shape(15, undefined, {
+const peer = shape(16, undefined, {
   id: String,
   addr: String,
   startup: Number,
@@ -155,14 +155,20 @@ const call = shape(6, "call", {
   ttl: optional(Number),
 });
 
-const reply = shape(7, "reply", {
+const cancel = shape(7, "cancel", {
+  id: String,
+  from: String,
+  to: String,
+});
+
+const reply = shape(8, "reply", {
   id: String,
   from: String,
   to: String,
   value: Unknown,
 });
 
-const error = shape(8, "error", {
+const error = shape(9, "error", {
   id: String,
   from: String,
   to: String,
@@ -172,15 +178,15 @@ const error = shape(8, "error", {
   message: String,
 });
 
-const changes = shape(9, "changes", {
+const changes = shape(10, "changes", {
   items: [up, down],
 });
 
-const pubs = shape(10, "pubs", {
+const pubs = shape(11, "pubs", {
   items: [pub],
 });
 
-const peers = shape(11, "peers", {
+const peers = shape(12, "peers", {
   from: String,
   members: [peer],
 });
@@ -192,6 +198,7 @@ export const shapes = [
   ping,
   pong,
   call,
+  cancel,
   reply,
   error,
   changes,
@@ -333,6 +340,20 @@ function isCall(
   return message;
 }
 
+function isCancel(
+  message: Extract<Envelope, { t: "cancel" }>,
+): Envelope | undefined {
+  if (
+    typeof message.id !== "string" ||
+    typeof message.from !== "string" ||
+    typeof message.to !== "string"
+  ) {
+    return undefined;
+  }
+
+  return message;
+}
+
 function isReply(
   message: Extract<Envelope, { t: "reply" }>,
 ): Envelope | undefined {
@@ -447,6 +468,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isChanges(message);
     case "call":
       return isCall(message);
+    case "cancel":
+      return isCancel(message);
     case "reply":
       return isReply(message);
     case "error":
