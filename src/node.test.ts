@@ -4658,6 +4658,37 @@ describe("Node transport and mesh", () => {
     );
   });
 
+  test("a passive node serves its services without keeping the cluster table", async (t) => {
+    const passive = new Node({ cluster: "passive-table", passive: true });
+    const caller = new Node({ cluster: "passive-table" });
+
+    t.after(() => {
+      passive.close();
+      caller.close();
+    });
+
+    passive.register("svc", { ping: () => "pong" });
+    caller.register("other", { ping: () => "pong" });
+
+    const addr = await passive.listen("tcp://127.0.0.1:0");
+
+    await caller.connect(`tcp://127.0.0.1:${addr.port}`);
+
+    assert.equal(
+      await waitFor(() =>
+        caller.snapshot().services.some((item) => item.service === "svc"),
+      ),
+      true,
+    );
+    assert.equal(await caller.call("svc", "ping"), "pong");
+
+    assert.deepEqual(
+      passive.snapshot().services.map((item) => item.service),
+      ["svc"],
+    );
+    assert.deepEqual(passive.snapshot().links[0].services, []);
+  });
+
   test("peers ignores invalid or wildcard entries", async (t) => {
     const node = new Node({ cluster: "peers-invalid" });
     const { port1, port2 } = new MessageChannel();

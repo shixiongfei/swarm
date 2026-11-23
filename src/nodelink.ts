@@ -153,7 +153,7 @@ export class NodeLink implements Observable {
         return;
 
       case "changes":
-        if (this.peer === undefined) {
+        if (this.peer === undefined || this.passive) {
           return;
         }
 

@@ -53,17 +53,20 @@ class StubLink extends Link {
   }
 }
 
-function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
+function attachStub(
+  local: NodeLocal,
+  options: { maxInboundTimeout?: number; passive?: boolean } = {},
+) {
   const link = new StubLink();
   const nodeLink = new NodeLink(link, {
     provider: local,
     cluster: "default",
-    passive: false,
+    passive: options.passive === true,
     startup: 1,
     secret: "",
     heartbeatInterval: 15000,
     heartbeatTimeout: 45000,
-    maxInboundTimeout,
+    maxInboundTimeout: options.maxInboundTimeout,
   });
 
   link.events.emit("envelope", {
@@ -317,7 +320,7 @@ describe("handshake helpers", () => {
 
   test("clamps the inbound timeout to the link configuration", async (t) => {
     const local = new NodeLocal("local-node");
-    const { link, nodeLink } = attachStub(local, 20);
+    const { link, nodeLink } = attachStub(local, { maxInboundTimeout: 20 });
 
     local.register("slow", {
       run: () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
@@ -351,7 +354,7 @@ describe("handshake helpers", () => {
 
   test("applies the inbound timeout when a call carries no deadline", async (t) => {
     const local = new NodeLocal("local-node");
-    const { link, nodeLink } = attachStub(local, 20);
+    const { link, nodeLink } = attachStub(local, { maxInboundTimeout: 20 });
 
     local.register("slow", {
       run: () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
@@ -1068,6 +1071,27 @@ describe("NodeLink", () => {
       ["peer-node"],
     );
     assert.deepEqual(downs, ["origin"]);
+  });
+
+  test("a passive node keeps no registry of the peer's changes", (t) => {
+    const local = new NodeLocal("local-node");
+    const { link, nodeLink } = attachStub(local, { passive: true });
+    const events: WatchEvent[] = [];
+
+    t.after(() => nodeLink.close());
+
+    nodeLink.watch((event) => events.push(event));
+
+    link.events.emit("envelope", {
+      t: "changes",
+      items: [
+        { t: "up", from: "origin", service: "math" },
+        { t: "up", from: "peer-node", service: "math" },
+      ],
+    });
+
+    assert.deepEqual(nodeLink.instances(), []);
+    assert.deepEqual(events, []);
   });
 
   test("ignores a changes frame from an unauthenticated link", (t) => {
