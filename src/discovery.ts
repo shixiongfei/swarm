@@ -74,6 +74,10 @@ export class Discovery {
     return this.multicast !== undefined && this.multicast.active;
   }
 
+  get multicastEnabled() {
+    return this.multicastConfig !== undefined;
+  }
+
   get unixActive() {
     return this.unixDiscovery !== undefined && this.unixDiscovery.active;
   }

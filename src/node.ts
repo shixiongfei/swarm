@@ -412,7 +412,9 @@ export class Node implements Provider {
     this.watcher.addSource(this.nodeHub);
     this.watcher.watch((event) => this.relay(event));
 
-    void this.discovery.startUnix();
+    if (config.discovery) {
+      void this.discovery.startUnix();
+    }
   }
 
   get isClosed() {
@@ -567,7 +569,9 @@ export class Node implements Provider {
 
     this.dialer.discover();
 
-    await this.discovery.startMulticast();
+    if (this.discovery.multicastEnabled) {
+      await this.discovery.startMulticast();
+    }
 
     return { host: server.host, port: server.port };
   }
