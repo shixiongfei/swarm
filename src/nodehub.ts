@@ -37,6 +37,7 @@ export class NodeHub implements Observable {
 
   private readonly secret: string;
   private readonly cluster: string;
+  private readonly passive: boolean;
   private readonly provider: Provider;
   private readonly startup: number;
   private readonly heartbeatInterval: number;
@@ -54,6 +55,7 @@ export class NodeHub implements Observable {
     this.startup = config.startup;
     this.secret = config.secret;
     this.cluster = config.cluster;
+    this.passive = config.passive;
     this.heartbeatInterval = config.heartbeatInterval;
     this.heartbeatTimeout = config.heartbeatTimeout;
     this.handshakeTimeout = config.handshakeTimeout;
@@ -68,6 +70,7 @@ export class NodeHub implements Observable {
       startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
       cluster: this.cluster,
+      passive: this.passive,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,

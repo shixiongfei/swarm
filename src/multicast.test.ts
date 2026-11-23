@@ -44,8 +44,8 @@ describe("Multicast", () => {
     );
 
     try {
-      await a.open(() => [{ id: "a", addr: "tcp://127.0.0.1:1", startup: 1 }]);
-      await b.open(() => [{ id: "b", addr: "tcp://127.0.0.1:2", startup: 2 }]);
+      await a.open(() => [{ id: "a", addr: "tcp://127.0.0.1:1", startup: 1, passive: false }]);
+      await b.open(() => [{ id: "b", addr: "tcp://127.0.0.1:2", startup: 2, passive: false }]);
     } catch {
       t.skip("multicast is not available");
       return;
@@ -59,7 +59,7 @@ describe("Multicast", () => {
     }
 
     assert.deepEqual(entries, [
-      { id: "b", addr: "tcp://127.0.0.1:2", startup: 2 },
+      { id: "b", addr: "tcp://127.0.0.1:2", startup: 2, passive: false },
     ]);
   });
 
@@ -101,11 +101,13 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "probe",
         addr: "tcp://127.0.0.1:1",
+        passive: false,
         startup: 1,
         sig: sign("", {
           cluster: "multicast",
           from: "probe",
           addr: "tcp://127.0.0.1:1",
+          passive: false,
           startup: 1,
         }),
       }),
@@ -128,11 +130,13 @@ describe("Multicast", () => {
         cluster: "other",
         from: "x",
         addr: "tcp://127.0.0.1:1",
+        passive: false,
         startup: 1,
         sig: sign("", {
           cluster: "other",
           from: "x",
           addr: "tcp://127.0.0.1:1",
+          passive: false,
           startup: 1,
         }),
       }),
@@ -147,10 +151,12 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "no-startup",
         addr: "tcp://127.0.0.1:1",
+        passive: false,
         sig: sign("", {
           cluster: "multicast",
           from: "no-startup",
           addr: "tcp://127.0.0.1:1",
+          passive: false,
         }),
       }),
       port,
@@ -163,11 +169,13 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "fractional-startup",
         addr: "tcp://127.0.0.1:1",
+        passive: false,
         startup: 1.5,
         sig: sign("", {
           cluster: "multicast",
           from: "fractional-startup",
           addr: "tcp://127.0.0.1:1",
+          passive: false,
           startup: 1.5,
         }),
       }),
@@ -187,11 +195,13 @@ describe("Multicast", () => {
         cluster: "multicast",
         from: "x",
         addr: "tcp://127.0.0.1:1",
+        passive: false,
         startup: 1,
         sig: sign("", {
           cluster: "multicast",
           from: "x",
           addr: "tcp://127.0.0.1:1",
+          passive: false,
           startup: 1,
         }),
       }),
@@ -200,7 +210,7 @@ describe("Multicast", () => {
     );
 
     assert.deepEqual(await within(received, 500), [
-      { id: "x", addr: "tcp://127.0.0.1:1", startup: 1 },
+      { id: "x", addr: "tcp://127.0.0.1:1", startup: 1, passive: false },
     ]);
   });
 
@@ -237,6 +247,7 @@ describe("Multicast", () => {
       from: "x",
       addr: "tcp://127.0.0.1:1",
       startup: 1,
+      passive: false,
     };
     const send = (addr: string, secret: string) =>
       sender.send(
@@ -246,6 +257,7 @@ describe("Multicast", () => {
           from: claims.from,
           addr,
           startup: claims.startup,
+          passive: claims.passive,
           sig: sign(secret, claims),
         }),
         port,
@@ -265,7 +277,7 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "x", addr: claims.addr, startup: 1 }]);
+    assert.deepEqual(entries, [{ id: "x", addr: claims.addr, startup: 1, passive: false }]);
 
     const rejected = new Promise<PeerEntry[]>((resolve) =>
       multicast.events.on("peers", resolve),
@@ -315,8 +327,8 @@ describe("Multicast", () => {
     );
 
     try {
-      await a.open(() => [{ id: "a", addr: "tcp://[::1]:1", startup: 1 }]);
-      await b.open(() => [{ id: "b", addr: "tcp://[::1]:2", startup: 2 }]);
+      await a.open(() => [{ id: "a", addr: "tcp://[::1]:1", startup: 1, passive: false }]);
+      await b.open(() => [{ id: "b", addr: "tcp://[::1]:2", startup: 2, passive: false }]);
     } catch {
       t.skip("IPv6 multicast is not available");
       return;
@@ -329,7 +341,7 @@ describe("Multicast", () => {
       return;
     }
 
-    assert.deepEqual(entries, [{ id: "b", addr: "tcp://[::1]:2", startup: 2 }]);
+    assert.deepEqual(entries, [{ id: "b", addr: "tcp://[::1]:2", startup: 2, passive: false }]);
   });
 
   test("close is idempotent", async (t) => {

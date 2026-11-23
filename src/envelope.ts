@@ -60,6 +60,7 @@ export const fieldIds: Record<string, number> = {
   target: 2,
   timeout: 3,
   ttl: 4,
+  passive: 5,
 };
 
 export const nameOfId = new Map<number, string>();
@@ -121,6 +122,7 @@ const peer = shape(16, undefined, {
   id: String,
   addr: String,
   startup: Number,
+  passive: optional(Boolean),
 });
 
 const hello = shape(1, "hello", {
@@ -129,6 +131,7 @@ const hello = shape(1, "hello", {
   startup: Number,
   token: String,
   cluster: String,
+  passive: optional(Boolean),
 });
 
 const accept = shape(2, "accept", {
@@ -137,6 +140,7 @@ const accept = shape(2, "accept", {
   startup: Number,
   token: String,
   cluster: String,
+  passive: optional(Boolean),
 });
 
 const bye = shape(3, "bye", { from: String });
@@ -270,6 +274,7 @@ function isHandshake(
     typeof message.cluster !== "string" ||
     typeof message.version !== "number" ||
     !Number.isInteger(message.startup) ||
+    (message.passive !== undefined && typeof message.passive !== "boolean") ||
     !Number.isInteger(message.version) ||
     message.version < 1
   ) {
@@ -435,7 +440,8 @@ function isPeerEntry(entry: unknown) {
     typeof peer.id === "string" &&
     typeof peer.addr === "string" &&
     peer.addr.length <= maxPeerAddrLength &&
-    Number.isInteger(peer.startup)
+    Number.isInteger(peer.startup) &&
+    (peer.passive === undefined || typeof peer.passive === "boolean")
   );
 }
 

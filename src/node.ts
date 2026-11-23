@@ -75,6 +75,7 @@ export type CallOptions = {
 export type NodeConfig = {
   cluster: string;
   secret?: string;
+  passive?: boolean;
   callTimeout?: number;
   memberTtl?: number;
   dialTtl?: number;
@@ -158,6 +159,7 @@ function assertCall(service: unknown, method: unknown, args: unknown) {
 export class Node implements Provider {
   readonly nodeId = randomId();
   readonly startup = Date.now();
+  readonly passive: boolean;
   readonly cluster: string;
   readonly secret: string;
   readonly events = eventlite<NodeEvents>({
@@ -204,6 +206,7 @@ export class Node implements Provider {
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
     this.secret = config.secret !== undefined ? config.secret : "";
+    this.passive = config.passive === true;
 
     this.watcher.addSource(this.nodeLocal);
 
@@ -322,7 +325,13 @@ export class Node implements Provider {
       dialTtl,
       linked: () => this.linkedPeers(),
       dialing: (addr) => this.dialer.has(addr),
-      dial: (addr, id) => void this.dialer.dial(addr, id),
+      dial: (addr, id) => {
+        if (this.passive) {
+          return;
+        }
+
+        void this.dialer.dial(addr, id);
+      },
       drop: (addr) => this.dialer.drop(addr),
       broadcast: (ups, downs) => this.broadcastPeers(ups, downs),
       onUp: (member) => this.events.emit("member-up", member),
@@ -368,6 +377,7 @@ export class Node implements Provider {
       provider: this,
       startup: this.startup,
       cluster: this.cluster,
+      passive: this.passive,
       heartbeatInterval: this.heartbeatInterval,
       heartbeatTimeout: this.heartbeatTimeout,
       handshakeTimeout: this.handshakeTimeout,
@@ -563,6 +573,7 @@ export class Node implements Provider {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
         startup: this.startup,
+        passive: this.passive,
       };
       this.membership.upsertSelf(self);
     }
@@ -929,6 +940,7 @@ export class Node implements Provider {
       startup: this.startup,
       secret: secret !== undefined ? secret : this.secret,
       cluster: this.cluster,
+      passive: this.passive,
       maxInflight: this.maxInflight,
       maxInbound: this.maxInbound,
       heartbeatInterval: this.heartbeatInterval,
@@ -967,7 +979,14 @@ export class Node implements Provider {
       this.adopted.add(nodeLink);
       this.events.emit("link-up", this.linkInfo(nodeLink));
 
-      if (this.membership.attach(expected, addr, nodeLink.peerStartup)) {
+      if (
+        this.membership.attach(
+          expected,
+          addr,
+          nodeLink.peerStartup,
+          nodeLink.peerPassive,
+        )
+      ) {
         return;
       }
 

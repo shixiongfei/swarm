@@ -111,13 +111,18 @@ export class Membership {
 
           existing.addr = entry.addr;
           existing.startup = entry.startup;
+          existing.passive = entry.passive === true;
           ups.push(existing);
 
           if (!linked.has(entry.id) && !this.dialing(entry.addr)) {
             this.dial(entry.addr, entry.id);
           }
-        } else if (existing.startup !== entry.startup) {
+        } else if (
+          existing.startup !== entry.startup ||
+          existing.passive !== (entry.passive === true)
+        ) {
           existing.startup = entry.startup;
+          existing.passive = entry.passive === true;
           ups.push(existing);
         }
 
@@ -128,7 +133,10 @@ export class Membership {
       ups.push(entry);
       this.onUp(entry);
 
-      if ((!advertised || this.id < entry.id) && !linked.has(entry.id)) {
+      if (
+        (entry.passive || !advertised || this.id < entry.id) &&
+        !linked.has(entry.id)
+      ) {
         this.dial(entry.addr, entry.id);
       }
     }
@@ -140,7 +148,7 @@ export class Membership {
     }
   }
 
-  attach(peer?: string, addr?: string, startup?: number) {
+  attach(peer?: string, addr?: string, startup?: number, passive = false) {
     if (addr !== undefined) {
       this.expiries.delete(addr);
     }
@@ -156,7 +164,7 @@ export class Membership {
       return false;
     }
 
-    const member = { id: peer, addr, startup };
+    const member = { id: peer, addr, startup, passive };
 
     this.members.set(peer, member);
     this.broadcast([member], []);
@@ -250,6 +258,7 @@ export class Membership {
       id: member.id,
       addr: member.addr,
       startup: member.startup,
+      passive: member.passive,
     }));
   }
 

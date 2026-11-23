@@ -26,6 +26,7 @@ const envelopes: Envelope[] = [
     startup: 1,
     token: "token-value",
     cluster: "default",
+    passive: true,
   },
   {
     t: "accept",
@@ -34,6 +35,7 @@ const envelopes: Envelope[] = [
     startup: 1,
     token: "token-value",
     cluster: "default",
+    passive: true,
   },
   {
     t: "changes",
@@ -88,12 +90,12 @@ describe("codec", () => {
   test("pins wire field order for every shape", () => {
     const wire: [Envelope, unknown[]][] = [
       [
-        { t: "hello", from: "f", version: 2, startup: 3, token: "t", cluster: "c" },
+        { t: "hello", from: "f", version: 2, startup: 3, token: "t", cluster: "c", passive: false },
         [1, "f", 2, 3, "t", "c"],
       ],
       [
-        { t: "accept", from: "f", version: 2, startup: 3, token: "t", cluster: "c" },
-        [2, "f", 2, 3, "t", "c"],
+        { t: "accept", from: "f", version: 2, startup: 3, token: "t", cluster: "c", passive: true },
+        [2, "f", 2, 3, "t", "c", [5, true]],
       ],
       [{ t: "bye", from: "f" }, [3, "f"]],
       [{ t: "ping", from: "f" }, [4, "f"]],
@@ -146,8 +148,12 @@ describe("codec", () => {
         [11, [[15, "pf", "po", "pt", "pi", 8, { d: 1 }]]],
       ],
       [
-        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1 }] },
+        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1, passive: false }] },
         [12, "f", [[16, "pid", "tcp://a:1", 1]]],
+      ],
+      [
+        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1, passive: true }] },
+        [12, "f", [[16, "pid", "tcp://a:1", 1, [5, true]]]],
       ],
       [
         { t: "peersGone", from: "f", ids: ["gone"] },
@@ -184,6 +190,20 @@ describe("codec", () => {
     assert.deepEqual(unpack(encode(withTimeout)), [
       6, "c", "a", "b", "s", "m", [], [3, 100],
     ]);
+
+    const zeroTimeout: Envelope = { ...base, timeout: 0 };
+    assert.deepEqual(unpack(encode(zeroTimeout)), [
+      6, "c", "a", "b", "s", "m", [], [3, 0],
+    ]);
+
+    const badTimeout = encode({
+      ...base,
+      timeout: false,
+    } as unknown as Envelope);
+    assert.deepEqual(unpack(badTimeout), [
+      6, "c", "a", "b", "s", "m", [], [3, false],
+    ]);
+    assert.equal(decode(badTimeout), undefined);
 
     const up: Envelope = {
       t: "changes",

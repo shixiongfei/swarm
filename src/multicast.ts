@@ -149,6 +149,7 @@ export class Multicast {
         from: entry.id,
         addr: entry.addr,
         startup: entry.startup,
+        passive: entry.passive,
       };
 
       this.socket.send(
@@ -158,6 +159,7 @@ export class Multicast {
           from: claims.from,
           addr: claims.addr,
           startup: claims.startup,
+          passive: claims.passive,
           sig: sign(this.secret, claims),
         }),
         this.port,
@@ -251,6 +253,7 @@ export class Multicast {
       from?: unknown;
       addr?: unknown;
       startup?: unknown;
+      passive?: unknown;
       sig?: unknown;
     };
 
@@ -260,6 +263,7 @@ export class Multicast {
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
       !Number.isInteger(value.startup) ||
+      typeof value.passive !== "boolean" ||
       typeof value.sig !== "string" ||
       value.from === this.nodeId ||
       value.cluster !== this.cluster
@@ -274,7 +278,8 @@ export class Multicast {
       claims.cluster !== value.cluster ||
       claims.from !== value.from ||
       claims.addr !== value.addr ||
-      claims.startup !== value.startup
+      claims.startup !== value.startup ||
+      claims.passive !== value.passive
     ) {
       return;
     }
@@ -295,7 +300,12 @@ export class Multicast {
     }
 
     this.events.emit("peers", [
-      { id: value.from, addr: value.addr, startup: value.startup as number },
+      {
+        id: value.from,
+        addr: value.addr,
+        startup: value.startup as number,
+        passive: value.passive,
+      },
     ]);
   }
 }

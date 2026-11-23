@@ -47,12 +47,12 @@ export abstract class Link {
     );
   }
 
-  hello(startup: number, token: string, cluster: string) {
-    this.handshake("hello", startup, token, cluster);
+  hello(startup: number, token: string, cluster: string, passive: boolean) {
+    this.handshake("hello", startup, token, cluster, passive);
   }
 
-  accept(startup: number, token: string, cluster: string) {
-    this.handshake("accept", startup, token, cluster);
+  accept(startup: number, token: string, cluster: string, passive: boolean) {
+    this.handshake("accept", startup, token, cluster, passive);
   }
 
   private handshake(
@@ -60,6 +60,7 @@ export abstract class Link {
     startup: number,
     token: string,
     cluster: string,
+    passive: boolean,
   ) {
     this.send(
       frame({
@@ -69,6 +70,7 @@ export abstract class Link {
         startup,
         token,
         cluster,
+        passive,
       } as Envelope),
     );
   }

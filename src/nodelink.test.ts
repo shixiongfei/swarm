@@ -58,6 +58,7 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
   const nodeLink = new NodeLink(link, {
     provider: local,
     cluster: "default",
+    passive: false,
     startup: 1,
     secret: "",
     heartbeatInterval: 15000,
@@ -67,6 +68,7 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
 
   link.events.emit("envelope", {
     t: "hello",
+    passive: false,
     cluster: "default",
     from: "peer-node",
     version: protocolVersion,
@@ -84,6 +86,7 @@ describe("handshake helpers", () => {
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "local-cluster",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -92,6 +95,7 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "peer-cluster",
       from: "peer-node",
       version: protocolVersion,
@@ -104,12 +108,44 @@ describe("handshake helpers", () => {
     nodeLink.close();
   });
 
+  test("carries the passive flag through the handshake", () => {
+    const local = new NodeLocal("local-node");
+    const link = new StubLink();
+    const nodeLink = new NodeLink(link, {
+      provider: local,
+      cluster: "default",
+      passive: true,
+      startup: 1,
+      secret: "",
+      heartbeatInterval: 15000,
+      heartbeatTimeout: 45000,
+    });
+
+    link.events.emit("envelope", {
+      t: "hello",
+      passive: true,
+      cluster: "default",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-node"),
+    });
+
+    const reply = link.sent.find((message) => message.t === "accept");
+
+    assert.equal(nodeLink.peerPassive, true);
+    assert.equal(reply?.t === "accept" ? reply.passive : undefined, true);
+
+    nodeLink.close();
+  });
+
   test("disposes the link when the handshake reply fails", () => {
     const local = new NodeLocal("local-node");
     const link = new StubLink();
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -123,6 +159,7 @@ describe("handshake helpers", () => {
     link.failNextSend = true;
     link.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -141,6 +178,7 @@ describe("handshake helpers", () => {
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -162,6 +200,7 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -525,6 +564,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -543,6 +583,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -571,6 +612,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -599,6 +641,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -825,6 +868,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "two-ids",
       from: "first",
       version: protocolVersion,
@@ -844,6 +888,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "two-ids",
       from: "second",
       version: protocolVersion,
@@ -909,6 +954,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "secret-a",
       from: "peer-node",
       version: protocolVersion,
@@ -967,6 +1013,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "relayed-sender",
       from: "peer",
       version: protocolVersion,
@@ -1029,6 +1076,7 @@ describe("NodeLink", () => {
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1069,6 +1117,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "pub-origin",
       from: "peer",
       version: protocolVersion,
@@ -1149,6 +1198,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "call-target",
       from: "peer",
       version: protocolVersion,
@@ -1201,6 +1251,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1229,6 +1280,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1282,6 +1334,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1554,6 +1607,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(new LinkPort(port1, "local-node"), {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1585,6 +1639,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1612,6 +1667,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1625,6 +1681,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1654,6 +1711,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1667,6 +1725,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1691,6 +1750,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 1000,
@@ -1704,6 +1764,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1722,6 +1783,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1735,6 +1797,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: Math.floor(protocolVersion / 100) * 100 + 99,
@@ -1752,6 +1815,7 @@ describe("NodeLink", () => {
     const link = new NodeLink(stub, {
       provider: local,
       cluster: "default",
+      passive: false,
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -1765,6 +1829,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: (Math.floor(protocolVersion / 100) + 1) * 100,
@@ -1797,6 +1862,7 @@ describe("NodeLink", () => {
       startup: 1,
       secret: "",
       cluster: "default",
+      passive: false,
       heartbeatInterval: 15000,
       heartbeatTimeout: 45000,
     });
@@ -1805,6 +1871,7 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1857,6 +1924,7 @@ describe("ready", () => {
       nodeLink: new NodeLink(link, {
         provider: new NodeLocal("local-node"),
         cluster: "default",
+        passive: false,
         startup: 1,
         secret: "",
         heartbeatInterval: 15000,
@@ -1871,6 +1939,7 @@ describe("ready", () => {
 
     link.events.emit("envelope", {
       t: "hello",
+      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
