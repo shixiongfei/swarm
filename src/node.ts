@@ -28,7 +28,13 @@ import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout, withCancel } from "./timeout.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable, maxEnvelopeSize } from "./codec.ts";
-import { changesFrame, downChange, peersFrame, upChange } from "./frame.ts";
+import {
+  changesFrame,
+  downChange,
+  peersGoneFrame,
+  peersFrame,
+  upChange,
+} from "./frame.ts";
 import { chunk } from "./chunk.ts";
 import type { Frame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
@@ -189,6 +195,8 @@ export class Node implements Provider {
   };
 
   private inflight = 0;
+  private readonly pendingUps = new Map<string, NodeMember>();
+  private readonly pendingDowns = new Set<string>();
   private gossip: ReturnType<typeof setTimeout> | undefined;
   private draining = false;
   private closed = false;
@@ -316,7 +324,7 @@ export class Node implements Provider {
       dialing: (addr) => this.dialer.has(addr),
       dial: (addr, id) => void this.dialer.dial(addr, id),
       drop: (addr) => this.dialer.drop(addr),
-      broadcast: () => this.broadcastPeers(),
+      broadcast: (ups, downs) => this.broadcastPeers(ups, downs),
       onUp: (member) => this.events.emit("member-up", member),
       onDown: (member) => this.events.emit("member-down", member),
     });
@@ -391,7 +399,10 @@ export class Node implements Provider {
       this.notifyPeers(nodeLink);
     });
     this.nodeHub.events.on("peers", (nodeLink, members) =>
-      this.membership.learn(members, nodeLink.local),
+      this.receivePeers(members, nodeLink.local),
+    );
+    this.nodeHub.events.on("peersGone", (nodeLink, ids) =>
+      this.receivePeersGone(ids),
     );
     this.nodeHub.events.on("bye", (nodeLink) =>
       this.membership.forgetByLink(nodeLink.peerId),
@@ -959,8 +970,9 @@ export class Node implements Provider {
       this.notifyPeers(nodeLink);
     });
     nodeLink.events.on("peers", (members) =>
-      this.membership.learn(members, nodeLink.local),
+      this.receivePeers(members, nodeLink.local),
     );
+    nodeLink.events.on("peersGone", (ids) => this.receivePeersGone(ids));
     nodeLink.events.on("bye", () =>
       this.membership.forgetByLink(nodeLink.peerId),
     );
@@ -1127,7 +1139,7 @@ export class Node implements Provider {
     return linked;
   }
 
-  private peersFrames(links: NodeLink[]) {
+  private peersFrames(links: NodeLink[], ups?: NodeMember[]) {
     if (links.length === 0) {
       return [];
     }
@@ -1136,10 +1148,13 @@ export class Node implements Provider {
     const limit = links.some((link) => link.transport !== "port")
       ? maxEnvelopeSize
       : Infinity;
-    const members = this.membership.shared(local);
+    const members =
+      ups === undefined
+        ? this.membership.shared(local)
+        : this.shareable(ups, local);
 
     if (members.length === 0) {
-      return [peersFrame(this.nodeId, members)];
+      return ups === undefined ? [peersFrame(this.nodeId, [])] : [];
     }
 
     const { chunks, dropped } = chunk(
@@ -1155,24 +1170,76 @@ export class Node implements Provider {
     return chunks.map(({ frame }) => frame);
   }
 
+  private shareable(members: NodeMember[], local: boolean) {
+    if (local) {
+      return members;
+    }
+
+    const visible = new Set(
+      this.membership.shared(false).map((member) => member.id),
+    );
+
+    return members.filter((member) => visible.has(member.id));
+  }
+
   private notifyPeers(nodeLink: NodeLink) {
     for (const frame of this.peersFrames([nodeLink])) {
       nodeLink.notify(frame);
     }
   }
 
-  private broadcastPeers() {
+  private receivePeers(members: NodeMember[], local: boolean) {
+    this.membership.learn(members, local);
+  }
+
+  private receivePeersGone(ids: string[]) {
+    const linked = this.linkedPeers();
+
+    for (const id of ids) {
+      if (linked.has(id)) {
+        continue;
+      }
+
+      this.membership.leave(id);
+    }
+  }
+
+  private broadcastPeers(ups: NodeMember[], downs: string[]) {
+    for (const member of ups) {
+      this.pendingDowns.delete(member.id);
+      this.pendingUps.set(member.id, member);
+    }
+
+    for (const id of downs) {
+      this.pendingUps.delete(id);
+      this.pendingDowns.add(id);
+    }
+
     if (this.gossip !== undefined || this.closed) {
       return;
     }
 
     this.gossip = setTimeout(() => {
       this.gossip = undefined;
-      this.flushPeers();
+      this.flushPending();
     }, gossipDelay);
   }
 
-  private flushPeers() {
+  private flushPending() {
+    const ups = [...this.pendingUps.values()];
+    const downs = [...this.pendingDowns];
+
+    this.pendingUps.clear();
+    this.pendingDowns.clear();
+
+    if (ups.length === 0 && downs.length === 0) {
+      return;
+    }
+
+    this.flushPeers(ups, downs);
+  }
+
+  private flushPeers(ups: NodeMember[] | undefined, downs: string[]) {
     const local: NodeLink[] = [];
     const remote: NodeLink[] = [];
 
@@ -1181,7 +1248,15 @@ export class Node implements Provider {
     );
 
     for (const links of [local, remote]) {
-      for (const frame of this.peersFrames(links)) {
+      for (const frame of this.peersFrames(links, ups)) {
+        for (const nodeLink of links) {
+          nodeLink.notify(frame);
+        }
+      }
+
+      if (downs.length > 0) {
+        const frame = peersGoneFrame(this.nodeId, downs);
+
         for (const nodeLink of links) {
           nodeLink.notify(frame);
         }

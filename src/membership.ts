@@ -24,7 +24,7 @@ export type MembershipOptions = {
   dialing: (addr: string) => boolean;
   dial: (addr: string, id: string) => void;
   drop: (addr: string) => void;
-  broadcast: () => void;
+  broadcast: (ups: NodeMember[], downs: string[]) => void;
   onUp: (member: NodeMember) => void;
   onDown: (member: NodeMember) => void;
 };
@@ -35,7 +35,7 @@ export class Membership {
   private readonly seen = new Map<string, number>();
   private readonly hosts = new Map<string, string>();
   private readonly expiries = new Map<string, number>();
-  private readonly departed = new Set<string>();
+  private readonly departed = new Map<string, number>();
   private readonly id: string;
   private readonly memberTtl: number;
   private readonly dialTtl: number;
@@ -66,11 +66,21 @@ export class Membership {
     const now = Date.now();
     const advertised = this.members.has(this.id);
     const linked = this.linked();
-    let changed = false;
+    const ups: NodeMember[] = [];
 
     for (const entry of entries) {
-      if (entry.id === this.id || this.departed.has(entry.id)) {
+      if (entry.id === this.id) {
         continue;
+      }
+
+      const gone = this.departed.get(entry.id);
+
+      if (gone !== undefined) {
+        if (gone > now) {
+          continue;
+        }
+
+        this.departed.delete(entry.id);
       }
 
       const existing = this.members.get(entry.id);
@@ -101,21 +111,21 @@ export class Membership {
 
           existing.addr = entry.addr;
           existing.startup = entry.startup;
-          changed = true;
+          ups.push(existing);
 
           if (!linked.has(entry.id) && !this.dialing(entry.addr)) {
             this.dial(entry.addr, entry.id);
           }
         } else if (existing.startup !== entry.startup) {
           existing.startup = entry.startup;
-          changed = true;
+          ups.push(existing);
         }
 
         continue;
       }
 
       this.members.set(entry.id, entry);
-      changed = true;
+      ups.push(entry);
       this.onUp(entry);
 
       if ((!advertised || this.id < entry.id) && !linked.has(entry.id)) {
@@ -125,8 +135,8 @@ export class Membership {
 
     this.schedule(now);
 
-    if (changed) {
-      this.broadcast();
+    if (ups.length > 0) {
+      this.broadcast(ups, []);
     }
   }
 
@@ -140,6 +150,7 @@ export class Membership {
     }
 
     this.seen.set(peer, Date.now());
+    this.departed.delete(peer);
 
     if (this.members.has(peer)) {
       return false;
@@ -148,7 +159,7 @@ export class Membership {
     const member = { id: peer, addr, startup };
 
     this.members.set(peer, member);
-    this.broadcast();
+    this.broadcast([member], []);
     this.onUp(member);
 
     return true;
@@ -157,7 +168,7 @@ export class Membership {
   upsertSelf(member: NodeMember) {
     this.hosts.delete(member.id);
     this.members.set(member.id, member);
-    this.broadcast();
+    this.broadcast([member], []);
   }
 
   self() {
@@ -173,7 +184,7 @@ export class Membership {
       this.members.delete(id);
       this.seen.delete(id);
       this.hosts.delete(id);
-      this.broadcast();
+      this.broadcast([], [id]);
       this.onDown(member);
     }
 
@@ -194,11 +205,15 @@ export class Membership {
   }
 
   leave(id: string) {
+    if (id === this.id) {
+      return;
+    }
+
     this.departed.delete(id);
-    this.departed.add(id);
+    this.departed.set(id, Date.now() + this.memberTtl);
 
     if (this.departed.size > maxDeparted) {
-      const oldest = this.departed.values().next().value;
+      const oldest = this.departed.keys().next().value;
 
       if (oldest !== undefined) {
         this.departed.delete(oldest);
@@ -269,7 +284,7 @@ export class Membership {
 
   private prune(now: number) {
     const linked = this.linked();
-    let changed = false;
+    const downs: string[] = [];
 
     for (const member of this.members.values()) {
       if (member.id === this.id || linked.has(member.id)) {
@@ -286,12 +301,11 @@ export class Membership {
       this.seen.delete(member.id);
       this.hosts.delete(member.id);
       this.onDown(member);
+      downs.push(member.id);
 
       if (this.dialing(member.addr)) {
         this.expiries.set(member.addr, now + this.dialTtl);
       }
-
-      changed = true;
     }
 
     for (const [addr, expires] of this.expiries) {
@@ -303,7 +317,9 @@ export class Membership {
 
     this.schedule(now);
 
-    return changed;
+    if (downs.length > 0) {
+      this.broadcast([], downs);
+    }
   }
 
   private schedule(now: number) {
@@ -351,9 +367,7 @@ export class Membership {
       () => {
         this.timer = undefined;
 
-        if (this.prune(Date.now())) {
-          this.broadcast();
-        }
+        this.prune(Date.now());
       },
       Math.max(0, next - now),
     );

@@ -149,6 +149,10 @@ describe("codec", () => {
         { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1 }] },
         [12, "f", [[16, "pid", "tcp://a:1", 1]]],
       ],
+      [
+        { t: "peersGone", from: "f", ids: ["gone"] },
+        [17, "f", ["gone"]],
+      ],
     ];
 
     for (const [envelope, row] of wire) {

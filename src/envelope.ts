@@ -191,6 +191,11 @@ const peers = shape(12, "peers", {
   members: [peer],
 });
 
+const peersGone = shape(17, "peersGone", {
+  from: String,
+  ids: [String],
+});
+
 export const shapes = [
   hello,
   accept,
@@ -208,6 +213,7 @@ export const shapes = [
   down,
   pub,
   peer,
+  peersGone,
 ] as const;
 
 type InferField<F> = F extends { field: infer I }
@@ -447,6 +453,20 @@ function isPeers(
   return message;
 }
 
+function isPeersGone(
+  message: Extract<Envelope, { t: "peersGone" }>,
+): Envelope | undefined {
+  if (
+    typeof message.from !== "string" ||
+    !Array.isArray(message.ids) ||
+    !message.ids.every((id) => typeof id === "string")
+  ) {
+    return undefined;
+  }
+
+  return message;
+}
+
 function isPeer(
   message: Extract<Envelope, { t: "ping" | "pong" | "bye" }>,
 ): Envelope | undefined {
@@ -478,6 +498,8 @@ export function parseEnvelope(value: unknown): Envelope | undefined {
       return isPubs(message);
     case "peers":
       return isPeers(message);
+    case "peersGone":
+      return isPeersGone(message);
     case "ping":
     case "pong":
     case "bye":

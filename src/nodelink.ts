@@ -28,6 +28,7 @@ import type { Instance, Observable, WatchHandler } from "./registry.ts";
 type NodeLinkEvents = {
   open: (peerId: string) => void;
   peers: (members: PeerEntry[]) => void;
+  peersGone: (ids: string[]) => void;
   down: (instance: Instance, direct: boolean) => void;
   bye: () => void;
   drop: (error: SwarmError) => void;
@@ -330,6 +331,12 @@ export class NodeLink implements Observable {
       case "peers":
         if (this.peer !== undefined && message.from === this.peer) {
           this.events.emit("peers", message.members);
+        }
+        return;
+
+      case "peersGone":
+        if (this.peer !== undefined && message.from === this.peer) {
+          this.events.emit("peersGone", message.ids);
         }
         return;
 

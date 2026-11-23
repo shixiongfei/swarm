@@ -937,7 +937,8 @@ setTimeout(() => console.log("survived"), 500);
     const node = new Node({ cluster: "frame-share" });
     const internals = node as unknown as {
       attachLink: (link: Link) => void;
-      flushPeers: () => void;
+      broadcastPeers: (ups: unknown[], downs: string[]) => void;
+      flushPending: () => void;
     };
     const links = ["peer-a", "peer-b", "peer-c"].map((peerId) => {
       const link = new FrameLink(node.nodeId);
@@ -969,7 +970,11 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(updates[1]?.bytes(), changes?.bytes());
     assert.equal(updates[2]?.bytes(), changes?.bytes());
 
-    internals.flushPeers();
+    internals.broadcastPeers(
+      [{ id: "peer-a", addr: "tcp://127.0.0.1:1", startup: 1 }],
+      [],
+    );
+    internals.flushPending();
 
     const peers = links.map((link) => link.frames.at(-1));
 
@@ -1020,6 +1025,230 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(link.frames[0].message.t, "peers");
   });
 
+  test("announces a member change as a delta", async (t) => {
+    const node = new Node({ cluster: "peer-delta" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: {
+        learn: (members: unknown[], local: boolean) => void;
+        leave: (id: string) => void;
+      };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    internals.membership.learn(
+      [
+        { id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 },
+        { id: "peer-y", addr: "tcp://10.0.0.9:2", startup: 1 },
+      ],
+      false,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    link.frames.length = 0;
+    internals.membership.learn(
+      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1 }],
+      false,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const added = link.frames.at(-1);
+
+    assert.equal(added?.message.t, "peers");
+    assert.deepEqual(
+      added?.message.t === "peers" ? added.message.members : undefined,
+      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1 }],
+    );
+
+    link.frames.length = 0;
+    internals.membership.leave("peer-x");
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const removed = link.frames.at(-1);
+
+    assert.equal(removed?.message.t, "peersGone");
+    assert.deepEqual(
+      removed?.message.t === "peersGone" ? removed.message.ids : undefined,
+      ["peer-x"],
+    );
+  });
+
+  test("removes members announced as departed", async (t) => {
+    const node = new Node({ cluster: "peer-departed" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: { learn: (members: unknown[], local: boolean) => void };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    internals.membership.learn(
+      [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 }],
+      false,
+    );
+
+    const downs: string[] = [];
+    node.events.on("member-down", (member) => downs.push(member.id));
+
+    link.events.emit("envelope", {
+      t: "peersGone",
+      from: "peer-a",
+      ids: ["peer-x"],
+    });
+
+    assert.deepEqual(downs, ["peer-x"]);
+    assert.equal(
+      node.snapshot().members.some((member) => member.id === "peer-x"),
+      false,
+    );
+  });
+
+  test("ignores peersGone that names the node itself", async (t) => {
+    const node = new Node({ cluster: "peer-self" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: {
+        upsertSelf: (member: unknown) => void;
+        self: () => unknown[];
+        departed: Map<string, number>;
+      };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    internals.membership.upsertSelf({
+      id: node.nodeId,
+      addr: "tcp://127.0.0.1:7001",
+      startup: 1,
+    });
+
+    link.events.emit("envelope", {
+      t: "peersGone",
+      from: "peer-a",
+      ids: [node.nodeId],
+    });
+
+    assert.equal(internals.membership.self().length, 1);
+    assert.equal(internals.membership.departed.has(node.nodeId), false);
+  });
+
+  test("ignores peersGone for a node it is still linked to", async (t) => {
+    const node = new Node({ cluster: "peer-linked" });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: { learn: (members: unknown[], local: boolean) => void };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    internals.membership.learn(
+      [{ id: "peer-a", addr: "tcp://10.0.0.9:1", startup: 1 }],
+      false,
+    );
+
+    link.events.emit("envelope", {
+      t: "peersGone",
+      from: "peer-a",
+      ids: ["peer-a"],
+    });
+
+    assert.equal(
+      node.snapshot().members.some((member) => member.id === "peer-a"),
+      true,
+    );
+  });
+
+  test("lets a member rejoin once the tombstone expires", async (t) => {
+    const node = new Node({ cluster: "tombstone", memberTtl: 40 });
+    const internals = node as unknown as {
+      attachLink: (link: Link) => void;
+      membership: { learn: (members: unknown[], local: boolean) => void };
+    };
+
+    t.after(() => node.close());
+
+    const link = new FrameLink(node.nodeId, "socket");
+    internals.attachLink(link);
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-a",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-a"),
+    });
+
+    const peerX = [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 }];
+    const alive = () =>
+      node.snapshot().members.some((member) => member.id === "peer-x");
+
+    internals.membership.learn(peerX, false);
+    assert.equal(alive(), true);
+
+    link.events.emit("envelope", {
+      t: "peersGone",
+      from: "peer-a",
+      ids: ["peer-x"],
+    });
+    assert.equal(alive(), false);
+
+    internals.membership.learn(peerX, false);
+    assert.equal(alive(), false);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    internals.membership.learn(peerX, false);
+    assert.equal(alive(), true);
+  });
+
   test("splits peer announcements that would exceed the frame limit", async (t) => {
     const node = new Node({ cluster: "peer-split" });
     const internals = node as unknown as {
@@ -1027,7 +1256,7 @@ setTimeout(() => console.log("survived"), 500);
       membership: {
         upsertSelf: (member: { id: string; addr: string; startup: number }) => void;
       };
-      flushPeers: () => void;
+      flushPeers: (ups: undefined, downs: string[]) => void;
     };
 
     t.after(() => node.close());
@@ -1066,7 +1295,7 @@ setTimeout(() => console.log("survived"), 500);
     }
     portLink.frames.length = 0;
     socketLink.frames.length = 0;
-    internals.flushPeers();
+    internals.flushPeers(undefined, []);
 
     for (const link of [portLink, socketLink]) {
       let count = 0;

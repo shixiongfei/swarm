@@ -22,6 +22,7 @@ import type { Observable, WatchHandler } from "./registry.ts";
 export type NodeHubEvents = {
   open: (nodeLink: NodeLink) => void;
   peers: (nodeLink: NodeLink, members: PeerEntry[]) => void;
+  peersGone: (nodeLink: NodeLink, ids: string[]) => void;
   bye: (nodeLink: NodeLink) => void;
   drop: (error: SwarmError) => void;
 };
@@ -81,6 +82,9 @@ export class NodeHub implements Observable {
     nodeLink.events.on("open", () => this.events.emit("open", nodeLink));
     nodeLink.events.on("peers", (members) =>
       this.events.emit("peers", nodeLink, members),
+    );
+    nodeLink.events.on("peersGone", (ids) =>
+      this.events.emit("peersGone", nodeLink, ids),
     );
     nodeLink.events.on("bye", () => this.events.emit("bye", nodeLink));
     nodeLink.events.on("drop", (error) => this.events.emit("drop", error));

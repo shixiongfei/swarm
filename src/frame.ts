@@ -60,6 +60,10 @@ export function peersFrame(from: string, members: PeerEntry[]) {
   return frame({ t: "peers", from, members });
 }
 
+export function peersGoneFrame(from: string, ids: string[]) {
+  return frame({ t: "peersGone", from, ids });
+}
+
 export function pubsFrame(items: PubEnvelope[]) {
   return frame({ t: "pubs", items });
 }

@@ -286,6 +286,8 @@ describe("parseEnvelope", () => {
       { t: "pubs", items: [{ t: "up", from: "node-a", service: "math" }] },
       { t: "peers", from: "node-a" },
       { t: "peers", from: "node-a", members: "no" },
+      { t: "peersGone", from: "node-a", ids: "no" },
+      { t: "peersGone", from: "node-a", ids: [1] },
       { t: "peers", from: "node-a", members: [null] },
       {
         t: "peers",
