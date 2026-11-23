@@ -23,7 +23,7 @@ const source = new URL("./index.ts", import.meta.url).href;
 
 type Role = "server" | "watcher" | "client" | "late" | "self";
 
-function createWorker(role: Role) {
+function createWorker(role: Role, cluster: string) {
   const { port1, port2 } = new MessageChannel();
   const worker = new Worker(
     `
@@ -31,7 +31,7 @@ const { parentPort, workerData } = require("node:worker_threads");
 
 (async () => {
   const { createNode } = await import(${JSON.stringify(source)});
-  const node = createNode({ cluster: "hub-test" });
+  const node = createNode({ cluster: workerData.cluster });
   const port = workerData.port;
 
   if (${JSON.stringify(role)} === "server") {
@@ -75,7 +75,7 @@ const { parentPort, workerData } = require("node:worker_threads");
 `,
     {
       eval: true,
-      workerData: { port: port2 },
+      workerData: { port: port2, cluster },
       transferList: [port2 as unknown as Transferable],
     },
   );
@@ -107,8 +107,8 @@ describe("NodeHub", () => {
     { timeout: 5000 },
     async (t) => {
       const node = new Node({ cluster: "hub-routes", callTimeout: 2000 });
-      const server = createWorker("server");
-      const client = createWorker("client");
+      const server = createWorker("server", "hub-routes");
+      const client = createWorker("client", "hub-routes");
       const serverNews: unknown[] = [];
       const clientNews: unknown[] = [];
       const mainNews: unknown[] = [];
@@ -174,8 +174,8 @@ describe("NodeHub", () => {
     { timeout: 5000 },
     async (t) => {
       const node = new Node({ cluster: "hub-exit", callTimeout: 1000 });
-      const server = createWorker("server");
-      const watcher = createWorker("watcher");
+      const server = createWorker("server", "hub-exit");
+      const watcher = createWorker("watcher", "hub-exit");
 
       t.after(async () => {
         node.close();
@@ -224,7 +224,7 @@ describe("NodeHub", () => {
     { timeout: 5000 },
     async (t) => {
       const node = new Node({ cluster: "hub-late", callTimeout: 1000 });
-      const late = createWorker("late");
+      const late = createWorker("late", "hub-late");
 
       t.after(async () => {
         node.close();
@@ -251,7 +251,7 @@ describe("NodeHub", () => {
     { timeout: 5000 },
     async (t) => {
       const node = new Node({ cluster: "hub-echo", callTimeout: 1000 });
-      const worker = createWorker("self");
+      const worker = createWorker("self", "hub-echo");
       const ups: unknown[] = [];
 
       t.after(async () => {
@@ -306,10 +306,35 @@ describe("NodeHub", () => {
     assert.equal(hub.links.length, 0);
   });
 
+  test("drops a link from another cluster", async (t) => {
+    const hub = new Node({ cluster: "alpha" });
+    const other = new Node({ cluster: "beta" });
+    const chan = new MessageChannel();
+    const ups: unknown[] = [];
+
+    t.after(() => {
+      hub.close();
+      other.close();
+      chan.port1.close();
+      chan.port2.close();
+    });
+
+    other.register("beta-only", { ping: () => 1 });
+    hub.watch("beta-only", (event) => ups.push(event));
+
+    hub.join(chan.port1);
+    other.attach(chan.port2);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.deepEqual(ups, []);
+    await assert.rejects(hub.call("beta-only", "ping"), { code: "NOT_FOUND" });
+  });
+
   test("forwards the original publisher when relaying topics", async (t) => {
-    const hub = new Node({ cluster: "origin-hub" });
-    const b = new Node({ cluster: "origin-b" });
-    const c = new Node({ cluster: "origin-c" });
+    const hub = new Node({ cluster: "origin" });
+    const b = new Node({ cluster: "origin" });
+    const c = new Node({ cluster: "origin" });
     const chanB = new MessageChannel();
     const chanC = new MessageChannel();
 

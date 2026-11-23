@@ -124,6 +124,11 @@ export class NodeLink implements Observable {
 
         this.peerStartup = message.startup;
         this.peerCluster = message.cluster;
+
+        if (!this.acceptCluster(message.cluster)) {
+          return;
+        }
+
         this.authenticate(message.from, message.token, true);
         return;
 
@@ -134,6 +139,11 @@ export class NodeLink implements Observable {
 
         this.peerStartup = message.startup;
         this.peerCluster = message.cluster;
+
+        if (!this.acceptCluster(message.cluster)) {
+          return;
+        }
+
         this.authenticate(message.from, message.token, false);
         return;
 
@@ -673,6 +683,21 @@ export class NodeLink implements Observable {
     } catch {
       this.pingAt = undefined;
     }
+  }
+
+  private acceptCluster(cluster: string) {
+    if (cluster === this.cluster) {
+      return true;
+    }
+
+    this.dispose(
+      `peer belongs to cluster ${cluster}`,
+      "error",
+      "CLUSTER_MISMATCH",
+    );
+    this.link.close();
+
+    return false;
   }
 
   private authenticate(from: string, token: string, reply: boolean) {

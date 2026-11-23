@@ -25,6 +25,7 @@ export const errorCodes = deepFreeze([
   "CANCELLED",
   "CLOSED",
   "CLONE_FAILED",
+  "CLUSTER_MISMATCH",
   "CONGESTED",
   "DUPLICATE_CALL",
   "ENVELOPE_INVALID",

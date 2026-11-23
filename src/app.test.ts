@@ -59,7 +59,7 @@ describe("App", () => {
       node: { cluster: "app" },
       listen: [`tcp://127.0.0.1:${port}`],
     });
-    const peer = new Node({ cluster: "peer" });
+    const peer = new Node({ cluster: "app" });
 
     t.after(() => {
       app.stop();

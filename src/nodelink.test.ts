@@ -78,7 +78,7 @@ function attachStub(local: NodeLocal, maxInboundTimeout?: number) {
 }
 
 describe("handshake helpers", () => {
-  test("records the cluster announced by the peer", () => {
+  test("rejects a peer from another cluster", () => {
     const local = new NodeLocal("local-node");
     const link = new StubLink();
     const nodeLink = new NodeLink(link, {
@@ -99,8 +99,8 @@ describe("handshake helpers", () => {
       token: signToken("", "peer-node"),
     });
 
-    assert.equal(nodeLink.cluster, "local-cluster");
-    assert.equal(nodeLink.peerCluster, "peer-cluster");
+    assert.equal(nodeLink.closeCode, "CLUSTER_MISMATCH");
+    assert.equal(link.closed, true);
     nodeLink.close();
   });
 
@@ -624,7 +624,7 @@ describe("NodeLink", () => {
 
   test("propagates the handler error kind over a link", async (t) => {
     const a = new Node({ cluster: "kind-a" });
-    const b = new Node({ cluster: "kind-b" });
+    const b = new Node({ cluster: "kind-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -655,7 +655,7 @@ describe("NodeLink", () => {
 
   test("propagates the handler error code and retriable over a link", async (t) => {
     const a = new Node({ cluster: "code-a" });
-    const b = new Node({ cluster: "code-b" });
+    const b = new Node({ cluster: "code-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -688,7 +688,7 @@ describe("NodeLink", () => {
 
   test("allows a watch while a link is closing", async (t) => {
     const a = new Node({ cluster: "closing-a" });
-    const b = new Node({ cluster: "closing-b" });
+    const b = new Node({ cluster: "closing-a" });
     const { port1, port2 } = new MessageChannel();
     let error: unknown;
 
@@ -731,7 +731,7 @@ describe("NodeLink", () => {
 
   test("routes calls, errors, topics and unregistrations over a port", async (t) => {
     const a = new Node({ cluster: "link-a", secret: "s3cret" });
-    const b = new Node({ cluster: "link-b", secret: "s3cret" });
+    const b = new Node({ cluster: "link-a", secret: "s3cret" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -825,7 +825,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "two-ids",
       from: "first",
       version: protocolVersion,
       startup: 1,
@@ -844,7 +844,7 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "two-ids",
       from: "second",
       version: protocolVersion,
       startup: 1,
@@ -865,7 +865,7 @@ describe("NodeLink", () => {
 
   test("reports a reply that cannot be cloned", async (t) => {
     const a = new Node({ cluster: "reply-a" });
-    const b = new Node({ cluster: "reply-b" });
+    const b = new Node({ cluster: "reply-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -909,7 +909,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "secret-a",
       from: "peer-node",
       version: protocolVersion,
       startup: 1,
@@ -926,7 +926,7 @@ describe("NodeLink", () => {
 
   test("uses the link secret over the node secret", async (t) => {
     const a = new Node({ cluster: "link-secret-a", secret: "node-secret" });
-    const b = new Node({ cluster: "link-secret-b", secret: "link-secret" });
+    const b = new Node({ cluster: "link-secret-a", secret: "link-secret" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -967,7 +967,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "relayed-sender",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -1069,7 +1069,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "pub-origin",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -1149,7 +1149,7 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "call-target",
       from: "peer",
       version: protocolVersion,
       startup: 1,

@@ -132,7 +132,7 @@ async function attachGhost(node: Node, service: string) {
   port2.start();
   port2.postMessage({
     t: "hello",
-    cluster: "ghost-cluster",
+    cluster: node.cluster,
     from: "ghost",
     version: protocolVersion,
     startup: 1,
@@ -158,13 +158,73 @@ async function attachGhost(node: Node, service: string) {
 }
 
 describe("Node", () => {
-  test("snapshot exposes the cluster announced by a peer", async (t) => {
+  test("rejects a peer that announces another cluster", async (t) => {
     const node = new Node({ cluster: "local-cluster" });
-    const ghost = await attachGhost(node, "math");
-    t.after(ghost.close);
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    node.attach(port1);
+    port2.start();
+    port2.postMessage({
+      t: "hello",
+      cluster: "ghost-cluster",
+      from: "ghost",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "ghost"),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
 
     assert.equal(node.cluster, "local-cluster");
-    assert.equal(node.snapshot().links[0]?.cluster, "ghost-cluster");
+    assert.equal(
+      node.snapshot().links.some((link) => link.peerId === "ghost"),
+      false,
+    );
+  });
+
+  test("rejects a cluster mismatch on the join path", async (t) => {
+    const node = new Node({ cluster: "join-cluster" });
+    const { port1, port2 } = new MessageChannel();
+
+    t.after(() => {
+      node.close();
+      port2.close();
+    });
+
+    node.join(port1);
+    port2.start();
+    port2.postMessage({
+      t: "hello",
+      cluster: "other-cluster",
+      from: "ghost",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "ghost"),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    assert.equal(node.snapshot().links.length, 0);
+  });
+
+  test("rejects a cluster mismatch when dialing", async (t) => {
+    const hub = new Node({ cluster: "dial-hub" });
+    const peer = new Node({ cluster: "dial-peer" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+    });
+
+    const { port } = await hub.listen("tcp://127.0.0.1:0");
+
+    await assert.rejects(peer.connect(`tcp://127.0.0.1:${port}`));
+    assert.equal(hub.snapshot().links.length, 0);
   });
 
   test("snapshot reports in-flight calls and per-link counters", async (t) => {
@@ -658,7 +718,7 @@ node.attach(port1);
 port2.start();
 port2.postMessage({
   t: "hello",
-  cluster: "default",
+  cluster: "test",
   from: "ghost",
   version: protocolVersion,
   startup: 1,
@@ -800,7 +860,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("re-registering updates the service metadata", async (t) => {
     const a = new Node({ cluster: "meta-a" });
-    const b = new Node({ cluster: "meta-b" });
+    const b = new Node({ cluster: "meta-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -842,8 +902,8 @@ setTimeout(() => console.log("survived"), 500);
 
   test("unregister propagates through a triangle where peers know the owner", async (t) => {
     const a = new Node({ cluster: "echo-tri-a" });
-    const b = new Node({ cluster: "echo-tri-b" });
-    const c = new Node({ cluster: "echo-tri-c" });
+    const b = new Node({ cluster: "echo-tri-a" });
+    const c = new Node({ cluster: "echo-tri-a" });
     const ac = new MessageChannel();
     const cb = new MessageChannel();
     const ba = new MessageChannel();
@@ -890,9 +950,9 @@ setTimeout(() => console.log("survived"), 500);
 
   test("unregister converges across a diamond where both paths relay the owner", async (t) => {
     const a = new Node({ cluster: "echo-diamond-a" });
-    const b = new Node({ cluster: "echo-diamond-b" });
-    const c = new Node({ cluster: "echo-diamond-c" });
-    const d = new Node({ cluster: "echo-diamond-d" });
+    const b = new Node({ cluster: "echo-diamond-a" });
+    const c = new Node({ cluster: "echo-diamond-a" });
+    const d = new Node({ cluster: "echo-diamond-a" });
     const nodes = [a, b, c, d];
 
     t.after(() => {
@@ -946,7 +1006,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        cluster: "default",
+        cluster: "frame-share",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -1000,7 +1060,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "gossip-coalesce",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1041,7 +1101,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "peer-delta",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1101,7 +1161,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "peer-departed",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1146,7 +1206,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "peer-self",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1182,7 +1242,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "peer-linked",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1219,7 +1279,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "tombstone",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1268,7 +1328,7 @@ setTimeout(() => console.log("survived"), 500);
     for (const [index, link] of [portLink, socketLink].entries()) {
       link.events.emit("envelope", {
         t: "hello",
-        cluster: "default",
+        cluster: "peer-split",
         from: `peer-${index}`,
         version: protocolVersion,
         startup: 1,
@@ -1325,7 +1385,7 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      cluster: "default",
+      cluster: "frame-split",
       from: "peer-a",
       version: protocolVersion,
       startup: 1,
@@ -1364,7 +1424,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        cluster: "default",
+        cluster: "frame-echo",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -1406,7 +1466,7 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        cluster: "default",
+        cluster: "frame-batch",
         from: peerId,
         version: protocolVersion,
         startup: 1,
@@ -1459,9 +1519,9 @@ setTimeout(() => console.log("survived"), 500);
 
   test("a broken path keeps an instance reachable through another peer", async (t) => {
     const a = new Node({ cluster: "echo-path-a" });
-    const b = new Node({ cluster: "echo-path-b" });
-    const c = new Node({ cluster: "echo-path-c" });
-    const d = new Node({ cluster: "echo-path-d" });
+    const b = new Node({ cluster: "echo-path-a" });
+    const c = new Node({ cluster: "echo-path-a" });
+    const d = new Node({ cluster: "echo-path-a" });
     const nodes = [a, b, c, d];
 
     t.after(() => {
@@ -1508,7 +1568,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("unregister propagates across duplicate links to the same peer", async (t) => {
     const a = new Node({ cluster: "echo-dup-a" });
-    const b = new Node({ cluster: "echo-dup-b" });
+    const b = new Node({ cluster: "echo-dup-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -1827,7 +1887,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("snapshot reports connected links", async (t) => {
     const hub = new Node({ cluster: "obs-link-info" });
-    const peer = new Node({ cluster: "obs-link-peer" });
+    const peer = new Node({ cluster: "obs-link-info" });
 
     t.after(() => {
       hub.close();
@@ -1865,7 +1925,7 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "obs-link-events",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -1885,7 +1945,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("emits link-down with a bye reason when the peer closes", async (t) => {
     const hub = new Node({ cluster: "bye-reason" });
-    const peer = new Node({ cluster: "bye-reason-peer" });
+    const peer = new Node({ cluster: "bye-reason" });
     const port = await freePort();
 
     t.after(() => {
@@ -1935,7 +1995,7 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "peer-id-mismatch",
       from: "other-peer",
       version: protocolVersion,
       startup: 1,
@@ -1983,7 +2043,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("close emits link-down for an outbound link", async (t) => {
     const hub = new Node({ cluster: "close-outbound-hub" });
-    const peer = new Node({ cluster: "close-outbound-peer" });
+    const peer = new Node({ cluster: "close-outbound-hub" });
 
     t.after(() => {
       hub.close();
@@ -2007,7 +2067,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("emits member-up and member-down events", async (t) => {
     const hub = new Node({ cluster: "obs-member-events" });
-    const peer = new Node({ cluster: "obs-member-peer" });
+    const peer = new Node({ cluster: "obs-member-events" });
 
     t.after(() => {
       hub.close();
@@ -2077,7 +2137,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("propagates cancellation to the remote handler", async (t) => {
     const a = new Node({ cluster: "cancel-remote-a" });
-    const b = new Node({ cluster: "cancel-remote-b" });
+    const b = new Node({ cluster: "cancel-remote-a" });
     const { port1, port2 } = new MessageChannel();
     let seen: { from: string; signal: AbortSignal } | undefined;
 
@@ -2150,7 +2210,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("leave removes a member and closes its link", async (t) => {
     const hub = new Node({ cluster: "leave-hub" });
-    const peer = new Node({ cluster: "leave-peer" });
+    const peer = new Node({ cluster: "leave-hub" });
 
     t.after(() => {
       hub.close();
@@ -2190,7 +2250,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("rejects calls that exceed the per-link in-flight limit", async (t) => {
     const a = new Node({ cluster: "bp-a", maxInflight: 1 });
-    const b = new Node({ cluster: "bp-b" });
+    const b = new Node({ cluster: "bp-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2234,7 +2294,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("addSeed dials the new seed and removeSeed forgets it", async (t) => {
     const hub = new Node({ cluster: "seed-hub" });
-    const node = new Node({ cluster: "seed-node" });
+    const node = new Node({ cluster: "seed-hub" });
 
     t.after(() => {
       hub.close();
@@ -2268,7 +2328,7 @@ setTimeout(() => console.log("survived"), 500);
       err.kind === "rejected" && err.code === "REJECTED";
 
     assert.throws(
-      () => new Node({ cluster: "seed-config", seeds: ["not a url"] }),
+      () => new Node({ cluster: "seed-validation", seeds: ["not a url"] }),
       rejected,
     );
     assert.throws(() => node.addSeed("not a url"), rejected);
@@ -2284,7 +2344,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("keeps redundant explicit links to the same peer", async (t) => {
     const a = new Node({ cluster: "redun-a" });
-    const b = new Node({ cluster: "redun-b" });
+    const b = new Node({ cluster: "redun-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -2313,7 +2373,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("passes the publisher nodeId to subscribers", async (t) => {
     const a = new Node({ cluster: "from-a" });
-    const b = new Node({ cluster: "from-b" });
+    const b = new Node({ cluster: "from-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2336,7 +2396,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("delivers locally but not remotely when the payload is not encodable", async (t) => {
     const a = new Node({ cluster: "publish-a" });
-    const b = new Node({ cluster: "publish-b" });
+    const b = new Node({ cluster: "publish-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2383,7 +2443,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("call rejects arguments that cannot round-trip", async (t) => {
     const a = new Node({ cluster: "codec-a" });
-    const b = new Node({ cluster: "codec-b" });
+    const b = new Node({ cluster: "codec-a" });
 
     t.after(() => {
       a.close();
@@ -2411,8 +2471,8 @@ setTimeout(() => console.log("survived"), 500);
 
   test("routes to another link after the first link closes", async (t) => {
     const a = new Node({ cluster: "failover-a" });
-    const b = new Node({ cluster: "failover-b" });
-    const c = new Node({ cluster: "failover-c" });
+    const b = new Node({ cluster: "failover-a" });
+    const c = new Node({ cluster: "failover-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -2463,8 +2523,8 @@ setTimeout(() => console.log("survived"), 500);
 
   test("balances calls across links serving the same service", async (t) => {
     const a = new Node({ cluster: "balance-a" });
-    const b = new Node({ cluster: "balance-b" });
-    const c = new Node({ cluster: "balance-c" });
+    const b = new Node({ cluster: "balance-a" });
+    const c = new Node({ cluster: "balance-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -2528,8 +2588,8 @@ setTimeout(() => console.log("survived"), 500);
 
   test("does not retry a sent call when the serving link closes", async (t) => {
     const a = new Node({ cluster: "retry-a" });
-    const b = new Node({ cluster: "retry-b" });
-    const c = new Node({ cluster: "retry-c" });
+    const b = new Node({ cluster: "retry-a" });
+    const c = new Node({ cluster: "retry-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
     let cCalls = 0;
@@ -2585,8 +2645,8 @@ setTimeout(() => console.log("survived"), 500);
 
   test("does not retry on a service error", async (t) => {
     const a = new Node({ cluster: "no-retry-a" });
-    const b = new Node({ cluster: "no-retry-b" });
-    const c = new Node({ cluster: "no-retry-c" });
+    const b = new Node({ cluster: "no-retry-a" });
+    const c = new Node({ cluster: "no-retry-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -2642,7 +2702,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("keeps an instance while another link to the same node is open", async (t) => {
     const a = new Node({ cluster: "union-a" });
-    const b = new Node({ cluster: "union-b" });
+    const b = new Node({ cluster: "union-a" });
     const first = new MessageChannel();
     const second = new MessageChannel();
 
@@ -2686,7 +2746,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("watch unsubscribe stops delivery", async (t) => {
     const a = new Node({ cluster: "watch-unsubscribe-a" });
-    const b = new Node({ cluster: "watch-unsubscribe-b" });
+    const b = new Node({ cluster: "watch-unsubscribe-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2726,7 +2786,7 @@ setTimeout(() => console.log("survived"), 500);
   });
   test("registers a service after attach", { timeout: 1000 }, async (t) => {
     const a = new Node({ cluster: "late-register-a" });
-    const b = new Node({ cluster: "late-register-b" });
+    const b = new Node({ cluster: "late-register-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2749,7 +2809,7 @@ setTimeout(() => console.log("survived"), 500);
 
   test("publishes after attach", { timeout: 1000 }, async (t) => {
     const a = new Node({ cluster: "late-publish-a" });
-    const b = new Node({ cluster: "late-publish-b" });
+    const b = new Node({ cluster: "late-publish-a" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -2781,7 +2841,7 @@ setTimeout(() => console.log("survived"), 500);
 
     for (const [first, second] of pairs) {
       const a = new Node({ cluster: `duplicate-${first}-a` });
-      const b = new Node({ cluster: `duplicate-${second}-b` });
+      const b = new Node({ cluster: `duplicate-${first}-a` });
       const { port1, port2 } = new MessageChannel();
 
       t.after(() => {
@@ -2864,7 +2924,7 @@ for (const protocol of ["tcp", "ws"] as const) {
   describe(`Node ${protocol.toUpperCase()}`, () => {
     test("listen and connect return the node", async (t) => {
       const hub = new Node({ cluster: `${protocol}-return-hub` });
-      const peer = new Node({ cluster: `${protocol}-return-peer` });
+      const peer = new Node({ cluster: `${protocol}-return-hub` });
 
       t.after(() => {
         hub.close();
@@ -2879,7 +2939,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-call-hub` });
-        const peer = new Node({ cluster: `${protocol}-call-peer` });
+        const peer = new Node({ cluster: `${protocol}-call-hub` });
 
         t.after(() => {
           hub.close();
@@ -2908,7 +2968,7 @@ for (const protocol of ["tcp", "ws"] as const) {
           callTimeout: 500,
         });
         const peer = new Node({
-          cluster: `${protocol}-host-peer`,
+          cluster: `${protocol}-host-hub`,
           callTimeout: 500,
         });
 
@@ -2948,7 +3008,7 @@ for (const protocol of ["tcp", "ws"] as const) {
           secret: "s3cret",
         });
         const peer = new Node({
-          cluster: `${protocol}-secret-peer`,
+          cluster: `${protocol}-secret-hub`,
           secret: "s3cret",
         });
 
@@ -2976,7 +3036,7 @@ for (const protocol of ["tcp", "ws"] as const) {
 
     test("publishes from the peer to the hub", { timeout: 3000 }, async (t) => {
       const hub = new Node({ cluster: `${protocol}-publish-hub` });
-      const peer = new Node({ cluster: `${protocol}-publish-peer` });
+      const peer = new Node({ cluster: `${protocol}-publish-hub` });
 
       t.after(() => {
         hub.close();
@@ -3005,7 +3065,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-circular-hub` });
-        const peer = new Node({ cluster: `${protocol}-circular-peer` });
+        const peer = new Node({ cluster: `${protocol}-circular-hub` });
 
         t.after(() => {
           hub.close();
@@ -3047,7 +3107,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-oversize-hub` });
-        const peer = new Node({ cluster: `${protocol}-oversize-peer` });
+        const peer = new Node({ cluster: `${protocol}-oversize-hub` });
 
         t.after(() => {
           hub.close();
@@ -3086,7 +3146,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-ephemeral` });
-        const peer = new Node({ cluster: `${protocol}-ephemeral-peer` });
+        const peer = new Node({ cluster: `${protocol}-ephemeral` });
 
         t.after(() => {
           hub.close();
@@ -3116,7 +3176,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-secret-hub` });
-        const peer = new Node({ cluster: `${protocol}-secret-peer` });
+        const peer = new Node({ cluster: `${protocol}-secret-hub` });
         const port = await freePort();
         const url = `${protocol}://:s3cret@127.0.0.1:${port}`;
 
@@ -3173,7 +3233,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-close-hub` });
-        const peer = new Node({ cluster: `${protocol}-close-peer` });
+        const peer = new Node({ cluster: `${protocol}-close-hub` });
 
         t.after(() => peer.close());
 
@@ -3202,7 +3262,7 @@ for (const protocol of ["tcp", "ws"] as const) {
       { timeout: 3000 },
       async (t) => {
         const hub = new Node({ cluster: `${protocol}-fallback-hub` });
-        const peer = new Node({ cluster: `${protocol}-fallback-peer` });
+        const peer = new Node({ cluster: `${protocol}-fallback-hub` });
 
         t.after(() => peer.close());
         t.after(() => hub.close());
@@ -3441,7 +3501,7 @@ describe("Node transport and mesh", () => {
 
   test("snapshot reports links and services", async (t) => {
     const hub = new Node({ cluster: "snapshot-hub" });
-    const peer = new Node({ cluster: "snapshot-peer" });
+    const peer = new Node({ cluster: "snapshot-hub" });
 
     t.after(() => {
       hub.close();
@@ -3485,7 +3545,7 @@ describe("Node transport and mesh", () => {
 
   test("snapshot distinguishes websocket links", async (t) => {
     const hub = new Node({ cluster: "snapshot-ws-hub" });
-    const peer = new Node({ cluster: "snapshot-ws-peer" });
+    const peer = new Node({ cluster: "snapshot-ws-hub" });
 
     t.after(() => {
       hub.close();
@@ -3551,7 +3611,7 @@ describe("Node transport and mesh", () => {
 
   test("connects to wss with a custom ca", async (t) => {
     const hub = new Node({ cluster: "wss-ca-hub" });
-    const peer = new Node({ cluster: "wss-ca-peer" });
+    const peer = new Node({ cluster: "wss-ca-hub" });
 
     t.after(() => {
       hub.close();
@@ -3637,7 +3697,7 @@ describe("Node transport and mesh", () => {
 
   test("drops a member when the peer leaves", async (t) => {
     const host = new Node({ cluster: "bye-host" });
-    const peer = new Node({ cluster: "bye-peer" });
+    const peer = new Node({ cluster: "bye-host" });
 
     t.after(() => {
       host.close();
@@ -3672,7 +3732,7 @@ describe("Node transport and mesh", () => {
 
   test("connecting to the same address twice reuses one outbound client", async (t) => {
     const hub = new Node({ cluster: "connect-twice" });
-    const peer = new Node({ cluster: "connect-twice-peer" });
+    const peer = new Node({ cluster: "connect-twice" });
     const port = await freePort();
     const url = `tcp://127.0.0.1:${port}`;
     let ups = 0;
@@ -3773,7 +3833,7 @@ describe("Node transport and mesh", () => {
 
   test("leave drops the outbound client instead of letting it reconnect", async (t) => {
     const hub = new Node({ cluster: "leave-outbound" });
-    const peer = new Node({ cluster: "leave-outbound-peer" });
+    const peer = new Node({ cluster: "leave-outbound" });
     const port = await freePort();
     const url = `tcp://127.0.0.1:${port}`;
     let ups = 0;
@@ -3810,7 +3870,7 @@ describe("Node transport and mesh", () => {
 
   test("leave lets discovery dial the seed again", async (t) => {
     const hub = new Node({ cluster: "leave-seed" });
-    const peer = new Node({ cluster: "leave-seed-peer" });
+    const peer = new Node({ cluster: "leave-seed" });
     const port = await freePort();
     const url = `tcp://127.0.0.1:${port}`;
     let ups = 0;
@@ -3838,7 +3898,7 @@ describe("Node transport and mesh", () => {
 
   test("removeSeed drops the connection it was maintaining", async (t) => {
     const hub = new Node({ cluster: "seed-drop" });
-    const peer = new Node({ cluster: "seed-drop-peer" });
+    const peer = new Node({ cluster: "seed-drop" });
     const port = await freePort();
     const url = `tcp://127.0.0.1:${port}`;
 
@@ -4004,7 +4064,7 @@ describe("Node transport and mesh", () => {
 
   test("callAll invokes local and remote instances and dedupes by peer", async (t) => {
     const local = new Node({ cluster: "collect-local" });
-    const remote = new Node({ cluster: "collect-remote" });
+    const remote = new Node({ cluster: "collect-local" });
 
     t.after(() => {
       local.close();
@@ -4045,7 +4105,7 @@ describe("Node transport and mesh", () => {
 
   test("listens on a websocket path and advertises it", async (t) => {
     const provider = new Node({ cluster: "ws-path-provider" });
-    const consumer = new Node({ cluster: "ws-path-consumer" });
+    const consumer = new Node({ cluster: "ws-path-provider" });
     const http = createHttpServer((_request, response) => response.end("ok"));
     const port = await freePort();
 
@@ -4114,7 +4174,7 @@ describe("Node transport and mesh", () => {
     const port = await freePort();
     const seed = new Node({ cluster: "seed-server" });
     const node = new Node({
-      cluster: "seed-client",
+      cluster: "seed-server",
       seeds: [`tcp://127.0.0.1:${port}`],
     });
 
@@ -4146,11 +4206,11 @@ describe("Node transport and mesh", () => {
     const rightPort = await freePort();
     const seed = new Node({ cluster: "mesh-seed" });
     const left = new Node({
-      cluster: "mesh-left",
+      cluster: "mesh-seed",
       seeds: [`tcp://127.0.0.1:${seedPort}`],
     });
     const right = new Node({
-      cluster: "mesh-right",
+      cluster: "mesh-seed",
       seeds: [`tcp://127.0.0.1:${seedPort}`],
     });
 
@@ -4186,7 +4246,7 @@ describe("Node transport and mesh", () => {
     const leftPort = await freePort();
     const rightPort = await freePort();
     const left = new Node({ cluster: "dedupe-left" });
-    const right = new Node({ cluster: "dedupe-right" });
+    const right = new Node({ cluster: "dedupe-left" });
 
     t.after(() => {
       left.close();
@@ -4377,7 +4437,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "advertise-on",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -4421,7 +4481,7 @@ describe("Node transport and mesh", () => {
         scheme: "tcp",
       },
       {
-        cluster: "advertise-port-omitted",
+        cluster: "advertise-port-zero",
         listen: "ws://0.0.0.0:0",
         advertise: "ws://127.0.0.1/",
         scheme: "ws",
@@ -4463,7 +4523,7 @@ describe("Node transport and mesh", () => {
         port2.start();
         port2.postMessage({
           t: "hello",
-          cluster: "default",
+          cluster: "advertise-port-zero",
           from: "ghost",
           version: protocolVersion,
           startup: 1,
@@ -4511,7 +4571,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "advertise-off",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -4558,7 +4618,7 @@ describe("Node transport and mesh", () => {
 
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "peers-invalid",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
@@ -4585,8 +4645,8 @@ describe("Node transport and mesh", () => {
     const consumerPort = await freePort();
     const providerPort = await freePort();
     const consumer = new Node({ cluster: "relay-consumer" });
-    const relay = new Node({ cluster: "relay-middle" });
-    const provider = new Node({ cluster: "relay-provider" });
+    const relay = new Node({ cluster: "relay-consumer" });
+    const provider = new Node({ cluster: "relay-consumer" });
 
     t.after(() => {
       consumer.close();
@@ -4653,7 +4713,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "hop-budget",
       from: "peer",
       version: protocolVersion,
       startup: 1,
@@ -4681,7 +4741,7 @@ describe("Node transport and mesh", () => {
 
   test("dial rejects a peer that does not match the advertised id", async (t) => {
     const target = new Node({ cluster: "dial-identity-target" });
-    const node = new Node({ cluster: "dial-identity" });
+    const node = new Node({ cluster: "dial-identity-target" });
     const { port1, port2 } = new MessageChannel();
 
     t.after(() => {
@@ -4704,7 +4764,7 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      cluster: "default",
+      cluster: "dial-identity-target",
       from: "ghost",
       version: protocolVersion,
       startup: 1,
