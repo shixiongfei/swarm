@@ -1570,7 +1570,7 @@ setTimeout(() => console.log("survived"), 500);
     bd.port1.close();
     bd.port2.close();
 
-    assert.equal(await waitFor(() => b.snapshot().services.length === 0), true);
+    assert.equal(await waitFor(() => b.snapshot().links.length === 1), true);
 
     assert.equal(a.snapshot().services.length, 1);
     assert.equal(await a.call("math", "add"), 1);
