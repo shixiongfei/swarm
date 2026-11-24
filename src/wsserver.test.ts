@@ -186,7 +186,7 @@ describe("WsServer", () => {
     await closed;
   });
 
-  test("terminates a socket that is already closing", () => {
+  test("destroy terminates a socket that is already closing", () => {
     const server = new WsServer(host, 0);
     let terminated = false;
 
@@ -198,6 +198,23 @@ describe("WsServer", () => {
     server.close();
 
     assert.equal(terminated, true);
+  });
+
+  test("close leaves a socket that is already closing to the peer", () => {
+    const server = new WsServer(host, 0);
+    const socket = {
+      readyState: WebSocket.CLOSING,
+      terminate: () => assert.fail("terminated a closing socket"),
+    };
+    const offline: unknown[] = [];
+
+    (server as unknown as { accept(socket: unknown): void }).accept(socket);
+    server.events.on("offline", (dropped) => offline.push(dropped));
+
+    server.close();
+
+    assert.deepEqual(offline, [socket]);
+    assert.equal(server.size, 0);
   });
 
   test("listen rejects when the port is already in use", async () => {

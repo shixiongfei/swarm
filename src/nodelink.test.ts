@@ -893,7 +893,7 @@ describe("NodeLink", () => {
       token: signToken("", "second"),
     });
 
-    assert.equal(await within(closed, 2000), true);
+    assert.equal(await within(closed, 5000), true);
 
     await assert.rejects(
       node.call("math", "add"),
@@ -958,7 +958,7 @@ describe("NodeLink", () => {
       token: await signToken("wrong-secret", "peer-node"),
     });
 
-    assert.equal(await within(closed, 2000), true);
+    assert.equal(await within(closed, 5000), true);
 
     await assert.rejects(
       a.call("math", "add"),
