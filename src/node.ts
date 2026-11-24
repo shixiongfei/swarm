@@ -22,7 +22,7 @@ import { Dialer } from "./dialer.ts";
 import { Discovery } from "./discovery.ts";
 import { Membership } from "./membership.ts";
 import { PubSub } from "./pubsub.ts";
-import { Router } from "./router.ts";
+import { Router, maxHopsLimit } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout, withCancel } from "./timeout.ts";
@@ -70,6 +70,7 @@ export type ServiceResult =
 
 export type CallOptions = {
   timeout?: number;
+  ttl?: number;
   signal?: AbortSignal;
 };
 
@@ -142,6 +143,17 @@ const defaultMaxHops = 8;
 const gossipDelay = 50;
 const defaultHeartbeatInterval = 15000;
 const defaultHeartbeatTimeout = 45000;
+
+function assertHops(ttl: number) {
+  if (!Number.isSafeInteger(ttl) || ttl < 1) {
+    throw new SwarmError(
+      "rejected",
+      "INVALID_HOPS",
+      `invalid ttl: ${ttl}`,
+      false,
+    );
+  }
+}
 
 function assertCall(service: unknown, method: unknown, args: unknown) {
   if (typeof service !== "string") {
@@ -236,11 +248,15 @@ export class Node implements Provider {
     this.maxInflight = config.maxInflight;
     this.maxInbound = config.maxInbound;
 
-    if (!Number.isSafeInteger(this.maxHops) || this.maxHops < 1) {
+    if (
+      !Number.isSafeInteger(this.maxHops) ||
+      this.maxHops < 1 ||
+      this.maxHops > maxHopsLimit
+    ) {
       throw new SwarmError(
         "rejected",
         "REJECTED",
-        "maxHops must be a positive integer",
+        `maxHops must be between 1 and ${maxHopsLimit}`,
       );
     }
 
@@ -643,13 +659,17 @@ export class Node implements Provider {
     try {
       this.checkOpen();
 
+      if (options.ttl !== undefined) {
+        assertHops(options.ttl);
+      }
+
       return withCancel(
         this.invoke(
           service,
           method,
           args,
           timeout,
-          this.maxHops,
+          options.ttl === undefined ? this.maxHops : options.ttl,
           undefined,
           undefined,
           options.signal,
@@ -674,13 +694,17 @@ export class Node implements Provider {
     try {
       this.checkOpen();
 
+      if (options.ttl !== undefined) {
+        assertHops(options.ttl);
+      }
+
       return withCancel(
         this.invoke(
           service,
           method,
           args,
           timeout,
-          this.maxHops,
+          options.ttl === undefined ? this.maxHops : options.ttl,
           undefined,
           nodeId,
           options.signal,
@@ -841,6 +865,10 @@ export class Node implements Provider {
     assertTimeout(
       options.timeout === undefined ? this.callTimeout : options.timeout,
     );
+
+    if (options.ttl !== undefined) {
+      assertHops(options.ttl);
+    }
 
     return this.track(this.router.callAll(service, method, args, options));
   }

@@ -188,13 +188,13 @@ describe("Router", () => {
     assert.equal(link.calls.length, 0);
   });
 
-  test("clamps a ttl above the hop limit", async () => {
+  test("clamps a ttl above the protocol hop limit", async () => {
     const link = fakeLink("peer", ["math"]);
     const { router } = makeRouter({ links: [link], maxHops: 3 });
 
     await router.invoke("math", "add", [], undefined, 1000);
 
-    assert.equal(link.calls[0].ttl, 2);
+    assert.equal(link.calls[0].ttl, 63);
   });
 
   test("skips the link a call came from", async () => {

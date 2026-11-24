@@ -17,6 +17,8 @@ import type { NodeLink } from "./nodelink.ts";
 import type { Instance } from "./registry.ts";
 import type { CallOptions } from "./node.ts";
 
+export const maxHopsLimit = 64;
+
 export type RouterOptions = {
   nodeId: string;
   local: NodeLocal;
@@ -101,7 +103,7 @@ export class Router {
 
     const remaining = Math.min(
       ttl === undefined ? this.maxHops : ttl,
-      this.maxHops,
+      maxHopsLimit,
     );
 
     if (remaining <= 0) {
@@ -202,7 +204,7 @@ export class Router {
               method,
               args,
               timeout,
-              this.maxHops,
+              options.ttl === undefined ? this.maxHops : options.ttl,
               undefined,
               instance.nodeId,
               options.signal,

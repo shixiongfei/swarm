@@ -3989,6 +3989,103 @@ describe("Node transport and mesh", () => {
     );
   });
 
+  test("a call may raise its hop budget above the configured limit", async (t) => {
+    const a = new Node({ cluster: "hops-up", maxHops: 1 });
+    const b = new Node({ cluster: "hops-up", maxHops: 1 });
+    const c = new Node({ cluster: "hops-up", maxHops: 1 });
+    const ab = new MessageChannel();
+    const bc = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      ab.port1.close();
+      ab.port2.close();
+      bc.port1.close();
+      bc.port2.close();
+    });
+
+    c.register("math", { add: () => 1 });
+
+    const known = new Promise<void>((resolve) =>
+      a.watch("math", () => resolve()),
+    );
+
+    a.attach(ab.port1);
+    b.attach(ab.port2);
+    b.attach(bc.port1);
+    c.attach(bc.port2);
+
+    await known;
+
+    await assert.rejects(
+      () => a.call("math", "add"),
+      (err: SwarmError) => err.kind === "not-found",
+    );
+
+    assert.equal(await a.call("math", "add", [], { ttl: 2 }), 1);
+  });
+
+  test("a call may lower its hop budget", async (t) => {
+    const a = new Node({ cluster: "hops-down" });
+    const b = new Node({ cluster: "hops-down" });
+    const c = new Node({ cluster: "hops-down" });
+    const ab = new MessageChannel();
+    const bc = new MessageChannel();
+
+    t.after(() => {
+      a.close();
+      b.close();
+      c.close();
+      ab.port1.close();
+      ab.port2.close();
+      bc.port1.close();
+      bc.port2.close();
+    });
+
+    c.register("math", { add: () => 1 });
+
+    const known = new Promise<void>((resolve) =>
+      a.watch("math", () => resolve()),
+    );
+
+    a.attach(ab.port1);
+    b.attach(ab.port2);
+    b.attach(bc.port1);
+    c.attach(bc.port2);
+
+    await known;
+
+    assert.equal(await a.call("math", "add", [], { ttl: 3 }), 1);
+
+    await assert.rejects(
+      () => a.call("math", "add", [], { ttl: 1 }),
+      (err: SwarmError) => err.kind === "not-found",
+    );
+  });
+
+  test("rejects an invalid hop budget", async (t) => {
+    const node = new Node({ cluster: "hops-invalid" });
+
+    t.after(() => node.close());
+
+    node.register("math", { add: () => 1 });
+
+    for (const ttl of [0, -1, 1.5, NaN, Infinity]) {
+      await assert.rejects(
+        () => node.call("math", "add", [], { ttl }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_HOPS",
+      );
+      await assert.rejects(
+        () => node.callAll("math", "add", [], { ttl }),
+        (err: SwarmError) =>
+          err.kind === "rejected" && err.code === "INVALID_HOPS",
+      );
+    }
+  });
+
   test("calls and collects a node behind an intermediate node", async (t) => {
     const a = new Node({ cluster: "chain" });
     const b = new Node({ cluster: "chain" });
@@ -5374,7 +5471,7 @@ setTimeout(() => console.log("survived"), 500);
   });
 
   test("rejects invalid hop, dial and handshake configuration", () => {
-    for (const maxHops of [0, -1, 1.5, NaN, Infinity]) {
+    for (const maxHops of [0, -1, 1.5, NaN, Infinity, 65]) {
       assert.throws(
         () => new Node({ cluster: "node", maxHops }),
         (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
