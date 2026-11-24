@@ -191,6 +191,10 @@ export class WsServer extends Server<WebSocket> {
     socket.terminate();
   }
 
+  protected isClosing(socket: WebSocket) {
+    return socket.readyState === WebSocket.CLOSING;
+  }
+
   private onSocket(socket: WebSocket, remoteAddress?: string) {
     socket.on("error", () => socket.terminate());
     socket.once("close", () => this.drop(socket));

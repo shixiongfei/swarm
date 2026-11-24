@@ -27,7 +27,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test ./src/*.test.ts",
-    "coverage": "node --test --experimental-test-coverage ./src"
+    "coverage": "node --test --experimental-test-coverage ./src/*.test.ts"
   },
   "files": [
     "dist",

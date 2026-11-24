@@ -53,11 +53,20 @@ export abstract class Server<S = any> {
     this.stop();
 
     for (const socket of this.sockets) {
+      if (this.isClosing(socket)) {
+        this.events.emit("offline", socket);
+        continue;
+      }
+
       this.destroy(socket);
       this.events.emit("offline", socket);
     }
 
     this.sockets.clear();
+  }
+
+  protected isClosing(_socket: S): boolean {
+    return false;
   }
 
   protected accept(socket: S, remoteAddress?: string) {

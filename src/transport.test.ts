@@ -195,7 +195,7 @@ describe("Transport", () => {
 
     await peer.transport.connect(`tcp://127.0.0.1:${server.port}`);
 
-    assert.equal(hub.joins.length, 1);
+    await waitFor(() => hub.joins.length === 1);
     assert.equal(peer.attaches.length, 1);
     assert.equal(peer.attaches[0].expected, undefined);
     assert.equal(peer.attaches[0].addr, `tcp://127.0.0.1:${server.port}`);

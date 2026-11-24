@@ -20,6 +20,7 @@ import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
+import { within } from "./testutil.ts";
 import type { Frame } from "./frame.ts";
 import type { Envelope } from "./envelope.ts";
 import type { WatchEvent } from "./registry.ts";
@@ -879,8 +880,8 @@ describe("NodeLink", () => {
 
     await up("math");
 
-    const closed = new Promise<void>((resolve) =>
-      port2.addEventListener("close", () => resolve()),
+    const closed = new Promise<boolean>((resolve) =>
+      port2.addEventListener("close", () => resolve(true)),
     );
 
     port2.postMessage({
@@ -892,7 +893,7 @@ describe("NodeLink", () => {
       token: signToken("", "second"),
     });
 
-    await closed;
+    assert.equal(await within(closed, 2000), true);
 
     await assert.rejects(
       node.call("math", "add"),
@@ -942,8 +943,8 @@ describe("NodeLink", () => {
       port2.close();
     });
 
-    const closed = new Promise<void>((resolve) =>
-      port2.addEventListener("close", () => resolve()),
+    const closed = new Promise<boolean>((resolve) =>
+      port2.addEventListener("close", () => resolve(true)),
     );
 
     a.attach(port1);
@@ -957,7 +958,7 @@ describe("NodeLink", () => {
       token: await signToken("wrong-secret", "peer-node"),
     });
 
-    await closed;
+    assert.equal(await within(closed, 2000), true);
 
     await assert.rejects(
       a.call("math", "add"),

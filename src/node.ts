@@ -426,9 +426,10 @@ export class Node implements Provider {
       }
 
       this.events.emit("link-up", this.linkInfo(nodeLink));
-      nodeLink.events.once("close", () =>
-        this.events.emit("link-down", this.linkDownInfo(nodeLink)),
-      );
+      nodeLink.events.once("close", () => {
+        this.events.emit("link-down", this.linkDownInfo(nodeLink));
+        this.forgetLinkPeer(nodeLink);
+      });
       nodeLink.events.on("down", (instance, direct) => {
         if (direct) {
           this.forget(instance);
@@ -946,6 +947,28 @@ export class Node implements Provider {
     }
   }
 
+  private forgetLinkPeer(nodeLink: NodeLink) {
+    const peer = nodeLink.peerId;
+
+    if (peer === undefined) {
+      return;
+    }
+
+    if (
+      [...this.nodeLinks, ...this.nodeHub.links].some(
+        (other) => other !== nodeLink && other.peerId === peer,
+      )
+    ) {
+      return;
+    }
+
+    for (const instance of nodeLink.instances()) {
+      if (instance.nodeId === peer) {
+        this.forget(instance);
+      }
+    }
+  }
+
   private checkOpen() {
     if (this.closed) {
       throw new SwarmError("rejected", "CLOSED", "node is closed", false);
@@ -1062,6 +1085,7 @@ export class Node implements Provider {
         this.transport.drop(addr);
       }
 
+      this.forgetLinkPeer(nodeLink);
       this.detach(nodeLink);
     });
 
