@@ -36,9 +36,8 @@ import {
   upChange,
 } from "./frame.ts";
 import { chunk } from "./chunk.ts";
-import type { Frame } from "./frame.ts";
 import type { ErrorCode } from "./errors.ts";
-import type { LinkCloseReason } from "./nodelink.ts";
+import type { LinkCloseReason, PassiveMode } from "./nodelink.ts";
 import type { NodeMember } from "./membership.ts";
 import type { ListenOptions } from "./transport.ts";
 import type { WsClientOptions } from "./wsclient.ts";
@@ -75,7 +74,7 @@ export type CallOptions = {
 export type NodeConfig = {
   cluster: string;
   secret?: string;
-  passive?: boolean;
+  passive?: boolean | PassiveMode;
   callTimeout?: number;
   memberTtl?: number;
   dialTtl?: number;
@@ -159,7 +158,7 @@ function assertCall(service: unknown, method: unknown, args: unknown) {
 export class Node implements Provider {
   readonly nodeId = randomId();
   readonly startup = Date.now();
-  readonly passive: boolean;
+  readonly passive: boolean | PassiveMode;
   readonly cluster: string;
   readonly secret: string;
   readonly events = eventlite<NodeEvents>({
@@ -206,7 +205,19 @@ export class Node implements Provider {
   constructor(config: NodeConfig) {
     this.cluster = config.cluster;
     this.secret = config.secret !== undefined ? config.secret : "";
-    this.passive = config.passive === true;
+
+    const passive = config.passive === null ? undefined : config.passive;
+    const ghost = typeof passive === "object";
+
+    if (ghost && passive.mode !== "ghost") {
+      throw new SwarmError(
+        "rejected",
+        "REJECTED",
+        `unknown passive mode: ${String(passive.mode)}`,
+      );
+    }
+
+    this.passive = passive === undefined ? false : ghost ? passive : true;
 
     this.watcher.addSource(this.nodeLocal);
 
@@ -326,7 +337,7 @@ export class Node implements Provider {
       linked: () => this.linkedPeers(),
       dialing: (addr) => this.dialer.has(addr),
       dial: (addr, id) => {
-        if (this.passive) {
+        if (this.passive !== false) {
           return;
         }
 
@@ -573,7 +584,7 @@ export class Node implements Provider {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
         startup: this.startup,
-        passive: this.passive,
+        passive: this.passive !== false,
       };
       this.membership.upsertSelf(self);
     }
@@ -835,7 +846,9 @@ export class Node implements Provider {
 
   private relay(event: WatchEvent) {
     this.relayQueue.push(
-      event.type === "up" ? upChange(event.instance) : downChange(event.instance),
+      event.type === "up"
+        ? upChange(event.instance)
+        : downChange(event.instance),
     );
 
     if (this.relayScheduled) {
@@ -872,7 +885,8 @@ export class Node implements Provider {
       this.eachPeerLink((nodeLink, peerId) => {
         const items = batch.items.filter(
           (change) =>
-            change.from !== peerId && !nodeLink.has(change.service, change.from),
+            change.from !== peerId &&
+            !nodeLink.has(change.service, change.from),
         );
 
         if (items.length === 0) {

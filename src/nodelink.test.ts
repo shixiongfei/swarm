@@ -55,7 +55,7 @@ class StubLink extends Link {
 
 function attachStub(
   local: NodeLocal,
-  options: { maxInboundTimeout?: number; passive?: boolean } = {},
+  options: { maxInboundTimeout?: number; passive?: boolean | { mode: "ghost" } } = {},
 ) {
   const link = new StubLink();
   const nodeLink = new NodeLink(link, {
@@ -117,7 +117,7 @@ describe("handshake helpers", () => {
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "default",
-      passive: true,
+      passive: { mode: "ghost" },
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,

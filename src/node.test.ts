@@ -4670,7 +4670,9 @@ describe("Node transport and mesh", () => {
     passive.register("svc", { ping: () => "pong" });
     caller.register("other", { ping: () => "pong" });
 
-    const addr = await passive.listen("tcp://127.0.0.1:0");
+    const addr = await passive.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
 
     await caller.connect(`tcp://127.0.0.1:${addr.port}`);
 
@@ -4687,6 +4689,11 @@ describe("Node transport and mesh", () => {
       ["svc"],
     );
     assert.deepEqual(passive.snapshot().links[0].services, []);
+    assert.equal(
+      passive.snapshot().members.find((member) => member.id === passive.nodeId)
+        ?.passive,
+      true,
+    );
   });
 
   test("a passive node calls back the node that called it", async (t) => {
@@ -4726,6 +4733,76 @@ describe("Node transport and mesh", () => {
     assert.deepEqual(
       passive.snapshot().services.map((item) => item.service),
       ["job"],
+    );
+  });
+
+  test("a ghost node learns the cluster and calls it without dialing", async (t) => {
+    const hub = new Node({ cluster: "ghost", callTimeout: 2000 });
+    const ghost = new Node({
+      cluster: "ghost",
+      passive: { mode: "ghost" },
+      callTimeout: 2000,
+    });
+    const other = new Node({ cluster: "ghost" });
+
+    t.after(() => {
+      hub.close();
+      ghost.close();
+      other.close();
+    });
+
+    hub.register("math", { add: (_ctx, a: number, b: number) => a + b });
+    other.register("idle", { ping: () => "pong" });
+
+    const hubAddr = await hub.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
+    await other.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
+    await other.connect(`tcp://127.0.0.1:${hubAddr.port}`);
+    await ghost.connect(`tcp://127.0.0.1:${hubAddr.port}`);
+
+    assert.equal(
+      await waitFor(() =>
+        ghost.snapshot().services.some((item) => item.service === "idle"),
+      ),
+      true,
+    );
+    assert.equal(await ghost.call("math", "add", [1, 2]), 3);
+    assert.equal(await ghost.call("idle", "ping"), "pong");
+    assert.deepEqual(
+      ghost
+        .snapshot()
+        .links.filter((link) => link.local)
+        .map((link) => link.peerId),
+      [hub.nodeId],
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(
+      other.snapshot().links.some((link) => link.peerId === ghost.nodeId),
+      false,
+    );
+  });
+
+  test("a ghost node announces itself as passive", async (t) => {
+    const ghost = new Node({
+      cluster: "ghost-advertise",
+      passive: { mode: "ghost" },
+    });
+
+    t.after(() => ghost.close());
+
+    await ghost.listen("tcp://127.0.0.1:0", {
+      advertise: "tcp://127.0.0.1:0",
+    });
+
+    assert.equal(
+      ghost.snapshot().members.find((member) => member.id === ghost.nodeId)
+        ?.passive,
+      true,
     );
   });
 
@@ -5266,6 +5343,15 @@ setTimeout(() => console.log("survived"), 500);
           err.kind === "rejected" && err.code === "INVALID_TIMEOUT",
       );
     }
+
+    assert.throws(
+      () =>
+        new Node({
+          cluster: "node",
+          passive: { mode: "spy" } as unknown as { mode: "ghost" },
+        }),
+      (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
+    );
 
     for (const key of ["handshakeTimeout", "maxInboundTimeout"] as const) {
       for (const value of [0, -1, NaN, Infinity]) {

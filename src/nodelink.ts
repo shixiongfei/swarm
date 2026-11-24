@@ -63,13 +63,14 @@ function isCongestion(error: unknown): error is SwarmError {
 }
 
 export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
+export type PassiveMode = { mode: "ghost" };
 
 export type NodeLinkConfig = {
   provider: Provider;
   startup: number;
   secret: string;
   cluster: string;
-  passive: boolean;
+  passive: boolean | PassiveMode;
   heartbeatInterval: number;
   heartbeatTimeout: number;
   handshakeTimeout?: number;
@@ -85,7 +86,7 @@ export class NodeLink implements Observable {
   });
   readonly secret: string;
   readonly cluster: string;
-  readonly passive: boolean;
+  readonly passive: boolean | PassiveMode;
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
@@ -153,7 +154,7 @@ export class NodeLink implements Observable {
         return;
 
       case "changes":
-        if (this.peer === undefined || this.passive) {
+        if (this.peer === undefined || this.passive === true) {
           return;
         }
 
@@ -479,7 +480,12 @@ export class NodeLink implements Observable {
 
   hello() {
     this.transmit(() =>
-      this.link.hello(this.startup, this.token(), this.cluster, this.passive),
+      this.link.hello(
+        this.startup,
+        this.token(),
+        this.cluster,
+        this.passive !== false,
+      ),
     );
   }
 
@@ -634,7 +640,12 @@ export class NodeLink implements Observable {
     try {
       if (reply) {
         this.transmit(() =>
-          this.link.accept(this.startup, this.token(), this.cluster, this.passive),
+          this.link.accept(
+            this.startup,
+            this.token(),
+            this.cluster,
+            this.passive !== false,
+          ),
         );
       }
 
@@ -776,7 +787,12 @@ export class NodeLink implements Observable {
     if (nodeId === this.link.nodeId) {
       try {
         this.transmit(() =>
-          this.link.accept(this.startup, this.token(), this.cluster, this.passive),
+          this.link.accept(
+            this.startup,
+            this.token(),
+            this.cluster,
+            this.passive !== false,
+          ),
         );
       } catch {
         // best effort: the initiator detects the self-connect from accept
@@ -931,9 +947,7 @@ export class NodeLink implements Observable {
       this.heartbeat = undefined;
     }
 
-    this.pending.clear(
-      () => new SwarmError("failed", code, message, false),
-    );
+    this.pending.clear(() => new SwarmError("failed", code, message, false));
 
     for (const controller of this.inbound.values()) {
       controller.abort(new SwarmError("failed", code, message, false));

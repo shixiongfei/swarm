@@ -37,7 +37,7 @@ export class NodeHub implements Observable {
 
   private readonly secret: string;
   private readonly cluster: string;
-  private readonly passive: boolean;
+  private readonly passive: NodeLinkConfig["passive"];
   private readonly provider: Provider;
   private readonly startup: number;
   private readonly heartbeatInterval: number;
