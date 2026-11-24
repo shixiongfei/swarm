@@ -4689,6 +4689,46 @@ describe("Node transport and mesh", () => {
     assert.deepEqual(passive.snapshot().links[0].services, []);
   });
 
+  test("a passive node calls back the node that called it", async (t) => {
+    const passive = new Node({ cluster: "passive-callback", passive: true });
+    const caller = new Node({ cluster: "passive-callback" });
+    const seen: string[] = [];
+
+    t.after(() => {
+      passive.close();
+      caller.close();
+    });
+
+    caller.register("sink", {
+      log: (_ctx, message: string) => {
+        seen.push(message);
+        return seen.length;
+      },
+    });
+
+    passive.register("job", {
+      run: (ctx, payload: string) =>
+        passive.callTo(ctx.from, "sink", "log", [payload]),
+    });
+
+    const addr = await passive.listen("tcp://127.0.0.1:0");
+
+    await caller.connect(`tcp://127.0.0.1:${addr.port}`);
+
+    assert.equal(
+      await waitFor(() =>
+        caller.snapshot().services.some((item) => item.service === "job"),
+      ),
+      true,
+    );
+    assert.equal(await caller.call("job", "run", ["done"]), 1);
+    assert.deepEqual(seen, ["done"]);
+    assert.deepEqual(
+      passive.snapshot().services.map((item) => item.service),
+      ["job"],
+    );
+  });
+
   test("peers ignores invalid or wildcard entries", async (t) => {
     const node = new Node({ cluster: "peers-invalid" });
     const { port1, port2 } = new MessageChannel();

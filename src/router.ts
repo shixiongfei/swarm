@@ -132,6 +132,30 @@ export class Router {
             hubLinks.filter((link) => link.has(service, target)),
           ];
 
+    if (
+      target !== undefined &&
+      source === undefined &&
+      routed[0].length === 0 &&
+      routed[1].length === 0
+    ) {
+      const direct = [...links, ...hubLinks].find(
+        (link) => link.peerId === target,
+      );
+
+      if (direct !== undefined) {
+        return direct.call(
+          target,
+          service,
+          method,
+          args,
+          budget !== undefined ? budget : this.callTimeout,
+          remaining - 1,
+          target,
+          signal,
+        );
+      }
+    }
+
     return this.balancer.invoke(
       service,
       method,
