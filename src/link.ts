@@ -14,7 +14,7 @@ import { SwarmError } from "./errors.ts";
 import { frame } from "./frame.ts";
 import { protocolVersion } from "./envelope.ts";
 import type { Frame } from "./frame.ts";
-import type { Envelope, EnvelopeHandler } from "./envelope.ts";
+import type { Envelope, EnvelopeHandler, PassiveMode } from "./envelope.ts";
 
 export type LinkEvents = {
   envelope: EnvelopeHandler;
@@ -47,11 +47,21 @@ export abstract class Link {
     );
   }
 
-  hello(startup: number, token: string, cluster: string, passive: boolean) {
+  hello(
+    startup: number,
+    token: string,
+    cluster: string,
+    passive?: PassiveMode,
+  ) {
     this.handshake("hello", startup, token, cluster, passive);
   }
 
-  accept(startup: number, token: string, cluster: string, passive: boolean) {
+  accept(
+    startup: number,
+    token: string,
+    cluster: string,
+    passive?: PassiveMode,
+  ) {
     this.handshake("accept", startup, token, cluster, passive);
   }
 
@@ -60,7 +70,7 @@ export abstract class Link {
     startup: number,
     token: string,
     cluster: string,
-    passive: boolean,
+    passive?: PassiveMode,
   ) {
     this.send(
       frame({

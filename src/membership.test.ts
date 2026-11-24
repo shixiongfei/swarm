@@ -58,7 +58,7 @@ function makeMembership(overrides: Partial<MembershipOptions> = {}) {
   };
 }
 
-const remote = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1, passive: false };
+const remote = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 };
 
 describe("Membership", () => {
   test("learn skips its own id and loopback hosts from a remote link", (t) => {
@@ -70,13 +70,12 @@ describe("Membership", () => {
       id: "self",
       addr: "tcp://127.0.0.1:9",
       startup: 1,
-      passive: false,
     });
 
     membership.learn(
       [
-        { id: "self", addr: "tcp://10.0.0.9:9", startup: 1, passive: false },
-        { id: "local", addr: "tcp://127.0.0.1:9", startup: 1, passive: false },
+        { id: "self", addr: "tcp://10.0.0.9:9", startup: 1 },
+        { id: "local", addr: "tcp://127.0.0.1:9", startup: 1 },
       ],
       false,
     );
@@ -97,10 +96,9 @@ describe("Membership", () => {
       id: "self",
       addr: "tcp://10.0.0.1:1",
       startup: 1,
-      passive: false,
     });
 
-    membership.learn([{ ...remote, passive: true }], false);
+    membership.learn([{ ...remote, passive: "leaf" }], false);
 
     assert.deepEqual(dials, [{ addr: remote.addr, id: remote.id }]);
   });
@@ -126,11 +124,11 @@ describe("Membership", () => {
     const first = "tcp://10.0.0.9:9";
     const second = "tcp://10.0.0.9:10";
 
-    membership.learn([{ id: remote.id, addr: first, startup: 1, passive: false }], true);
-    membership.learn([{ id: remote.id, addr: second, startup: 2, passive: false }], true);
+    membership.learn([{ id: remote.id, addr: first, startup: 1 }], true);
+    membership.learn([{ id: remote.id, addr: second, startup: 2 }], true);
 
     assert.deepEqual(membership.snapshot(), [
-      { id: remote.id, addr: second, startup: 2, passive: false },
+      { id: remote.id, addr: second, startup: 2 },
     ]);
     assert.deepEqual(dials, [
       { addr: first, id: remote.id },
@@ -152,8 +150,8 @@ describe("Membership", () => {
     const first = "tcp://10.0.0.9:1000";
     const second = "tcp://10.0.0.9:2000";
 
-    membership.learn([{ id: remote.id, addr: first, startup: 1, passive: false }], true);
-    membership.learn([{ id: remote.id, addr: second, startup: 2, passive: false }], true);
+    membership.learn([{ id: remote.id, addr: first, startup: 1 }], true);
+    membership.learn([{ id: remote.id, addr: second, startup: 2 }], true);
 
     assert.deepEqual(
       dials.map((entry) => entry.addr),
@@ -172,11 +170,11 @@ describe("Membership", () => {
 
     t.after(() => membership.close());
 
-    membership.learn([{ id: remote.id, addr: remote.addr, startup: 1, passive: false }], true);
-    membership.learn([{ id: remote.id, addr: remote.addr, startup: 2, passive: false }], true);
+    membership.learn([{ id: remote.id, addr: remote.addr, startup: 1 }], true);
+    membership.learn([{ id: remote.id, addr: remote.addr, startup: 2 }], true);
 
     assert.deepEqual(membership.snapshot(), [
-      { id: remote.id, addr: remote.addr, startup: 2, passive: false },
+      { id: remote.id, addr: remote.addr, startup: 2 },
     ]);
     assert.equal(broadcasts(), 2);
   });
@@ -308,7 +306,7 @@ describe("Membership", () => {
     }
 
     membership.learn(
-      [remote, { id: "gone-1999", addr: "tcp://10.0.0.8:8", startup: 1, passive: false }],
+      [remote, { id: "gone-1999", addr: "tcp://10.0.0.8:8", startup: 1 }],
       true,
     );
 
@@ -323,13 +321,13 @@ describe("Membership", () => {
 
     t.after(() => membership.close());
 
-    const self = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1, passive: false };
+    const self = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1 };
 
     membership.upsertSelf(self);
-    membership.upsertSelf({ id: "self", addr: "tcp://10.0.0.1:2", startup: 1, passive: false });
+    membership.upsertSelf({ id: "self", addr: "tcp://10.0.0.1:2", startup: 1 });
 
     assert.deepEqual(membership.self(), [
-      { id: "self", addr: "tcp://10.0.0.1:2", startup: 1, passive: false },
+      { id: "self", addr: "tcp://10.0.0.1:2", startup: 1 },
     ]);
     assert.equal(broadcasts(), 2);
   });
@@ -339,13 +337,13 @@ describe("Membership", () => {
 
     t.after(() => membership.close());
 
-    const first = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1, passive: false };
+    const first = { id: "self", addr: "tcp://10.0.0.1:1", startup: 1 };
 
     membership.upsertSelf(first);
 
     assert.deepEqual(membership.shared(false), [first]);
 
-    membership.upsertSelf({ id: "self", addr: "tcp://127.0.0.1:1", startup: 1, passive: false });
+    membership.upsertSelf({ id: "self", addr: "tcp://127.0.0.1:1", startup: 1 });
 
     assert.deepEqual(membership.shared(false), []);
   });
@@ -355,7 +353,7 @@ describe("Membership", () => {
 
     t.after(() => membership.close());
 
-    const local = { id: "local", addr: "tcp://127.0.0.1:9", startup: 1, passive: false };
+    const local = { id: "local", addr: "tcp://127.0.0.1:9", startup: 1 };
 
     membership.learn([local, remote], true);
 
@@ -370,7 +368,7 @@ describe("Membership", () => {
 
     membership.learn([{ ...remote }], true);
     membership.learn(
-      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2, passive: false }],
+      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2 }],
       true,
     );
 
@@ -384,7 +382,7 @@ describe("Membership", () => {
 
     membership.learn([{ ...remote }], true);
     membership.learn(
-      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2, passive: false }],
+      [{ id: remote.id, addr: "tcp://127.0.0.1:9", startup: 2 }],
       false,
     );
 
@@ -413,7 +411,7 @@ describe("Membership", () => {
     t.after(() => membership.close());
 
     membership.learn(
-      [{ id: "bad", addr: "not a url", startup: 1, passive: false }, remote],
+      [{ id: "bad", addr: "not a url", startup: 1 }, remote],
       true,
     );
 
@@ -442,18 +440,17 @@ describe("Membership", () => {
       id: "self",
       addr: "tcp://10.0.0.1:1",
       startup: 1,
-      passive: false,
     });
 
     membership.learn(
-      [{ id: "peer", addr: "tcp://10.0.0.9:9", startup: 1, passive: false }],
+      [{ id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 }],
       true,
     );
 
     assert.deepEqual(dials, []);
 
     membership.learn(
-      [{ id: "zpeer", addr: "tcp://10.0.0.10:9", startup: 1, passive: false }],
+      [{ id: "zpeer", addr: "tcp://10.0.0.10:9", startup: 1 }],
       true,
     );
 

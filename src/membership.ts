@@ -10,7 +10,7 @@
  */
 
 import { isAdvertisable, isLoopback, parseUrl } from "./address.ts";
-import type { PeerEntry } from "./envelope.ts";
+import type { PassiveMode, PeerEntry } from "./envelope.ts";
 
 export type NodeMember = PeerEntry;
 
@@ -111,7 +111,7 @@ export class Membership {
 
           existing.addr = entry.addr;
           existing.startup = entry.startup;
-          existing.passive = entry.passive === true;
+          existing.passive = entry.passive;
           ups.push(existing);
 
           if (!linked.has(entry.id) && !this.dialing(entry.addr)) {
@@ -119,10 +119,10 @@ export class Membership {
           }
         } else if (
           existing.startup !== entry.startup ||
-          existing.passive !== (entry.passive === true)
+          existing.passive !== entry.passive
         ) {
           existing.startup = entry.startup;
-          existing.passive = entry.passive === true;
+          existing.passive = entry.passive;
           ups.push(existing);
         }
 
@@ -134,7 +134,7 @@ export class Membership {
       this.onUp(entry);
 
       if (
-        (entry.passive || !advertised || this.id < entry.id) &&
+        (entry.passive !== undefined || !advertised || this.id < entry.id) &&
         !linked.has(entry.id)
       ) {
         this.dial(entry.addr, entry.id);
@@ -148,7 +148,12 @@ export class Membership {
     }
   }
 
-  attach(peer?: string, addr?: string, startup?: number, passive = false) {
+  attach(
+    peer?: string,
+    addr?: string,
+    startup?: number,
+    passive?: PassiveMode,
+  ) {
     if (addr !== undefined) {
       this.expiries.delete(addr);
     }
@@ -164,7 +169,10 @@ export class Membership {
       return false;
     }
 
-    const member = { id: peer, addr, startup, passive };
+    const member =
+      passive === undefined
+        ? { id: peer, addr, startup }
+        : { id: peer, addr, startup, passive };
 
     this.members.set(peer, member);
     this.broadcast([member], []);
@@ -174,9 +182,14 @@ export class Membership {
   }
 
   upsertSelf(member: NodeMember) {
-    this.hosts.delete(member.id);
-    this.members.set(member.id, member);
-    this.broadcast([member], []);
+    const self =
+      member.passive === undefined
+        ? { id: member.id, addr: member.addr, startup: member.startup }
+        : member;
+
+    this.hosts.delete(self.id);
+    this.members.set(self.id, self);
+    this.broadcast([self], []);
   }
 
   self() {
@@ -254,12 +267,16 @@ export class Membership {
   }
 
   snapshot() {
-    return [...this.members.values()].map((member) => ({
-      id: member.id,
-      addr: member.addr,
-      startup: member.startup,
-      passive: member.passive,
-    }));
+    return [...this.members.values()].map((member) =>
+      member.passive === undefined
+        ? { id: member.id, addr: member.addr, startup: member.startup }
+        : {
+            id: member.id,
+            addr: member.addr,
+            startup: member.startup,
+            passive: member.passive,
+          },
+    );
   }
 
   close() {

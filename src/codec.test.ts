@@ -26,7 +26,7 @@ const envelopes: Envelope[] = [
     startup: 1,
     token: "token-value",
     cluster: "default",
-    passive: true,
+    passive: "leaf",
   },
   {
     t: "accept",
@@ -35,7 +35,7 @@ const envelopes: Envelope[] = [
     startup: 1,
     token: "token-value",
     cluster: "default",
-    passive: true,
+    passive: "leaf",
   },
   {
     t: "changes",
@@ -90,12 +90,12 @@ describe("codec", () => {
   test("pins wire field order for every shape", () => {
     const wire: [Envelope, unknown[]][] = [
       [
-        { t: "hello", from: "f", version: 2, startup: 3, token: "t", cluster: "c", passive: false },
+        { t: "hello", from: "f", version: 2, startup: 3, token: "t", cluster: "c" },
         [1, "f", 2, 3, "t", "c"],
       ],
       [
-        { t: "accept", from: "f", version: 2, startup: 3, token: "t", cluster: "c", passive: true },
-        [2, "f", 2, 3, "t", "c", [5, true]],
+        { t: "accept", from: "f", version: 2, startup: 3, token: "t", cluster: "c", passive: "leaf" },
+        [2, "f", 2, 3, "t", "c", [5, "leaf"]],
       ],
       [{ t: "bye", from: "f" }, [3, "f"]],
       [{ t: "ping", from: "f" }, [4, "f"]],
@@ -148,12 +148,12 @@ describe("codec", () => {
         [11, [[15, "pf", "po", "pt", "pi", 8, { d: 1 }]]],
       ],
       [
-        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1, passive: false }] },
+        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1 }] },
         [12, "f", [[16, "pid", "tcp://a:1", 1]]],
       ],
       [
-        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1, passive: true }] },
-        [12, "f", [[16, "pid", "tcp://a:1", 1, [5, true]]]],
+        { t: "peers", from: "f", members: [{ id: "pid", addr: "tcp://a:1", startup: 1, passive: "leaf" }] },
+        [12, "f", [[16, "pid", "tcp://a:1", 1, [5, "leaf"]]]],
       ],
       [
         { t: "peersGone", from: "f", ids: ["gone"] },

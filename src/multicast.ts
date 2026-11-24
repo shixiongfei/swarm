@@ -13,6 +13,7 @@ import { createSocket } from "node:dgram";
 import { eventlite } from "eventlite.js";
 import { sign, verify } from "./jwt.ts";
 import { isLoopback, parseUrl } from "./address.ts";
+import { isPassiveMode } from "./envelope.ts";
 import type { RemoteInfo, Socket } from "node:dgram";
 import type { PeerEntry } from "./envelope.ts";
 
@@ -263,7 +264,7 @@ export class Multicast {
       typeof value.from !== "string" ||
       typeof value.addr !== "string" ||
       !Number.isInteger(value.startup) ||
-      typeof value.passive !== "boolean" ||
+      (value.passive !== undefined && !isPassiveMode(value.passive)) ||
       typeof value.sig !== "string" ||
       value.from === this.nodeId ||
       value.cluster !== this.cluster
@@ -299,13 +300,16 @@ export class Multicast {
       return;
     }
 
-    this.events.emit("peers", [
-      {
-        id: value.from,
-        addr: value.addr,
-        startup: value.startup as number,
-        passive: value.passive,
-      },
-    ]);
+    const entry: PeerEntry = {
+      id: value.from,
+      addr: value.addr,
+      startup: value.startup as number,
+    };
+
+    if (value.passive !== undefined) {
+      entry.passive = value.passive;
+    }
+
+    this.events.emit("peers", [entry]);
   }
 }

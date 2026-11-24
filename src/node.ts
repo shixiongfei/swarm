@@ -26,6 +26,7 @@ import { Router } from "./router.ts";
 import { Transport } from "./transport.ts";
 import { Watcher } from "./watcher.ts";
 import { assertTimeout, isTimeout, withCancel } from "./timeout.ts";
+import { isPassiveMode } from "./envelope.ts";
 import { isMetaData } from "./registry.ts";
 import { assertEncodable, maxEnvelopeSize } from "./codec.ts";
 import {
@@ -37,7 +38,8 @@ import {
 } from "./frame.ts";
 import { chunk } from "./chunk.ts";
 import type { ErrorCode } from "./errors.ts";
-import type { LinkCloseReason, PassiveMode } from "./nodelink.ts";
+import type { LinkCloseReason } from "./nodelink.ts";
+import type { PassiveMode } from "./envelope.ts";
 import type { NodeMember } from "./membership.ts";
 import type { ListenOptions } from "./transport.ts";
 import type { WsClientOptions } from "./wsclient.ts";
@@ -74,7 +76,7 @@ export type CallOptions = {
 export type NodeConfig = {
   cluster: string;
   secret?: string;
-  passive?: boolean | PassiveMode;
+  passive?: false | PassiveMode;
   callTimeout?: number;
   memberTtl?: number;
   dialTtl?: number;
@@ -158,7 +160,7 @@ function assertCall(service: unknown, method: unknown, args: unknown) {
 export class Node implements Provider {
   readonly nodeId = randomId();
   readonly startup = Date.now();
-  readonly passive: boolean | PassiveMode;
+  readonly passive: false | PassiveMode;
   readonly cluster: string;
   readonly secret: string;
   readonly events = eventlite<NodeEvents>({
@@ -206,18 +208,17 @@ export class Node implements Provider {
     this.cluster = config.cluster;
     this.secret = config.secret !== undefined ? config.secret : "";
 
-    const passive = config.passive === null ? undefined : config.passive;
-    const ghost = typeof passive === "object";
+    const passive = config.passive === undefined ? false : config.passive;
 
-    if (ghost && passive.mode !== "ghost") {
+    if (passive !== false && !isPassiveMode(passive)) {
       throw new SwarmError(
         "rejected",
         "REJECTED",
-        `unknown passive mode: ${String(passive.mode)}`,
+        `unknown passive mode: ${String(passive)}`,
       );
     }
 
-    this.passive = passive === undefined ? false : ghost ? passive : true;
+    this.passive = passive;
 
     this.watcher.addSource(this.nodeLocal);
 
@@ -584,7 +585,7 @@ export class Node implements Provider {
         id: this.nodeId,
         addr: `${scheme}//${name}:${advertised.port}${suffix}`,
         startup: this.startup,
-        passive: this.passive !== false,
+        passive: this.passive === false ? undefined : this.passive,
       };
       this.membership.upsertSelf(self);
     }
@@ -883,6 +884,10 @@ export class Node implements Provider {
 
     for (const batch of chunks) {
       this.eachPeerLink((nodeLink, peerId) => {
+        if (nodeLink.peerPassive === "leaf") {
+          return;
+        }
+
         const items = batch.items.filter(
           (change) =>
             change.from !== peerId &&

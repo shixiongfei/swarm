@@ -47,7 +47,6 @@ describe("parseEnvelope", () => {
         startup: 1,
         token: "token-value",
         cluster: "default",
-        passive: false,
       },
       {
         t: "accept",
@@ -56,7 +55,6 @@ describe("parseEnvelope", () => {
         startup: 1,
         token: "token-value",
         cluster: "default",
-        passive: false,
       },
       {
         t: "changes",
@@ -104,7 +102,7 @@ describe("parseEnvelope", () => {
         t: "peers",
         from: "node-a",
         members: [
-          { id: "node-b", addr: "tcp://127.0.0.1:9000", startup: 1, passive: false },
+          { id: "node-b", addr: "tcp://127.0.0.1:9000", startup: 1 },
         ],
       },
       { t: "bye", from: "node-a" },
@@ -341,7 +339,7 @@ describe("parseEnvelope", () => {
   });
 
   test("accepts a large peers frame and rejects an oversized address", () => {
-    const entry = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1, passive: false };
+    const entry = { id: "peer", addr: "tcp://10.0.0.9:9", startup: 1 };
     const many = Array.from({ length: 8000 }, (_, index) => ({
       ...entry,
       id: `peer-${index}`,

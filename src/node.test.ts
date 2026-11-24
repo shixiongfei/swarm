@@ -132,7 +132,6 @@ async function attachGhost(node: Node, service: string) {
   port2.start();
   port2.postMessage({
     t: "hello",
-    passive: false,
     cluster: node.cluster,
     from: "ghost",
     version: protocolVersion,
@@ -172,7 +171,6 @@ describe("Node", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "ghost-cluster",
       from: "ghost",
       version: protocolVersion,
@@ -202,7 +200,6 @@ describe("Node", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "other-cluster",
       from: "ghost",
       version: protocolVersion,
@@ -721,7 +718,6 @@ node.attach(port1);
 port2.start();
 port2.postMessage({
   t: "hello",
-  passive: false,
   cluster: "test",
   from: "ghost",
   version: protocolVersion,
@@ -1010,7 +1006,6 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        passive: false,
         cluster: "frame-share",
         from: peerId,
         version: protocolVersion,
@@ -1036,7 +1031,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(updates[2]?.bytes(), changes?.bytes());
 
     internals.broadcastPeers(
-      [{ id: "peer-a", addr: "tcp://127.0.0.1:1", startup: 1, passive: false }],
+      [{ id: "peer-a", addr: "tcp://127.0.0.1:1", startup: 1 }],
       [],
     );
     internals.flushPending();
@@ -1059,7 +1054,7 @@ setTimeout(() => console.log("survived"), 500);
           id: string;
           addr: string;
           startup: number;
-          passive: boolean;
+          passive?: false | "leaf" | "ghost";
         }) => void;
       };
     };
@@ -1070,7 +1065,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "gossip-coalesce",
       from: "peer-a",
       version: protocolVersion,
@@ -1085,7 +1079,6 @@ setTimeout(() => console.log("survived"), 500);
         id: node.nodeId,
         addr: `tcp://127.0.0.1:${i + 1}`,
         startup: 1,
-        passive: false,
       });
     }
 
@@ -1113,7 +1106,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "peer-delta",
       from: "peer-a",
       version: protocolVersion,
@@ -1123,8 +1115,8 @@ setTimeout(() => console.log("survived"), 500);
 
     internals.membership.learn(
       [
-        { id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1, passive: false },
-        { id: "peer-y", addr: "tcp://10.0.0.9:2", startup: 1, passive: false },
+        { id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 },
+        { id: "peer-y", addr: "tcp://10.0.0.9:2", startup: 1 },
       ],
       false,
     );
@@ -1133,7 +1125,7 @@ setTimeout(() => console.log("survived"), 500);
 
     link.frames.length = 0;
     internals.membership.learn(
-      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1, passive: false }],
+      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1 }],
       false,
     );
 
@@ -1144,7 +1136,7 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(added?.message.t, "peers");
     assert.deepEqual(
       added?.message.t === "peers" ? added.message.members : undefined,
-      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1, passive: false }],
+      [{ id: "peer-z", addr: "tcp://10.0.0.9:3", startup: 1 }],
     );
 
     link.frames.length = 0;
@@ -1174,7 +1166,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "peer-departed",
       from: "peer-a",
       version: protocolVersion,
@@ -1183,7 +1174,7 @@ setTimeout(() => console.log("survived"), 500);
     });
 
     internals.membership.learn(
-      [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1, passive: false }],
+      [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 }],
       false,
     );
 
@@ -1220,7 +1211,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "peer-self",
       from: "peer-a",
       version: protocolVersion,
@@ -1232,7 +1222,6 @@ setTimeout(() => console.log("survived"), 500);
       id: node.nodeId,
       addr: "tcp://127.0.0.1:7001",
       startup: 1,
-      passive: false,
     });
 
     link.events.emit("envelope", {
@@ -1258,7 +1247,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "peer-linked",
       from: "peer-a",
       version: protocolVersion,
@@ -1267,7 +1255,7 @@ setTimeout(() => console.log("survived"), 500);
     });
 
     internals.membership.learn(
-      [{ id: "peer-a", addr: "tcp://10.0.0.9:1", startup: 1, passive: false }],
+      [{ id: "peer-a", addr: "tcp://10.0.0.9:1", startup: 1 }],
       false,
     );
 
@@ -1296,7 +1284,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "tombstone",
       from: "peer-a",
       version: protocolVersion,
@@ -1304,7 +1291,7 @@ setTimeout(() => console.log("survived"), 500);
       token: signToken("", "peer-a"),
     });
 
-    const peerX = [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1, passive: false }];
+    const peerX = [{ id: "peer-x", addr: "tcp://10.0.0.9:1", startup: 1 }];
     const alive = () =>
       node.snapshot().members.some((member) => member.id === "peer-x");
 
@@ -1336,7 +1323,7 @@ setTimeout(() => console.log("survived"), 500);
           id: string;
           addr: string;
           startup: number;
-          passive: boolean;
+          passive?: false | "leaf" | "ghost";
         }) => void;
       };
       flushPeers: (ups: undefined, downs: string[]) => void;
@@ -1351,7 +1338,6 @@ setTimeout(() => console.log("survived"), 500);
     for (const [index, link] of [portLink, socketLink].entries()) {
       link.events.emit("envelope", {
         t: "hello",
-        passive: false,
         cluster: "peer-split",
         from: `peer-${index}`,
         version: protocolVersion,
@@ -1364,14 +1350,12 @@ setTimeout(() => console.log("survived"), 500);
       id: node.nodeId,
       addr: "tcp://127.0.0.1:1",
       startup: 1,
-      passive: false,
     });
 
     const members = Array.from({ length: 20 }, (_, i) => ({
       id: `peer-${i}`,
       addr: `tcp://10.0.0.1:${1000 + i}?${"x".repeat(450000)}`,
       startup: 1,
-      passive: false,
     }));
     const internals2 = node as unknown as {
       membership: { members: Map<string, unknown> };
@@ -1411,7 +1395,6 @@ setTimeout(() => console.log("survived"), 500);
     internals.attachLink(link);
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "frame-split",
       from: "peer-a",
       version: protocolVersion,
@@ -1451,7 +1434,6 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        passive: false,
         cluster: "frame-echo",
         from: peerId,
         version: protocolVersion,
@@ -1494,7 +1476,6 @@ setTimeout(() => console.log("survived"), 500);
       internals.attachLink(link);
       link.events.emit("envelope", {
         t: "hello",
-        passive: false,
         cluster: "frame-batch",
         from: peerId,
         version: protocolVersion,
@@ -1954,7 +1935,6 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "obs-link-events",
       from: "ghost",
       version: protocolVersion,
@@ -2025,7 +2005,6 @@ setTimeout(() => console.log("survived"), 500);
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "peer-id-mismatch",
       from: "other-peer",
       version: protocolVersion,
@@ -4468,7 +4447,6 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "advertise-on",
       from: "ghost",
       version: protocolVersion,
@@ -4481,7 +4459,6 @@ describe("Node transport and mesh", () => {
         id: node.nodeId,
         addr: `tcp://127.0.0.1:${port}`,
         startup: node.startup,
-        passive: false,
       },
     ]);
   });
@@ -4556,7 +4533,6 @@ describe("Node transport and mesh", () => {
         port2.start();
         port2.postMessage({
           t: "hello",
-          passive: false,
           cluster: "advertise-port-zero",
           from: "ghost",
           version: protocolVersion,
@@ -4569,7 +4545,6 @@ describe("Node transport and mesh", () => {
             id: node.nodeId,
             addr: `${item.scheme}://127.0.0.1:${bound.port}`,
             startup: node.startup,
-            passive: false,
           },
         ]);
       } finally {
@@ -4606,7 +4581,6 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "advertise-off",
       from: "ghost",
       version: protocolVersion,
@@ -4620,7 +4594,7 @@ describe("Node transport and mesh", () => {
   test("a passive node does not dial the members it learns", async (t) => {
     const hub = new Node({ cluster: "passive-dial" });
     const target = new Node({ cluster: "passive-dial" });
-    const passive = new Node({ cluster: "passive-dial", passive: true });
+    const passive = new Node({ cluster: "passive-dial", passive: "leaf" });
     const active = new Node({ cluster: "passive-dial" });
 
     t.after(() => {
@@ -4659,7 +4633,7 @@ describe("Node transport and mesh", () => {
   });
 
   test("a passive node serves its services without keeping the cluster table", async (t) => {
-    const passive = new Node({ cluster: "passive-table", passive: true });
+    const passive = new Node({ cluster: "passive-table", passive: "leaf" });
     const caller = new Node({ cluster: "passive-table" });
 
     t.after(() => {
@@ -4692,12 +4666,12 @@ describe("Node transport and mesh", () => {
     assert.equal(
       passive.snapshot().members.find((member) => member.id === passive.nodeId)
         ?.passive,
-      true,
+      "leaf",
     );
   });
 
   test("a passive node calls back the node that called it", async (t) => {
-    const passive = new Node({ cluster: "passive-callback", passive: true });
+    const passive = new Node({ cluster: "passive-callback", passive: "leaf" });
     const caller = new Node({ cluster: "passive-callback" });
     const seen: string[] = [];
 
@@ -4736,11 +4710,85 @@ describe("Node transport and mesh", () => {
     );
   });
 
+  test("a hub never sends changes to a leaf link", async (t) => {
+    const node = new Node({ cluster: "relay-leaf" });
+    const leaf = new FrameLink(node.nodeId, "socket");
+    const active = new FrameLink(node.nodeId, "socket");
+    const internals = node as unknown as { attachLink: (link: Link) => void };
+    const handshake = (from: string, passive?: "leaf" | "ghost") => ({
+      t: "hello" as const,
+      passive,
+      cluster: "relay-leaf",
+      from,
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", from),
+    });
+    const changes = (link: FrameLink) =>
+      link.frames.filter((frame) => frame.message.t === "changes");
+
+    t.after(() => {
+      node.close();
+      leaf.close();
+      active.close();
+    });
+
+    node.register("pre-svc", { ping: () => "pre" });
+
+    internals.attachLink(leaf);
+    internals.attachLink(active);
+    leaf.events.emit("envelope", handshake("leaf-node", "leaf"));
+    active.events.emit("envelope", handshake("active-node"));
+
+    await runRelay();
+
+    const sent = changes(active).length;
+
+    assert.equal(changes(leaf).length, 0);
+    assert.equal(sent >= 1, true);
+
+    node.register("post-svc", { ping: () => "post" });
+    await runRelay();
+
+    assert.equal(changes(leaf).length, 0);
+    assert.equal(changes(active).length > sent, true);
+  });
+
+  test("a hub keeps sending changes to a ghost link", async (t) => {
+    const node = new Node({ cluster: "relay-ghost" });
+    const ghost = new FrameLink(node.nodeId, "socket");
+    const internals = node as unknown as { attachLink: (link: Link) => void };
+
+    t.after(() => {
+      node.close();
+      ghost.close();
+    });
+
+    internals.attachLink(ghost);
+    ghost.events.emit("envelope", {
+      t: "hello",
+      passive: "ghost",
+      cluster: "relay-ghost",
+      from: "ghost-node",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "ghost-node"),
+    });
+
+    node.register("svc", { ping: () => "pong" });
+    await runRelay();
+
+    assert.equal(
+      ghost.frames.filter((frame) => frame.message.t === "changes").length,
+      1,
+    );
+  });
+
   test("a ghost node learns the cluster and calls it without dialing", async (t) => {
     const hub = new Node({ cluster: "ghost", callTimeout: 2000 });
     const ghost = new Node({
       cluster: "ghost",
-      passive: { mode: "ghost" },
+      passive: "ghost",
       callTimeout: 2000,
     });
     const other = new Node({ cluster: "ghost" });
@@ -4790,7 +4838,7 @@ describe("Node transport and mesh", () => {
   test("a ghost node announces itself as passive", async (t) => {
     const ghost = new Node({
       cluster: "ghost-advertise",
-      passive: { mode: "ghost" },
+      passive: "ghost",
     });
 
     t.after(() => ghost.close());
@@ -4802,7 +4850,7 @@ describe("Node transport and mesh", () => {
     assert.equal(
       ghost.snapshot().members.find((member) => member.id === ghost.nodeId)
         ?.passive,
-      true,
+      "ghost",
     );
   });
 
@@ -4843,7 +4891,6 @@ describe("Node transport and mesh", () => {
 
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "peers-invalid",
       from: "ghost",
       version: protocolVersion,
@@ -4854,16 +4901,16 @@ describe("Node transport and mesh", () => {
       t: "peers",
       from: "ghost",
       members: [
-        { id: "wild", addr: "tcp://0.0.0.0:1", startup: 1, passive: false },
-        { id: "bad", addr: "not a url", startup: 1, passive: false },
-        { id: "0", addr: "tcp://127.0.0.1:1", startup: 1, passive: false },
-        { id: "00", addr: "tcp://192.0.2.1:1", startup: 1, passive: false },
+        { id: "wild", addr: "tcp://0.0.0.0:1", startup: 1 },
+        { id: "bad", addr: "not a url", startup: 1 },
+        { id: "0", addr: "tcp://127.0.0.1:1", startup: 1 },
+        { id: "00", addr: "tcp://192.0.2.1:1", startup: 1 },
       ],
     });
 
     assert.deepEqual(await learned, [
-      { id: "0", addr: "tcp://127.0.0.1:1", startup: 1, passive: false },
-      { id: "00", addr: "tcp://192.0.2.1:1", startup: 1, passive: false },
+      { id: "0", addr: "tcp://127.0.0.1:1", startup: 1 },
+      { id: "00", addr: "tcp://192.0.2.1:1", startup: 1 },
     ]);
   });
 
@@ -4939,7 +4986,6 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "hop-budget",
       from: "peer",
       version: protocolVersion,
@@ -4991,7 +5037,6 @@ describe("Node transport and mesh", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "dial-identity-target",
       from: "ghost",
       version: protocolVersion,
@@ -5002,7 +5047,7 @@ describe("Node transport and mesh", () => {
       t: "peers",
       from: "ghost",
       members: [
-        { id: "expected", addr: `tcp://127.0.0.1:${bound.port}`, startup: 1, passive: false },
+        { id: "expected", addr: `tcp://127.0.0.1:${bound.port}`, startup: 1 },
       ],
     });
 
@@ -5348,7 +5393,7 @@ setTimeout(() => console.log("survived"), 500);
       () =>
         new Node({
           cluster: "node",
-          passive: { mode: "spy" } as unknown as { mode: "ghost" },
+          passive: "spy" as unknown as "leaf",
         }),
       (err: SwarmError) => err.kind === "rejected" && err.code === "REJECTED",
     );

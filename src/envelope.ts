@@ -48,11 +48,20 @@ type Field =
   | BooleanConstructor
   | keyof Tokens
   | Shape
+  | readonly string[]
   | readonly (Field | Shape)[]
   | { readonly field: Field; readonly optional: true };
 
 function optional<const F extends Field>(field: F) {
   return { field, optional: true as const };
+}
+
+export type PassiveMode = "leaf" | "ghost";
+
+const passiveMode: readonly PassiveMode[] = ["leaf", "ghost"];
+
+export function isPassiveMode(value: unknown): value is PassiveMode {
+  return value === "leaf" || value === "ghost";
 }
 
 export const fieldIds: Record<string, number> = {
@@ -122,7 +131,7 @@ const peer = shape(16, undefined, {
   id: String,
   addr: String,
   startup: Number,
-  passive: optional(Boolean),
+  passive: optional(passiveMode),
 });
 
 const hello = shape(1, "hello", {
@@ -131,7 +140,7 @@ const hello = shape(1, "hello", {
   startup: Number,
   token: String,
   cluster: String,
-  passive: optional(Boolean),
+  passive: optional(passiveMode),
 });
 
 const accept = shape(2, "accept", {
@@ -140,7 +149,7 @@ const accept = shape(2, "accept", {
   startup: Number,
   token: String,
   cluster: String,
-  passive: optional(Boolean),
+  passive: optional(passiveMode),
 });
 
 const bye = shape(3, "bye", { from: String });
@@ -230,11 +239,13 @@ type InferField<F> = F extends { field: infer I }
         ? boolean
         : F extends keyof Tokens
           ? Tokens[F]
-          : F extends readonly (infer E)[]
-            ? InferField<E>[]
-            : F extends { fields: unknown }
-              ? EnvelopeOf<F>
-              : never;
+          : F extends readonly string[]
+            ? F[number]
+            : F extends readonly (infer E)[]
+              ? InferField<E>[]
+              : F extends { fields: unknown }
+                ? EnvelopeOf<F>
+                : never;
 
 type FieldsOf<F extends Record<string, Field>> = {
   -readonly [K in keyof F as F[K] extends { optional: true }
@@ -274,7 +285,7 @@ function isHandshake(
     typeof message.cluster !== "string" ||
     typeof message.version !== "number" ||
     !Number.isInteger(message.startup) ||
-    (message.passive !== undefined && typeof message.passive !== "boolean") ||
+    (message.passive !== undefined && !isPassiveMode(message.passive)) ||
     !Number.isInteger(message.version) ||
     message.version < 1
   ) {
@@ -441,7 +452,7 @@ function isPeerEntry(entry: unknown) {
     typeof peer.addr === "string" &&
     peer.addr.length <= maxPeerAddrLength &&
     Number.isInteger(peer.startup) &&
-    (peer.passive === undefined || typeof peer.passive === "boolean")
+    (peer.passive === undefined || isPassiveMode(peer.passive))
   );
 }
 

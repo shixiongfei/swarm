@@ -85,16 +85,6 @@ function encodeField(
   });
 }
 
-function isFlag(shape: Shape, field: string) {
-  const token = (shape.fields as Record<string, unknown>)[field];
-  const inner =
-    typeof token === "object" && token !== null && "field" in token
-      ? token.field
-      : token;
-
-  return inner === Boolean;
-}
-
 function encodeShape(value: Record<string, unknown>, shape: Shape): unknown[] {
   const row: unknown[] = [shape.code];
 
@@ -105,10 +95,7 @@ function encodeShape(value: Record<string, unknown>, shape: Shape): unknown[] {
   let opts: unknown[] | undefined;
 
   for (const field of shape.optional) {
-    if (
-      value[field] === undefined ||
-      (value[field] === false && isFlag(shape, field))
-    ) {
+    if (value[field] === undefined) {
       continue;
     }
 

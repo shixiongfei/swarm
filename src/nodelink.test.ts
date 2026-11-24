@@ -55,13 +55,13 @@ class StubLink extends Link {
 
 function attachStub(
   local: NodeLocal,
-  options: { maxInboundTimeout?: number; passive?: boolean | { mode: "ghost" } } = {},
+  options: { maxInboundTimeout?: number; passive?: false | "leaf" | "ghost" } = {},
 ) {
   const link = new StubLink();
   const nodeLink = new NodeLink(link, {
     provider: local,
     cluster: "default",
-    passive: options.passive === true,
+    passive: options.passive === undefined ? false : options.passive,
     startup: 1,
     secret: "",
     heartbeatInterval: 15000,
@@ -71,7 +71,6 @@ function attachStub(
 
   link.events.emit("envelope", {
     t: "hello",
-    passive: false,
     cluster: "default",
     from: "peer-node",
     version: protocolVersion,
@@ -98,7 +97,6 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "peer-cluster",
       from: "peer-node",
       version: protocolVersion,
@@ -117,7 +115,7 @@ describe("handshake helpers", () => {
     const nodeLink = new NodeLink(link, {
       provider: local,
       cluster: "default",
-      passive: { mode: "ghost" },
+      passive: "ghost",
       startup: 1,
       secret: "",
       heartbeatInterval: 15000,
@@ -126,7 +124,7 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
-      passive: true,
+      passive: "leaf",
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -136,8 +134,8 @@ describe("handshake helpers", () => {
 
     const reply = link.sent.find((message) => message.t === "accept");
 
-    assert.equal(nodeLink.peerPassive, true);
-    assert.equal(reply?.t === "accept" ? reply.passive : undefined, true);
+    assert.equal(nodeLink.peerPassive, "leaf");
+    assert.equal(reply?.t === "accept" ? reply.passive : undefined, "ghost");
 
     nodeLink.close();
   });
@@ -162,7 +160,6 @@ describe("handshake helpers", () => {
     link.failNextSend = true;
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -203,7 +200,6 @@ describe("handshake helpers", () => {
 
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -586,7 +582,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -871,7 +866,6 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "two-ids",
       from: "first",
       version: protocolVersion,
@@ -891,7 +885,6 @@ describe("NodeLink", () => {
 
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "two-ids",
       from: "second",
       version: protocolVersion,
@@ -957,7 +950,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "secret-a",
       from: "peer-node",
       version: protocolVersion,
@@ -1016,7 +1008,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "relayed-sender",
       from: "peer",
       version: protocolVersion,
@@ -1075,7 +1066,7 @@ describe("NodeLink", () => {
 
   test("a passive node keeps no registry of the peer's changes", (t) => {
     const local = new NodeLocal("local-node");
-    const { link, nodeLink } = attachStub(local, { passive: true });
+    const { link, nodeLink } = attachStub(local, { passive: "leaf" });
     const events: WatchEvent[] = [];
 
     t.after(() => nodeLink.close());
@@ -1141,7 +1132,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "pub-origin",
       from: "peer",
       version: protocolVersion,
@@ -1222,7 +1212,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "call-target",
       from: "peer",
       version: protocolVersion,
@@ -1304,7 +1293,6 @@ describe("NodeLink", () => {
     port2.start();
     port2.postMessage({
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1705,7 +1693,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1749,7 +1736,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1788,7 +1774,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1821,7 +1806,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: Math.floor(protocolVersion / 100) * 100 + 99,
@@ -1853,7 +1837,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: (Math.floor(protocolVersion / 100) + 1) * 100,
@@ -1895,7 +1878,6 @@ describe("NodeLink", () => {
 
     stub.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,
@@ -1963,7 +1945,6 @@ describe("ready", () => {
 
     link.events.emit("envelope", {
       t: "hello",
-      passive: false,
       cluster: "default",
       from: "peer-node",
       version: protocolVersion,

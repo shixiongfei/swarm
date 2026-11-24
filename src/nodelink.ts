@@ -22,7 +22,12 @@ import type { ErrorCode } from "./errors.ts";
 import type { Frame } from "./frame.ts";
 import type { Link } from "./link.ts";
 import type { Provider } from "./provider.ts";
-import type { Envelope, PeerEntry, UpEnvelope } from "./envelope.ts";
+import type {
+  Envelope,
+  PassiveMode,
+  PeerEntry,
+  UpEnvelope,
+} from "./envelope.ts";
 import type { Instance, Observable, WatchHandler } from "./registry.ts";
 
 type NodeLinkEvents = {
@@ -63,14 +68,12 @@ function isCongestion(error: unknown): error is SwarmError {
 }
 
 export type LinkCloseReason = "error" | "bye" | "timeout" | "dedupe" | "close";
-export type PassiveMode = { mode: "ghost" };
-
 export type NodeLinkConfig = {
   provider: Provider;
   startup: number;
   secret: string;
   cluster: string;
-  passive: boolean | PassiveMode;
+  passive: false | PassiveMode;
   heartbeatInterval: number;
   heartbeatTimeout: number;
   handshakeTimeout?: number;
@@ -86,7 +89,7 @@ export class NodeLink implements Observable {
   });
   readonly secret: string;
   readonly cluster: string;
-  readonly passive: boolean | PassiveMode;
+  readonly passive: false | PassiveMode;
 
   private readonly registry = new Registry();
   private readonly pending = new PendingCalls();
@@ -104,7 +107,7 @@ export class NodeLink implements Observable {
   private peer?: string;
   peerStartup?: number;
   peerCluster?: string;
-  peerPassive = false;
+  peerPassive: PassiveMode | undefined;
   private closed = false;
   private opened = false;
   private reason: LinkCloseReason = "close";
@@ -128,7 +131,7 @@ export class NodeLink implements Observable {
 
         this.peerStartup = message.startup;
         this.peerCluster = message.cluster;
-        this.peerPassive = message.passive === true;
+        this.peerPassive = message.passive;
 
         if (!this.acceptCluster(message.cluster)) {
           return;
@@ -144,7 +147,7 @@ export class NodeLink implements Observable {
 
         this.peerStartup = message.startup;
         this.peerCluster = message.cluster;
-        this.peerPassive = message.passive === true;
+        this.peerPassive = message.passive;
 
         if (!this.acceptCluster(message.cluster)) {
           return;
@@ -154,7 +157,7 @@ export class NodeLink implements Observable {
         return;
 
       case "changes":
-        if (this.peer === undefined || this.passive === true) {
+        if (this.peer === undefined || this.passive === "leaf") {
           return;
         }
 
@@ -484,7 +487,7 @@ export class NodeLink implements Observable {
         this.startup,
         this.token(),
         this.cluster,
-        this.passive !== false,
+        this.passive === false ? undefined : this.passive,
       ),
     );
   }
@@ -644,7 +647,7 @@ export class NodeLink implements Observable {
             this.startup,
             this.token(),
             this.cluster,
-            this.passive !== false,
+            this.passive === false ? undefined : this.passive,
           ),
         );
       }
@@ -760,6 +763,10 @@ export class NodeLink implements Observable {
   }
 
   private announce() {
+    if (this.peerPassive === "leaf") {
+      return;
+    }
+
     const items: UpEnvelope[] = [];
 
     for (const instance of this.provider.registrations()) {
@@ -791,7 +798,7 @@ export class NodeLink implements Observable {
             this.startup,
             this.token(),
             this.cluster,
-            this.passive !== false,
+            this.passive === false ? undefined : this.passive,
           ),
         );
       } catch {
