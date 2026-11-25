@@ -250,7 +250,10 @@ describe("Node", () => {
 
     const call = a.call("slow", "wait", []);
 
-    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 1), true);
+    assert.equal(
+      await waitFor(() => b.snapshot().links[0]?.inbound === 1),
+      true,
+    );
     assert.equal(a.snapshot().health.inflight, 1);
     assert.equal(a.snapshot().links[0]?.pending, 1);
     assert.equal(b.snapshot().health.inflight, 1);
@@ -258,7 +261,10 @@ describe("Node", () => {
     gate.resolve();
 
     assert.equal(await call, undefined);
-    assert.equal(await waitFor(() => a.snapshot().links[0]?.pending === 0), true);
+    assert.equal(
+      await waitFor(() => a.snapshot().links[0]?.pending === 0),
+      true,
+    );
     assert.equal(a.snapshot().health.inflight, 0);
     assert.equal(b.snapshot().health.inflight, 0);
   });
@@ -290,7 +296,10 @@ describe("Node", () => {
 
     const first = a.call("slow", "wait", []);
 
-    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 1), true);
+    assert.equal(
+      await waitFor(() => b.snapshot().links[0]?.inbound === 1),
+      true,
+    );
 
     await assert.rejects(
       a.call("slow", "wait", []),
@@ -300,7 +309,10 @@ describe("Node", () => {
     gate.resolve();
 
     assert.equal(await first, undefined);
-    assert.equal(await waitFor(() => b.snapshot().links[0]?.inbound === 0), true);
+    assert.equal(
+      await waitFor(() => b.snapshot().links[0]?.inbound === 0),
+      true,
+    );
   });
 
   test("snapshot counts dropped frames by code", async (t) => {
@@ -1548,7 +1560,10 @@ setTimeout(() => console.log("survived"), 500);
 
     assert.ok(downs.t === "changes");
     assert.equal(downs.items.length, 100);
-    assert.equal(downs.items.every((item) => item.t === "down"), true);
+    assert.equal(
+      downs.items.every((item) => item.t === "down"),
+      true,
+    );
   });
 
   test("a broken path keeps an instance reachable through another peer", async (t) => {
@@ -1836,7 +1851,10 @@ setTimeout(() => console.log("survived"), 500);
 
     await hub.close({ drain: 2000 });
 
-    assert.ok(Date.now() - begun < 1000, "drain should not wait for the window");
+    assert.ok(
+      Date.now() - begun < 1000,
+      "drain should not wait for the window",
+    );
     assert.equal(await call, "aborted");
   });
 
@@ -2248,6 +2266,96 @@ setTimeout(() => console.log("survived"), 500);
     await waitFor(() => seen?.aborted === true);
 
     assert.equal((seen?.reason as SwarmError).code, "TIMEOUT");
+  });
+
+  test("starts inbound handlers in arrival order and runs them concurrently", async (t) => {
+    const a = new Node({ cluster: "inbound-order" });
+    const b = new Node({ cluster: "inbound-order" });
+    const { port1, port2 } = new MessageChannel();
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const up = new Promise<void>((resolve) => a.watch("svc", () => resolve()));
+
+    b.register("svc", {
+      hit: async (_ctx, n: number) => {
+        order.push(`start${n}`);
+
+        if (n === 1) {
+          await gate;
+        }
+
+        order.push(`end${n}`);
+
+        return n;
+      },
+    });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await within(up, 2000);
+
+    const first = a.call("svc", "hit", [1]);
+    const second = a.call("svc", "hit", [2]);
+
+    assert.equal(await within(second, 2000), 2);
+    assert.deepEqual(order, ["start1", "start2", "end2"]);
+
+    release();
+
+    assert.equal(await within(first, 2000), 1);
+    assert.deepEqual(order, ["start1", "start2", "end2", "end1"]);
+  });
+
+  test("does not abort the handler signal after a successful return", async (t) => {
+    const a = new Node({ cluster: "inbound-signal" });
+    const b = new Node({ cluster: "inbound-signal" });
+    const { port1, port2 } = new MessageChannel();
+    let signal: AbortSignal | undefined;
+    let aborts = 0;
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const up = new Promise<void>((resolve) => a.watch("svc", () => resolve()));
+
+    b.register("svc", {
+      hit: async (ctx) => {
+        signal = ctx.signal;
+        ctx.signal.addEventListener("abort", () => {
+          aborts += 1;
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        return "ok";
+      },
+    });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await within(up, 2000);
+
+    assert.equal(await within(a.call("svc", "hit", []), 2000), "ok");
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    assert.equal(signal?.aborted, false);
+    assert.equal(aborts, 0);
   });
 
   test("callAll rejects with cancelled when the signal aborts", async (t) => {
@@ -4388,7 +4496,9 @@ describe("Node transport and mesh", () => {
       seed.close();
     });
 
-    right.register("math", { add: async (_ctx, a: number, b: number) => a + b });
+    right.register("math", {
+      add: async (_ctx, a: number, b: number) => a + b,
+    });
 
     const up = new Promise<void>((resolve) =>
       left.watch("math", (event) => {
@@ -4777,15 +4887,11 @@ describe("Node transport and mesh", () => {
     await active.connect(`tcp://127.0.0.1:${hubAddr.port}`);
 
     await waitFor(() =>
-      target
-        .snapshot()
-        .links.some((link) => link.peerId === active.nodeId),
+      target.snapshot().links.some((link) => link.peerId === active.nodeId),
     );
 
     assert.equal(
-      target
-        .snapshot()
-        .links.some((link) => link.peerId === passive.nodeId),
+      target.snapshot().links.some((link) => link.peerId === passive.nodeId),
       false,
     );
   });
@@ -5085,7 +5191,9 @@ describe("Node transport and mesh", () => {
       provider.close();
     });
 
-    provider.register("math", { add: async (_ctx, a: number, b: number) => a + b });
+    provider.register("math", {
+      add: async (_ctx, a: number, b: number) => a + b,
+    });
 
     const up = new Promise<void>((resolve) =>
       consumer.watch("math", (event) => {
