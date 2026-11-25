@@ -251,6 +251,10 @@ export class NodeLink implements Observable {
             },
             (error: unknown) => {
               if (this.inbound.delete(message.id)) {
+                if (error instanceof SwarmError && error.kind === "timeout") {
+                  controller.abort(error);
+                }
+
                 this.sendFailure(message.id, message.from, error);
               }
             },

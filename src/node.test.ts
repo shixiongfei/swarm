@@ -2189,6 +2189,43 @@ setTimeout(() => console.log("survived"), 500);
     assert.equal(seen?.from, a.nodeId);
   });
 
+  test("aborts the handler signal when the inbound call times out", async (t) => {
+    const a = new Node({ cluster: "inbound-timeout" });
+    const b = new Node({ cluster: "inbound-timeout" });
+    const { port1, port2 } = new MessageChannel();
+    let seen: AbortSignal | undefined;
+
+    t.after(() => {
+      a.close();
+      b.close();
+      port1.close();
+      port2.close();
+    });
+
+    const up = new Promise<void>((resolve) => a.watch("slow", () => resolve()));
+
+    b.register("slow", {
+      work: (ctx) => {
+        seen = ctx.signal;
+        return new Promise(() => {});
+      },
+    });
+
+    a.attach(port1);
+    b.attach(port2);
+
+    await within(up, 2000);
+
+    await assert.rejects(
+      a.call("slow", "work", [], { timeout: 50 }),
+      (err: SwarmError) => err.code === "TIMEOUT",
+    );
+
+    await waitFor(() => seen?.aborted === true);
+
+    assert.equal((seen?.reason as SwarmError).code, "TIMEOUT");
+  });
+
   test("callAll rejects with cancelled when the signal aborts", async (t) => {
     const node = new Node({ cluster: "cancel-call-all" });
 
