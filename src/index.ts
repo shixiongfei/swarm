@@ -12,6 +12,7 @@
 export * from "./errors.ts";
 export * from "./node.ts";
 export * from "./service.ts";
+export * from "./serial.ts";
 export * from "./app.ts";
 export type { DiscoveryOptions } from "./discovery.ts";
 export type { ListenOptions, WsListenOptions } from "./transport.ts";
