@@ -21,9 +21,10 @@ export type CallContext = {
 };
 
 export type Methods<M = Record<string, any>> = Record<
-  keyof M,
+  Exclude<keyof M, typeof Symbol.dispose>,
   (ctx: CallContext, ...args: any[]) => any
->;
+> &
+  Partial<Disposable>;
 
 export type TopicHandler = (data: unknown, origin: string) => void;
 
@@ -39,14 +40,15 @@ const hasOwn =
 export class Local {
   private readonly services = new Map<string, Methods>();
   private readonly topics: EventLite<string>;
+  private readonly onError: (error: unknown) => void;
   private closed = false;
 
   constructor(options: LocalOptions = {}) {
+    this.onError =
+      options.onError !== undefined ? options.onError : rethrowAsync;
     this.topics = eventlite<string>({
       allowDuplicate: true,
-      isolate: {
-        onError: options.onError !== undefined ? options.onError : rethrowAsync,
-      },
+      isolate: { onError: this.onError },
     });
   }
 
@@ -147,8 +149,19 @@ export class Local {
     }
 
     this.closed = true;
+
+    const disposables = [...this.services.values()];
+
     this.services.clear();
     this.topics.removeAllListeners();
+
+    for (const methods of disposables) {
+      try {
+        methods[Symbol.dispose]?.();
+      } catch (error) {
+        this.onError(error);
+      }
+    }
   }
 
   private checkOpen() {

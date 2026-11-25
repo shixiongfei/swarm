@@ -66,6 +66,22 @@ describe("NodeLocal", () => {
     ]);
   });
 
+  test("close runs the dispose hook of a registered service", () => {
+    const local = new NodeLocal("node-a");
+    let disposed = 0;
+
+    local.register("math", {
+      add: () => 1,
+      [Symbol.dispose]: () => {
+        disposed += 1;
+      },
+    });
+
+    local.close();
+
+    assert.equal(disposed, 1);
+  });
+
   test("close emits down and rejects operations", () => {
     const local = new NodeLocal("node-a");
     const instance = local.register("math", { add: () => 1 });

@@ -102,4 +102,58 @@ describe("serial", () => {
 
     assert.equal(ran, 0);
   });
+
+  test("does not run a queued local call after the node closes", async (t) => {
+    const node = new Node({ cluster: "serial-local-close" });
+    let ran = 0;
+
+    t.after(() => node.close());
+
+    node.register(
+      "svc",
+      serial({
+        slow: () =>
+          new Promise((resolve) => setTimeout(() => resolve("slow"), 100)),
+        next: () => {
+          ran += 1;
+
+          return "next";
+        },
+      }),
+    );
+
+    const slow = node.call("svc", "slow");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const queued = node.call("svc", "next");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    node.close();
+
+    await assert.rejects(queued, (err: SwarmError) => err.code === "CLOSED");
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(ran, 0);
+    assert.equal(await slow, "slow");
+  });
+
+  test("runs the dispose hook of the wrapped methods", async () => {
+    const node = new Node({ cluster: "serial-dispose" });
+    let disposed = 0;
+
+    const methods = {
+      ping: () => "pong",
+      [Symbol.dispose]: () => {
+        disposed += 1;
+      },
+    };
+
+    node.register("svc", serial(methods));
+    node.close();
+
+    assert.equal(disposed, 1);
+  });
 });

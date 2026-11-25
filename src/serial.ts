@@ -15,10 +15,15 @@ import type { CallContext, Methods } from "./local.ts";
 const cancelled = () =>
   new SwarmError("cancelled", "CANCELLED", "call was cancelled");
 
+const closedError = () =>
+  new SwarmError("rejected", "CLOSED", "service is closed", false);
+
 export function serial<M extends Methods<M>>(methods: M): M {
   let tail: Promise<unknown> = Promise.resolve();
+  let closed = false;
 
-  const wrapped: Record<string, unknown> = {};
+  const dispose = methods[Symbol.dispose];
+  const wrapped: Record<string | symbol, unknown> = {};
 
   for (const [name, value] of Object.entries(methods)) {
     if (typeof value !== "function") {
@@ -28,9 +33,12 @@ export function serial<M extends Methods<M>>(methods: M): M {
 
     wrapped[name] = (ctx: CallContext, ...args: unknown[]) => {
       const run = () => {
+        if (closed) {
+          throw closedError();
+        }
+
         if (ctx.signal.aborted) {
           const reason = ctx.signal.reason;
-
           throw reason instanceof SwarmError ? reason : cancelled();
         }
 
@@ -47,6 +55,14 @@ export function serial<M extends Methods<M>>(methods: M): M {
       return call;
     };
   }
+
+  wrapped[Symbol.dispose] = () => {
+    closed = true;
+
+    if (dispose !== undefined) {
+      dispose.call(methods);
+    }
+  };
 
   return wrapped as unknown as M;
 }

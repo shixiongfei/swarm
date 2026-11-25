@@ -701,6 +701,30 @@ describe("Node", () => {
     );
   });
 
+  test("a throwing dispose does not abort the shutdown", () => {
+    const node = makeNode();
+    const errors: unknown[] = [];
+    let disposed = 0;
+
+    node.events.on("error", (error) => errors.push(error));
+
+    node.register("bad", {
+      [Symbol.dispose]: () => {
+        throw new Error("boom");
+      },
+    });
+    node.register("good", {
+      [Symbol.dispose]: () => {
+        disposed += 1;
+      },
+    });
+
+    node.close();
+
+    assert.equal(disposed, 1);
+    assert.equal(errors.length, 1);
+  });
+
   test("a throwing event handler crashes the process", () => {
     const script = `
 import { Node } from "./node.ts";

@@ -59,7 +59,7 @@ import type {
 type Tail<T extends unknown[]> = T extends [unknown, ...infer R] ? R : never;
 
 export type ServiceProxy<M extends Methods<M> = Methods> = {
-  [K in keyof M]: (
+  [K in Exclude<keyof M, typeof Symbol.dispose>]: (
     ...args: Tail<Parameters<M[K]>>
   ) => Promise<Awaited<ReturnType<M[K]>>>;
 };
