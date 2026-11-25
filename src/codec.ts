@@ -57,20 +57,24 @@ function encodeField(
   value: Record<string, unknown>,
   shape: Shape,
   field: string,
+  seen: WeakSet<object>,
 ): unknown {
   const item = value[field];
   const elements = shapesOf(shape, field);
 
   if (elements === undefined || !Array.isArray(item)) {
+    assertEncodable(item, seen);
+
     return item;
   }
 
+  const single = elements.length === 1;
+
   return item.map((entry) => {
     const record = entry as Record<string, unknown>;
-    const shapeOf =
-      elements.length === 1
-        ? elements[0]
-        : elements.find((candidate) => candidate.t === record?.t);
+    const shapeOf = single
+      ? elements[0]
+      : elements.find((candidate) => candidate?.t === record?.t);
 
     if (shapeOf === undefined) {
       throw new SwarmError(
@@ -81,15 +85,32 @@ function encodeField(
       );
     }
 
-    return encodeShape(record, shapeOf);
+    if (single) {
+      assertEncodable(record, seen);
+
+      if (!isObject(record) || !isPlainObject(record)) {
+        throw new SwarmError(
+          "failed",
+          "ENVELOPE_INVALID",
+          "envelope is not encodable",
+          false,
+        );
+      }
+    }
+
+    return encodeShape(record, shapeOf, seen);
   });
 }
 
-function encodeShape(value: Record<string, unknown>, shape: Shape): unknown[] {
+function encodeShape(
+  value: Record<string, unknown>,
+  shape: Shape,
+  seen: WeakSet<object>,
+): unknown[] {
   const row: unknown[] = [shape.code];
 
   for (const field of shape.required) {
-    row.push(encodeField(value, shape, field));
+    row.push(encodeField(value, shape, field, seen));
   }
 
   let opts: unknown[] | undefined;
@@ -100,7 +121,7 @@ function encodeShape(value: Record<string, unknown>, shape: Shape): unknown[] {
     }
 
     opts ??= [];
-    opts.push(fieldIds[field], encodeField(value, shape, field));
+    opts.push(fieldIds[field], encodeField(value, shape, field, seen));
   }
 
   if (opts !== undefined) {
@@ -281,8 +302,6 @@ export function assertEncodable(
 
 export function encode(message: Envelope): Uint8Array {
   try {
-    assertEncodable(message);
-
     const shape = byType.get(message.t);
 
     if (shape === undefined) {
@@ -295,7 +314,11 @@ export function encode(message: Envelope): Uint8Array {
     }
 
     return packr.pack(
-      encodeShape(message as unknown as Record<string, unknown>, shape),
+      encodeShape(
+        message as unknown as Record<string, unknown>,
+        shape,
+        new WeakSet(),
+      ),
     );
   } catch (err) {
     if (err instanceof SwarmError) {

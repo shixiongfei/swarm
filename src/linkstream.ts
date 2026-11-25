@@ -37,6 +37,8 @@ export class LinkStream extends Link {
   private queued = 0;
   private readonly queue: Uint8Array[] = [];
   private readonly controlQueue: Uint8Array[] = [];
+  private queueHead = 0;
+  private controlHead = 0;
 
   private readonly onData = (chunk: Uint8Array) => {
     if (this.closed) {
@@ -89,19 +91,14 @@ export class LinkStream extends Link {
 
     this.writable = true;
 
-    while (this.writable && this.controlQueue.length + this.queue.length > 0) {
-      const packet =
-        this.controlQueue.length > 0
-          ? this.controlQueue.shift()
-          : this.queue.shift();
-
-      if (packet === undefined) {
-        break;
-      }
+    while (this.writable && this.pendingPackets > 0) {
+      const packet = this.dequeue();
 
       this.queued -= packet.byteLength;
       this.writable = this.socket.write(packet) !== false;
     }
+
+    this.compact();
   };
 
   constructor(socket: Socket, nodeId: string, local?: boolean) {
@@ -169,32 +166,60 @@ export class LinkStream extends Link {
     this.socket.off("drain", this.onDrain);
 
     if (this.socket.destroyed) {
-      this.queue.length = 0;
-      this.controlQueue.length = 0;
-      this.queued = 0;
+      this.clearQueues();
       return;
     }
 
     this.socket.once("error", () => this.socket.destroy());
 
-    while (this.controlQueue.length + this.queue.length > 0) {
-      const packet =
-        this.controlQueue.length > 0
-          ? this.controlQueue.shift()
-          : this.queue.shift();
-
-      if (packet !== undefined) {
-        this.socket.write(packet);
-      }
+    while (this.pendingPackets > 0) {
+      this.socket.write(this.dequeue());
     }
 
-    this.queued = 0;
+    this.clearQueues();
 
     this.socket.end();
 
     const timer = setTimeout(() => this.socket.destroy(), closeDrainTimeout);
 
     this.socket.once("close", () => clearTimeout(timer));
+  }
+
+  private get pendingPackets() {
+    return (
+      this.controlQueue.length -
+      this.controlHead +
+      (this.queue.length - this.queueHead)
+    );
+  }
+
+  private dequeue() {
+    return this.controlHead < this.controlQueue.length
+      ? this.controlQueue[this.controlHead++]
+      : this.queue[this.queueHead++];
+  }
+
+  private compact() {
+    if (
+      this.controlHead > 0 &&
+      this.controlHead * 2 >= this.controlQueue.length
+    ) {
+      this.controlQueue.splice(0, this.controlHead);
+      this.controlHead = 0;
+    }
+
+    if (this.queueHead > 0 && this.queueHead * 2 >= this.queue.length) {
+      this.queue.splice(0, this.queueHead);
+      this.queueHead = 0;
+    }
+  }
+
+  private clearQueues() {
+    this.queue.length = 0;
+    this.controlQueue.length = 0;
+    this.queueHead = 0;
+    this.controlHead = 0;
+    this.queued = 0;
   }
 
   private append(chunk: Uint8Array) {

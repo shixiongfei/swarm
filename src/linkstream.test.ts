@@ -397,6 +397,63 @@ describe("LinkStream", () => {
     );
   });
 
+  test("drains a large backlog in order", (t) => {
+    const written: Uint8Array[] = [];
+    let onDrain: (() => void) | undefined;
+    let accepting = false;
+
+    const socket = {
+      remoteAddress: "127.0.0.1",
+      setNoDelay() {},
+      on(event: string, handler: () => void) {
+        if (event === "drain") {
+          onDrain = handler;
+        }
+      },
+      once() {},
+      off() {},
+      write(bytes: Uint8Array) {
+        written.push(bytes);
+        return accepting;
+      },
+      end() {},
+      destroy() {},
+    } as unknown as Socket;
+
+    const link = new LinkStream(socket, "client-node");
+
+    t.after(() => link.close());
+
+    const count = 100000;
+
+    for (let i = 0; i < count; i += 1) {
+      link.send(frame({ t: "pong", from: `n${i}` }));
+    }
+
+    assert.equal(written.length, 1);
+
+    const begun = performance.now();
+
+    accepting = true;
+    onDrain?.();
+
+    const spent = performance.now() - begun;
+
+    assert.equal(written.length, count);
+
+    const mismatch = written.findIndex(
+      (bytes, index) =>
+        (decode(bytes.subarray(4)) as { from?: string } | undefined)?.from !==
+        `n${index}`,
+    );
+
+    assert.equal(mismatch, -1, `packet ${mismatch} is out of order`);
+    assert.ok(
+      spent < 100,
+      `draining ${count} packets took ${spent.toFixed(1)}ms`,
+    );
+  });
+
   test("sends bye after queued bulk frames on close", (t) => {
     const written: Envelope[] = [];
     const socket = {

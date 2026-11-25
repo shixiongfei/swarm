@@ -593,4 +593,37 @@ describe("codec", () => {
       );
     }
   });
+
+  test("rejects non-record entries in a single-shape array", () => {
+    class Point {
+      x = 1;
+    }
+
+    const values: unknown[] = [
+      [new Map([["id", "peer"]])],
+      [new Set([1])],
+      [[]],
+      [null],
+      [new Date(0)],
+      [1],
+      [new Point()],
+    ];
+
+    for (const members of values) {
+      assert.throws(
+        () =>
+          encode({ t: "peers", from: "node-a", members } as unknown as Envelope),
+        (err: SwarmError) =>
+          err.kind === "failed" && err.code === "ENVELOPE_INVALID",
+      );
+    }
+
+    const kept = encode({
+      t: "peers",
+      from: "node-a",
+      members: [{ id: "node-b", addr: "tcp://127.0.0.1:1", startup: 1 }],
+    });
+
+    assert.notEqual(decode(kept), undefined);
+  });
 });
