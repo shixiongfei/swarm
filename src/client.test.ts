@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 import { Client } from "./client.ts";
 import { SwarmError } from "./errors.ts";
+import { waitFor } from "./testutil.ts";
 import type { ClientOptions } from "./client.ts";
 
 class StubClient extends Client<number> {
@@ -98,12 +99,14 @@ describe("Client", () => {
 
     await client.connect();
 
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await waitFor(() => client.attempts.length >= 4);
 
     client.close();
 
-    assert.ok(client.attempts.length >= 3, `attempts ${client.attempts.length}`);
-    assert.ok(client.attempts.length <= 6, `attempts ${client.attempts.length}`);
+    const elapsed = client.attempts[3] - client.attempts[0];
+
+    assert.ok(elapsed >= 100, `elapsed ${elapsed}`);
+    assert.ok(elapsed <= 1000, `elapsed ${elapsed}`);
   });
 
   test("spreads reconnects with jitter", () => {

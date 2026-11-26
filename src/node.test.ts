@@ -1152,9 +1152,8 @@ setTimeout(() => console.log("survived"), 500);
 
     assert.equal(link.frames.length, 0);
 
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitFor(() => link.frames.length === 1);
 
-    assert.equal(link.frames.length, 1);
     assert.equal(link.frames[0].message.t, "peers");
   });
 
@@ -4008,7 +4007,9 @@ describe("Node transport and mesh", () => {
 
     node.addSeed(`tcp://127.0.0.1:${address.port}`);
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 2300));
+    await waitFor(() => attaches === 1);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
 
     assert.equal(ups, 0);
     assert.equal(attaches, 1);
