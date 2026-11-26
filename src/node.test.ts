@@ -227,6 +227,38 @@ describe("Node", () => {
     assert.equal(hub.snapshot().links.length, 0);
   });
 
+  test("authenticates peers by the node secret and by url credentials", async (t) => {
+    const hub = new Node({ cluster: "secret-hub", secret: "s3cr3t" });
+    const peer = new Node({ cluster: "secret-hub", secret: "s3cr3t" });
+    const impostor = new Node({ cluster: "secret-hub", secret: "wrong" });
+    const credentialed = new Node({ cluster: "secret-hub", secret: "wrong" });
+
+    t.after(() => {
+      hub.close();
+      peer.close();
+      impostor.close();
+      credentialed.close();
+    });
+
+    hub.register("math", { add: async (_ctx, a: number, b: number) => a + b });
+
+    const { port } = await hub.listen("tcp://127.0.0.1:0");
+
+    await assert.rejects(impostor.connect(`tcp://127.0.0.1:${port}`));
+
+    await peer.connect(`tcp://127.0.0.1:${port}`);
+
+    await waitFor(() =>
+      peer.snapshot().services.some((instance) => instance.service === "math"),
+    );
+
+    assert.equal(await peer.call("math", "add", [2, 3]), 5);
+
+    await credentialed.connect(`tcp://ig:s3cr3t@127.0.0.1:${port}`);
+
+    assert.equal(credentialed.snapshot().links.length, 1);
+  });
+
   test("snapshot reports in-flight calls and per-link counters", async (t) => {
     const { port1, port2 } = new MessageChannel();
     const a = new Node({ cluster: "health", callTimeout: 5000 });

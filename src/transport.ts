@@ -31,10 +31,10 @@ export type ListenOptions = {
 
 export type TransportOptions = {
   nodeId: string;
-  join: (nodeLink: Link, secret: string) => void;
+  join: (nodeLink: Link, secret?: string) => void;
   attach: (
     nodeLink: Link,
-    secret: string,
+    secret?: string,
     expected?: string,
     addr?: string,
     auto?: boolean,
@@ -112,7 +112,8 @@ export class Transport {
     expected?: string,
   ): Promise<Client> {
     const { protocol, host, port, secret: urlSecret } = parseUrl(url);
-    const secret = options.secret !== undefined ? options.secret : urlSecret;
+    const secret =
+      options.secret !== undefined ? options.secret : urlSecret || undefined;
 
     if (protocol === "tcp:") {
       const { TcpClient } = await import("./tcpclient.ts");
@@ -262,7 +263,15 @@ export class Transport {
     url: string | URL,
     options: ListenOptions,
   ): Promise<Server> {
-    const { protocol, secure, host, port, secret, path } = parseUrl(url);
+    const {
+      protocol,
+      secure,
+      host,
+      port,
+      secret: urlSecret,
+      path,
+    } = parseUrl(url);
+    const secret = urlSecret || undefined;
     const ws = options.ws;
     const backlog = options.backlog;
     const tls = ws !== undefined ? ws.tls : undefined;
