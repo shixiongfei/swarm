@@ -17,6 +17,7 @@ import {
   rmdir,
   stat,
   unlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { connect, createServer } from "node:net";
@@ -40,7 +41,8 @@ export type UnixDiscoveryEvents = {
 };
 
 const defaultInterval = 3000;
-const staleAfter = 10000;
+const staleTicks = 4;
+const minStaleAfter = 30000;
 const maxStaleFailures = 3;
 const keyLength = 16;
 const dirMode = 0o700;
@@ -60,6 +62,7 @@ export class UnixDiscovery {
   private readonly pipe: string;
   private readonly key: string;
   private readonly interval: number;
+  private readonly staleAfter: number;
   private readonly server = createServer((socket) => this.onAccept(socket));
   private readonly dials = new Map<string, Socket>();
   private readonly failures = new Map<string, number>();
@@ -77,6 +80,7 @@ export class UnixDiscovery {
     this.key = config.nodeId.slice(0, keyLength);
     this.interval =
       config.interval !== undefined ? config.interval : defaultInterval;
+    this.staleAfter = Math.max(this.interval * staleTicks, minStaleAfter);
   }
 
   get active() {
@@ -186,6 +190,14 @@ export class UnixDiscovery {
       return;
     }
 
+    const path = this.path;
+
+    if (path !== undefined) {
+      const now = new Date();
+
+      await utimes(path, now, now).catch(ignore);
+    }
+
     let names: string[];
 
     try {
@@ -232,7 +244,7 @@ export class UnixDiscovery {
       return;
     }
 
-    if (Date.now() - mtime < staleAfter) {
+    if (Date.now() - mtime < this.staleAfter) {
       return;
     }
 

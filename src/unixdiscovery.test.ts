@@ -141,12 +141,13 @@ describe("UnixDiscovery", () => {
     assert.equal(await exists(dir), true);
   });
 
-  test("keeps a fresh endpoint that has no listener yet", async (t) => {
+  test("keeps markers that are not stale yet even though every dial fails", async (t) => {
     const dir = await tempDir();
-    const stale = join(dir, `${"f".repeat(16)}.sock`);
+    const fresh = join(dir, `${"e".repeat(16)}.sock`);
+    const recent = join(dir, `${"f".repeat(16)}.sock`);
     const discovery = new UnixDiscovery({
       nodeId: "0".repeat(16),
-      cluster: "stale",
+      cluster: "fresh",
       secret: "",
       dir,
       interval: 20,
@@ -157,18 +158,20 @@ describe("UnixDiscovery", () => {
       return rm(dir, { recursive: true, force: true });
     });
 
-    await writeFile(stale, "");
+    await writeFile(fresh, "");
+    await writeFile(recent, "");
 
-    assert.equal(await exists(stale), true);
+    const past = new Date(Date.now() - 1000);
 
+    await utimes(recent, past, past);
     await discovery.open();
+    await delay(300);
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
-
-    assert.equal(await exists(stale), true);
+    assert.equal(await exists(fresh), true);
+    assert.equal(await exists(recent), true);
   });
 
-  test("keeps an endpoint through a single failed connection", async (t) => {
+  test("keeps a stale endpoint until three connections fail", async (t) => {
     const dir = await tempDir();
     const peer = join(dir, `${"f".repeat(16)}.sock`);
     const discovery = new UnixDiscovery({
@@ -186,13 +189,52 @@ describe("UnixDiscovery", () => {
 
     await writeFile(peer, "");
 
-    const past = new Date(Date.now() - 60000);
+    const past = new Date(Date.now() - 3600000);
 
     await utimes(peer, past, past);
     await discovery.open();
     await delay(200);
 
     assert.equal(await exists(peer), true);
+  });
+
+  test("refreshes its own marker so peers never reap a live node", async (t) => {
+    const dir = await tempDir();
+    const discovery = new UnixDiscovery({
+      nodeId: "0".repeat(16),
+      cluster: "refresh",
+      secret: "",
+      dir,
+      interval: 20,
+    });
+
+    t.after(() => {
+      discovery.close();
+      return rm(dir, { recursive: true, force: true });
+    });
+
+    await discovery.open();
+
+    const marker = join(dir, `${"0".repeat(16)}.sock`);
+    const past = new Date(Date.now() - 60000);
+
+    await utimes(marker, past, past);
+    await delay(120);
+
+    assert.ok(Date.now() - (await stat(marker)).mtimeMs < 5000);
+    assert.equal(discovery.active, true);
+  });
+
+  test("scales the stale threshold with the scan interval", () => {
+    const discovery = new UnixDiscovery({
+      nodeId: "0".repeat(16),
+      cluster: "scale",
+      secret: "",
+      interval: 60000,
+    });
+    const probe = discovery as unknown as { staleAfter: number };
+
+    assert.ok(probe.staleAfter >= 60000 * 3);
   });
 
   test("reaps an endpoint left by a dead peer", async (t) => {
