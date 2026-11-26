@@ -139,6 +139,27 @@ describe("Balancer", () => {
     assert.deepEqual(balancer.order("echo", [a, b]), [b, a]);
   });
 
+  test("caps the cursor table when service names are dynamic", () => {
+    const balancer = new Balancer();
+    const any = {
+      transport: "port" as LinkTransport,
+      latency: undefined as number | undefined,
+      has: () => true,
+    };
+
+    for (let i = 0; i < 5000; i++) {
+      balancer.order(`svc-${i}`, [any]);
+    }
+
+    const cursors = (
+      balancer as unknown as { cursors: Map<string, number> }
+    ).cursors;
+
+    assert.equal(cursors.size, 1024);
+    assert.equal(cursors.has("svc-0"), false);
+    assert.equal(cursors.has("svc-4999"), true);
+  });
+
   test("invoke rejects a service no link serves", () => {
     const balancer = new Balancer();
 

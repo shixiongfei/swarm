@@ -14,6 +14,7 @@ import type { LinkTransport } from "./link.ts";
 import type { NodeLink } from "./nodelink.ts";
 
 const bucketSize = 10;
+const maxCursors = 1024;
 
 export type Scannable = {
   readonly transport: LinkTransport;
@@ -49,6 +50,14 @@ export class Balancer {
     let cursor = this.cursors.get(service);
 
     if (cursor === undefined) {
+      if (this.cursors.size >= maxCursors) {
+        const oldest = this.cursors.keys().next().value;
+
+        if (oldest !== undefined) {
+          this.cursors.delete(oldest);
+        }
+      }
+
       cursor = 0;
     }
 
