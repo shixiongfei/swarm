@@ -43,12 +43,13 @@ export class Dialer {
   add(seed: string | URL) {
     parseUrl(seed);
 
-    if (this.seeds.some((existing) => String(existing) === String(seed))) {
-      return;
+    const target = String(seed);
+
+    if (!this.seeds.some((existing) => String(existing) === target)) {
+      this.seeds.push(seed);
     }
 
-    this.seeds.push(seed);
-    void this.dial(String(seed));
+    void this.dial(target);
   }
 
   remove(seed: string | URL) {

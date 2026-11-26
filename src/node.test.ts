@@ -1728,6 +1728,10 @@ setTimeout(() => console.log("survived"), 500);
     await peer.connect(url);
     t.after(() => peer.close());
 
+    await waitFor(() =>
+      peer.snapshot().services.some((instance) => instance.service === "slow"),
+    );
+
     const call = peer.call("slow", "wait");
 
     await started;
@@ -1769,6 +1773,10 @@ setTimeout(() => console.log("survived"), 500);
     await peer.connect(url);
     t.after(() => peer.close());
 
+    await waitFor(() =>
+      peer.snapshot().services.some((instance) => instance.service === "slow"),
+    );
+
     const call = peer.call("slow", "wait");
 
     await started;
@@ -1804,6 +1812,10 @@ setTimeout(() => console.log("survived"), 500);
 
     await peer.connect(url);
     t.after(() => peer.close());
+
+    await waitFor(() =>
+      peer.snapshot().services.some((instance) => instance.service === "slow"),
+    );
 
     const call = peer.call("slow", "wait");
 
@@ -1842,6 +1854,10 @@ setTimeout(() => console.log("survived"), 500);
 
     await peer.connect(url);
     t.after(() => peer.close());
+
+    await waitFor(() =>
+      peer.snapshot().services.some((instance) => instance.service === "slow"),
+    );
 
     const call = peer.call("slow", "wait");
 
@@ -4446,32 +4462,35 @@ describe("Node transport and mesh", () => {
     );
   });
 
-  test("seeds dial peers without an explicit connect", async (t) => {
+  test("seeds dial peers for a client that never listens", async (t) => {
     const port = await freePort();
-    const seed = new Node({ cluster: "seed-server" });
-    const node = new Node({
-      cluster: "seed-server",
-      seeds: [`tcp://127.0.0.1:${port}`],
-    });
+    const seed = new Node({ cluster: "seed-client" });
 
-    t.after(() => {
-      node.close();
-      seed.close();
-    });
+    t.after(() => seed.close());
 
     seed.register("math", { add: async (_ctx, a: number, b: number) => a + b });
 
-    const up = new Promise<void>((resolve) =>
+    await seed.listen(`tcp://127.0.0.1:${port}`);
+
+    const node = new Node({
+      cluster: "seed-client",
+      seeds: [`tcp://127.0.0.1:${port}`],
+    });
+
+    t.after(() => node.close());
+
+    const up = new Promise<boolean>((resolve) =>
       node.watch("math", (event) => {
         if (event.type === "up" && event.instance.nodeId === seed.nodeId) {
-          resolve();
+          resolve(true);
         }
       }),
     );
+    const late = new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), 2000).unref(),
+    );
 
-    await seed.listen(`tcp://127.0.0.1:${port}`);
-    await node.listen("tcp://127.0.0.1:0");
-    await up;
+    assert.equal(await Promise.race([up, late]), true);
 
     assert.equal(await node.call("math", "add", [1, 2]), 3);
   });

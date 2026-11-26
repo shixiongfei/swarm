@@ -127,6 +127,41 @@ describe("Dialer", () => {
     );
   });
 
+  test("add dials a seed whose earlier dial failed", async () => {
+    const created: string[] = [];
+    let failed = false;
+
+    const dialer = new Dialer({
+      seeds: [],
+      create: (addr) => {
+        created.push(addr);
+
+        if (!failed) {
+          failed = true;
+          return Promise.reject(new Error("boom"));
+        }
+
+        return Promise.resolve(makeClient() as unknown as Client);
+      },
+      track: () => {},
+      untrack: () => {},
+      isClosed: () => false,
+    });
+
+    dialer.add("tcp://10.0.0.9:9");
+
+    await tick();
+
+    dialer.add("tcp://10.0.0.9:9");
+
+    await tick();
+
+    assert.equal(created.length, 2);
+    assert.equal(dialer.has("tcp://10.0.0.9:9"), true);
+
+    dialer.close();
+  });
+
   test("dial ignores a failed create and retries later", async () => {
     const created: string[] = [];
     let failed = false;

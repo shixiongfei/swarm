@@ -453,6 +453,8 @@ export class Node implements Provider {
     if (config.discovery) {
       void this.discovery.startUnix();
     }
+
+    this.dialer.discover();
   }
 
   get isClosed() {
