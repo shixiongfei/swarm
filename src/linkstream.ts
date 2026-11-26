@@ -133,8 +133,12 @@ export class LinkStream extends Link {
     }
 
     const packet = new Uint8Array(headerSize + payload.byteLength);
+    const length = payload.byteLength;
 
-    new DataView(packet.buffer).setUint32(0, payload.byteLength, false);
+    packet[0] = (length >>> 24) & 0xff;
+    packet[1] = (length >>> 16) & 0xff;
+    packet[2] = (length >>> 8) & 0xff;
+    packet[3] = length & 0xff;
     packet.set(payload, headerSize);
 
     if (this.writable === false) {
@@ -257,28 +261,30 @@ export class LinkStream extends Link {
   }
 
   private drain() {
+    const buffer = this.buffer;
     let pendingFrame = false;
 
     while (this.tail - this.head >= headerSize) {
-      const view = new DataView(
-        this.buffer.buffer,
-        this.buffer.byteOffset + this.head,
-        headerSize,
-      );
-      const length = view.getUint32(0, false);
+      const offset = this.head;
+      const length =
+        ((buffer[offset] << 24) |
+          (buffer[offset + 1] << 16) |
+          (buffer[offset + 2] << 8) |
+          buffer[offset + 3]) >>>
+        0;
 
       if (length > maxEnvelopeSize) {
         this.abort();
         return;
       }
 
-      if (this.tail - this.head < headerSize + length) {
+      if (this.tail - offset < headerSize + length) {
         pendingFrame = true;
         break;
       }
 
-      const start = this.head + headerSize;
-      const message = decode(this.buffer.subarray(start, start + length));
+      const start = offset + headerSize;
+      const message = decode(buffer.subarray(start, start + length));
 
       this.head = start + length;
 

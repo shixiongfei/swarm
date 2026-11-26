@@ -84,6 +84,28 @@ describe("LinkStream", () => {
     assert.deepEqual(received, [pubs(1), pubs(2)]);
   });
 
+  test("sends a payload that spans every header byte", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const client = new LinkStream(socket, "client-node");
+    const remote = new LinkStream(peer, "peer-node");
+    const received: Envelope[] = [];
+    const envelope = pubs("a".repeat(70000));
+
+    remote.events.on("envelope", (message) => received.push(message));
+
+    t.after(() => {
+      client.close();
+      remote.close();
+      server.close();
+    });
+
+    client.send(frame(envelope));
+
+    await waitFor(() => received.length === 1);
+
+    assert.deepEqual(received, [envelope]);
+  });
+
   test("decodes a frame split across chunks", async (t) => {
     const { server, socket, peer } = await createPair();
     const remote = new LinkStream(peer, "peer-node");
@@ -177,6 +199,25 @@ describe("LinkStream", () => {
     new DataView(header.buffer).setUint32(0, maxEnvelopeSize + 1, false);
 
     socket.write(header);
+
+    await waitFor(() => closes === 1);
+  });
+
+  test("closes when a frame header has the high bit set", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const remote = new LinkStream(peer, "peer-node");
+    let closes = 0;
+
+    remote.events.on("close", () => {
+      closes += 1;
+    });
+
+    t.after(() => {
+      socket.destroy();
+      server.close();
+    });
+
+    socket.write(new Uint8Array([0xff, 0xff, 0xff, 0xff]));
 
     await waitFor(() => closes === 1);
   });
