@@ -15,26 +15,11 @@ import { SwarmError } from "./errors.ts";
 import { withTimeout } from "./timeout.ts";
 
 describe("withTimeout", () => {
-  test("resolves a value before the deadline", async () => {
-    assert.equal(
-      await withTimeout(
-        7,
-        50,
-        () => new SwarmError("timeout", "TIMEOUT", "late"),
-      ),
-      7,
-    );
-  });
+  test("resolves before the deadline", async () => {
+    const late = () => new SwarmError("timeout", "TIMEOUT", "late");
 
-  test("resolves a promise before the deadline", async () => {
-    assert.equal(
-      await withTimeout(
-        Promise.resolve(7),
-        50,
-        () => new SwarmError("timeout", "TIMEOUT", "late"),
-      ),
-      7,
-    );
+    assert.equal(await withTimeout(7, 50, late), 7);
+    assert.equal(await withTimeout(Promise.resolve(7), 50, late), 7);
   });
 
   test("rejects with the value error", async () => {

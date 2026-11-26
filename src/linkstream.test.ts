@@ -18,6 +18,7 @@ import { frame } from "./frame.ts";
 import { waitFor } from "./testutil.ts";
 import type { AddressInfo, Server, Socket } from "node:net";
 import type { Envelope } from "./envelope.ts";
+import type { SwarmError } from "./errors.ts";
 
 const host = "127.0.0.1";
 
@@ -220,6 +221,23 @@ describe("LinkStream", () => {
     socket.write(new Uint8Array([0xff, 0xff, 0xff, 0xff]));
 
     await waitFor(() => closes === 1);
+  });
+
+  test("rejects a payload above the envelope limit", async (t) => {
+    const { server, socket, peer } = await createPair();
+    const client = new LinkStream(socket, "client-node");
+    const remote = new LinkStream(peer, "peer-node");
+
+    t.after(() => {
+      client.close();
+      remote.close();
+      server.close();
+    });
+
+    assert.throws(
+      () => client.send(frame(pubs("a".repeat(maxEnvelopeSize)))),
+      (err: SwarmError) => err.code === "ENVELOPE_INVALID",
+    );
   });
 
   test("emits close once when the peer closes", async (t) => {

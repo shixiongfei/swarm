@@ -20,7 +20,7 @@ import { LinkPort } from "./linkport.ts";
 import { SwarmError } from "./errors.ts";
 import { protocolVersion } from "./envelope.ts";
 import { signToken } from "./token.ts";
-import { within } from "./testutil.ts";
+import { waitFor, within } from "./testutil.ts";
 import type { Frame } from "./frame.ts";
 import type { Envelope } from "./envelope.ts";
 import type { WatchEvent } from "./registry.ts";
@@ -557,6 +557,51 @@ describe("handshake helpers", () => {
   });
 });
 describe("NodeLink", () => {
+  test("answers a heartbeat and measures the round trip", async (t) => {
+    const local = new NodeLocal("local-node");
+    const link = new StubLink();
+    const nodeLink = new NodeLink(link, {
+      provider: local,
+      cluster: "default",
+      passive: false,
+      startup: 1,
+      secret: "",
+      heartbeatInterval: 10,
+      heartbeatTimeout: 5000,
+    });
+
+    t.after(() => {
+      nodeLink.close();
+      local.close();
+    });
+
+    link.events.emit("envelope", {
+      t: "hello",
+      cluster: "default",
+      from: "peer-node",
+      version: protocolVersion,
+      startup: 1,
+      token: signToken("", "peer-node"),
+    });
+
+    assert.equal(nodeLink.latency, undefined);
+    assert.equal(
+      await waitFor(() => link.sent.some((message) => message.t === "ping")),
+      true,
+    );
+
+    link.events.emit("envelope", { t: "ping", from: "peer-node" });
+
+    assert.deepEqual(
+      link.sent.find((message) => message.t === "pong"),
+      { t: "pong", from: "stub-node" },
+    );
+
+    link.events.emit("envelope", { t: "pong", from: "peer-node" });
+
+    assert.ok(Number.isFinite(nodeLink.latency));
+  });
+
   test("emits bye and closes when the peer leaves", async (t) => {
     const local = new NodeLocal("local-node");
     const { port1, port2 } = new MessageChannel();

@@ -14,7 +14,8 @@ import { describe, test } from "node:test";
 import { Node } from "./node.ts";
 import { serial } from "./serial.ts";
 import { within } from "./testutil.ts";
-import type { SwarmError } from "./errors.ts";
+import { SwarmError } from "./errors.ts";
+import type { CallContext } from "./local.ts";
 
 describe("serial", () => {
   test("runs the calls of one service one at a time in arrival order", async (t) => {
@@ -138,6 +139,32 @@ describe("serial", () => {
 
     assert.equal(ran, 0);
     assert.equal(await slow, "slow");
+  });
+
+  test("skips a queued call whose caller gave up before it ran", async () => {
+    const svc = serial({
+      slow: async (_ctx: CallContext) =>
+        new Promise((resolve) => setTimeout(resolve, 20)),
+      next: async (_ctx: CallContext) => "next",
+    });
+    const ctx = (controller: AbortController) => ({
+      from: "peer-node",
+      signal: controller.signal,
+    });
+    const timedOut = new AbortController();
+    const plain = new AbortController();
+    const reason = new SwarmError("timeout", "TIMEOUT", "call timed out");
+
+    const first = svc.slow(ctx(new AbortController()));
+    const second = svc.next(ctx(timedOut));
+    const third = svc.next(ctx(plain));
+
+    timedOut.abort(reason);
+    plain.abort(new Error("no reason"));
+
+    await first;
+    await assert.rejects(second, (err: unknown) => err === reason);
+    await assert.rejects(third, (err: SwarmError) => err.code === "CANCELLED");
   });
 
   test("runs the dispose hook of the wrapped methods", async () => {

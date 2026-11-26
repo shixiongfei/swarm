@@ -122,40 +122,34 @@ describe("Discovery", () => {
     assert.equal(discovery.unixActive, false);
   });
 
-  test("does not start multicast after close", async () => {
+  test("does not start either transport after close", async (t) => {
+    const root = await tempDir();
     const errors: Error[] = [];
+    const ready: string[] = [];
     const discovery = new Discovery({
       nodeId: "self",
       cluster: `discovery-${randomUUID()}`,
       secret: "",
+      discovery: { dir: root },
       multicast: { port: 0 },
       learn: () => {},
       self: () => [],
       join: () => {},
       attach: () => {},
       onError: (error) => errors.push(error),
-      onReady: () => {},
+      onReady: (directory) => ready.push(directory),
     });
-
-    discovery.close();
-
-    await discovery.startMulticast();
-
-    assert.deepEqual(errors, []);
-    assert.equal(discovery.multicastActive, false);
-  });
-
-  test("does not start after close", async (t) => {
-    const root = await tempDir();
-    const { discovery, ready } = makeDiscovery({ dir: root });
 
     t.after(() => rm(root, { recursive: true, force: true }));
 
     discovery.close();
 
+    await discovery.startMulticast();
     await discovery.startUnix();
 
+    assert.deepEqual(errors, []);
     assert.deepEqual(ready, []);
+    assert.equal(discovery.multicastActive, false);
     assert.equal(discovery.unixActive, false);
   });
 });
